@@ -1,0 +1,341 @@
+# 二维模型训练配置
+# 完整命令行说明：configs/2D/train_cli.md
+# 命令行参数会覆盖本文件中的对应值。
+
+# =============================================================================
+# 数据集与网格
+# =============================================================================
+
+datasets:  # 数据集路径配置
+  # 分别指定内插集和外推集；训练选择由 training.dataset 控制。
+  interpolation: data/raw/2D/air_t_int_0_1000_21_20  # 内插训练数据集路径
+  extrapolation: data/raw/2D/air_t_ext_0_1000_21_20  # 外推训练数据集路径
+
+grid:  # 二维训练网格尺寸
+  # 以下值仅作默认展示；正式训练会从每个数据集的 grid_shape 自动读取。
+  nx: 21  # xi方向节点数
+  ny: 20  # eta方向节点数
+
+
+# =============================================================================
+# 网络结构
+# =============================================================================
+
+model:  # 模型与网络结构配置
+  # 可选：hmonet、meshonet、pimeshonet、pihmonet、attentionpihmonet、both、pi、all。
+  # both = HMONet + MeshONet；pi = 三个 PI 模型；all = 五个模型。
+  name: hmonet  # 训练模型名称
+
+  # 五个模型共用的算子网络结构。模型专属段只覆盖差异项。
+  common:  # 五种模型共用的网络结构
+    branch_dim: 64                 # 边界输入调整后的特征维度。
+    trunk_dim: 16                  # 计算坐标增强后的主干输入维度。
+    adjust_hidden_dim: 128         # 边界输入调整网络隐藏层宽度。
+    adjust_hidden_layer_num: 4     # 边界输入调整网络隐藏层数。
+    branch_hidden_dim: 128         # 边界分支网络隐藏层宽度。
+    branch_hidden_layer_num: 4     # 边界分支网络隐藏层数。
+    trunk_hidden_dim: 128          # 坐标主干网络隐藏层宽度。
+    trunk_hidden_layer_num: 4      # 坐标主干网络隐藏层数。
+    output_dim: 128                # 分支和主干融合特征维度。
+    branch_mlp_hidden_dim: 128     # x/y 融合 MLP 隐藏层宽度。
+    branch_mlp_hidden_layer_num: 4 # x/y 融合 MLP 隐藏层数。
+
+  pimeshonet:  # 论文PI-MeshONet网络结构
+    architecture: paper_modified_mlp  # Adjust + Modified MLP分支 + Lift/Modified MLP共享主干
+    # 以 21x20 训练网格计算时共有 24450 个可训练参数，与论文报告的 24452 接近。
+    branch_dim: 20  # Adjust Layer输出维度
+    trunk_dim: 16  # Lift Layer输出维度
+    adjust_hidden_dim: 20  # Adjust Layer隐藏宽度
+    adjust_hidden_layer_num: 1  # Adjust Layer隐藏层数
+    branch_hidden_dim: 32  # Modified MLP分支隐藏宽度
+    branch_hidden_layer_num: 4  # Modified MLP分支门控层数
+    trunk_hidden_dim: 32  # Modified MLP主干隐藏宽度
+    trunk_hidden_layer_num: 3  # Modified MLP主干门控层数
+    output_dim: 32  # 分支与主干点积的潜在维度
+
+  meshonet:  # MeshONet专属网络结构；覆盖common且不影响HMONet
+    branch_dim: 24  # Adjust Layer输出维度
+    trunk_dim: 24  # 计算坐标增强后的主干输入维度
+    adjust_hidden_dim: 8  # Adjust Layer隐藏宽度
+    adjust_hidden_layer_num: 3  # Adjust Layer隐藏层数
+    branch_hidden_dim: 24  # Branch网络隐藏宽度
+    branch_hidden_layer_num: 4  # Branch网络隐藏层数
+    trunk_hidden_dim: 32  # Trunk网络隐藏宽度
+    trunk_hidden_layer_num: 4  # Trunk网络隐藏层数
+    output_dim: 32  # 分支和主干点积的潜在维度
+    branch_mlp_hidden_dim: 24  # 融合MLP隐藏宽度，与三维MeshONet一致
+    branch_mlp_hidden_layer_num: 3  # 融合MLP隐藏层数，与三维MeshONet一致
+
+  hmonet:  # HMONet模型配置
+    hmonet_mapping_mode: current  # 内部硬边界映射：current或coons_residual
+    trunk_projection_coefficients_enabled: false  # 是否由主干MLP输出位置相关系数并与分支系数逐位相乘；HMONet基线默认关闭
+    projection_softplus_enabled: false  # true使用Softplus，false使用Sigmoid；HMONet基线默认关闭Softplus
+    boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；HMONet基线默认关闭
+    projection_mlp_hidden_dim: 64  # 主干几何系数MLP隐藏层宽度
+    attention_dim: 64  # 边界自注意力特征维度
+    attention_heads: 4  # 多头注意力头数
+    attention_layers: 2  # 自注意力编码层数
+    attention_feedforward_dim: 128  # 注意力层前馈网络宽度
+    attention_dropout: 0.0  # 注意力层dropout比例
+    residual_regularization_weight: 0.0  # 仅coons_residual使用；0表示关闭
+
+  pihmonet:  # PI-HMONet模型配置
+    # 与 HMONet 独立配置，可选：current、coons_residual。
+    hmonet_mapping_mode: current  # HMONet内部映射方式
+
+  attentionpihmonet:  # Attention-PI-HMONet模型配置
+    hmonet_mapping_mode: current  # 边界精确投影方式：current或coons_residual
+    boundary_alpha_initial_value: 1.5  # 二维原始预测权重常数alpha的初始值
+    attention_dim: 64  # 边界自注意力特征维度
+    attention_heads: 4  # 多头注意力头数
+    attention_layers: 2  # 自注意力编码层数
+    attention_feedforward_dim: 128  # 注意力层前馈网络宽度
+    attention_dropout: 0.0  # 注意力层dropout比例
+
+
+# =============================================================================
+# 四模型公共训练设置
+# =============================================================================
+
+training:  # 公共训练设置
+  # 可选：interpolation、extrapolation、both。
+  dataset: both  # 训练数据模式
+  num_epochs: 50000  # 最大训练轮数
+  batch_size: 64  # 批大小
+  seed: 20261002  # 随机种子
+  # 可选：auto、cpu、cuda、cuda:0 等。
+  device: cuda  # 训练设备
+  tensorboard_enabled: true  # 是否启用TensorBoard
+
+  # 监督模型默认使用固定网格MSE；PI模型会强制改为自监督训练损失。
+  # 可选：dataset_mse、training_loss。
+  best_model_metric: dataset_mse  # HMONet和MeshONet的最佳模型选择指标
+
+  # [收敛条件1] 固定网格 MSE：监测固定网格误差，可选作为停止条件。
+  calculate_dataset_mse: true  # 是否计算固定网格MSE
+  dataset_mse_interval: 1  # 固定网格MSE计算间隔
+  check_mse_convergence: false  # 是否启用固定网格MSE连续达标的提前停止，默认关闭
+  mse_tolerance: 1.0e-6  # MSE收敛阈值
+  mse_consecutive_epochs: 100  # MSE连续满足次数
+
+  # [收敛条件2] 训练损失：连续低于阈值时提前停止。
+  check_training_loss_convergence: false  # 是否启用训练损失连续达标的提前停止，默认关闭
+  training_loss_tolerance: 1.0e-6  # 训练损失收敛阈值
+  training_loss_consecutive_epochs: 100  # 训练损失连续满足次数
+
+  # [收敛条件3] 统一成功平台：达到最早epoch后，近最佳、稳定且长期无显著改善时停止。
+  plateau_enabled: true  # 是否启用平台收敛判断
+  # 监督模型默认使用固定网格MSE；PI模型会强制改为自监督训练损失。
+  # 可选：train_loss、mse。
+  plateau_metric: mse  # HMONet和MeshONet的平台判断指标
+  plateau_window: 500  # 计算窗口稳定性和改善情况的最近epoch数量
+  fluctuation_quantiles: [0.1, 0.9]  # 计算窗口波动的低分位数和高分位数
+  fluctuation_relative_tolerance: 0.15  # 相对波动允许的最大比例
+  fluctuation_absolute_minimum: 1.0e-6  # 绝对波动阈值下限
+  fluctuation_absolute_maximum: 1.0e-5  # 绝对波动阈值上限
+  plateau_near_best_relative_tolerance: 0.2  # 当前窗口中位数接近历史最佳的相对容差
+  plateau_near_best_absolute_tolerance: 1.0e-7  # 当前窗口中位数接近历史最佳的绝对容差
+  best_improvement_relative_tolerance: 0.005  # 判定仍有显著改善所需的最小相对改善
+
+  convergence_start_epoch: 3000  # 所有自动收敛和失败判定开始检查并累计耐心的最早epoch
+  success_plateau_patience: 1000  # 无显著改善耐心；只在出现显著改善时归零
+  plateau_stable_consecutive_checks: 100  # 短窗口连续稳定次数；满足后可走短窗口收敛分支
+  plateau_log_interval: 100  # 平台收敛状态输出间隔（epoch）
+  # [收敛条件4] 双分支平台：长期波动稳定或短窗口连续稳定，任一分支可触发停止。
+  # 第1000轮后允许按相对波动阈值启动，第5000轮强制启动，并要求收集满整个独立窗口。
+  plateau_fluctuation_spread_enabled: true  # 是否启用长期波动收敛分支；与短窗口分支为或关系
+  plateau_fluctuation_spread_activation: 0.4  # 第1000轮后，相对波动低于此值时启动长期记录
+  plateau_fluctuation_spread_start_epoch: 1000  # 允许启动长期记录的最早epoch
+  plateau_fluctuation_spread_activation_epoch: 5000  # 无论相对波动大小均强制启动的epoch
+  plateau_fluctuation_spread_window: 1000  # 独立设置的长期波动窗口，默认与无显著改善耐心相同
+  plateau_fluctuation_spread_quantiles: [0.1, 0.9]  # 计算长期波动差值的低、高分位数
+  plateau_fluctuation_spread_tolerance: 0.15  # 高分位数减低分位数的最大允许差值
+
+  # [收敛条件5] 失败平台：与成功判定共用窗口，稳定但明显劣于历史最佳时停止。
+  # 它不把失败运行判为正常收敛；保存和评估仍使用训练过程中即时保存的最佳模型。
+  failure_plateau_enabled: true  # 是否启用失败平台提前停止
+  failure_plateau_patience: 2000  # 连续满足失败平台条件的检查次数；任一条件失败时归零
+  failure_plateau_metric_ratio: 1.5  # 近期中位数相对历史最佳窗口中位数的最小失败倍数
+  failure_plateau_relative_fluctuation: 0.15  # 失败平台仍需满足的最大相对波动
+  failure_plateau_min_lr_updates: 2  # 判断前至少完成的学习率调度次数
+  save_best_immediately: true  # 每次刷新最佳指标时立即原子保存最佳模型
+  stop_file_enabled: true  # 是否允许在训练或checkpoint目录放置STOP文件安全停止
+
+
+  # [数值稳定性] 梯度裁剪与非有限值处理。
+  gradient_clip_norm: 1.0  # 梯度裁剪上限
+  skip_nonfinite_loss: true  # 是否跳过非有限损失
+
+
+# =============================================================================
+# HMONet
+# =============================================================================
+
+hmonet_training:  # HMONet训练参数
+  # Adam 与学习率调度。四个模型均使用相同默认值，可分别覆盖。
+  learning_rate: 0.0002  # 初始学习率
+  lr_warmup_epochs: 1000  # 学习率预热轮数
+  lr_update_interval: 1000  # 学习率更新间隔
+  lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
+  lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
+
+  # 随机点监督值插值：bilinear 为普通双线性；curved_boundary_cell 为全局边界位移 IDW。
+  # IDW 将每段边界网格参数区间四等分，只取1/4、1/2、3/4三个新增点，不重复原始边界点。
+  target_interpolation: curved_boundary_cell  # 训练目标插值方式
+  idw_neighbors: -1  # IDW邻居数：-1使用全部边界支持点；设为32启用局部K近邻IDW
+  idw_query_chunk_size: 128  # 二维实测最优查询分块；支持点仍由一个大块完成累计
+  idw_support_chunk_size: 2048  # IDW边界支持点分块；增大后减少Python循环和GPU启动次数
+  point_loss_weighting: position  # 采样点损失权重：position为边界增强，uniform为全1
+
+  # Jacobian 方法：finite_difference 或 autograd。
+  jacobian_loss_enabled: true  # 是否启用Jacobian损失
+  jacobian_method: finite_difference  # Jacobian计算方法
+  jacobian_fd_step: 0.0001  # 有限差分步长
+  jacobian_loss_weight: 1.0e-3  # Jacobian损失权重
+  jacobian_minimum: 1.0e-4  # 最小允许Jacobian
+
+  # 法向损失默认关闭；开启后以下三个参数生效。
+  boundary_normal_loss_enabled: false  # 是否启用边界法向损失
+  boundary_normal_loss_weight: 0.001  # 边界法向损失权重
+  boundary_normal_sample_count: 64  # 法向采样点数
+  boundary_normal_offset: 0.01  # 法向内部偏移
+
+hmonet_sampling:  # HMONet采样参数
+  # 可选：uniform、adaptive。
+  mode: uniform  # 内部采样方式
+  fixed_grid_count: 0  # 固定网格采样点数
+  global_random_count: 400  # 全局随机采样点数
+  curvature_adaptive_count: 400  # 曲率自适应采样点数
+
+  # 仅 adaptive 使用。
+  candidate_multiplier: 10  # 自适应候选点倍数
+  curvature_quantile: 0.95  # 曲率权重分位数
+  curvature_power: 1.0  # 曲率权重指数
+  distance_sigma_min: 0.02  # 边界距离权重最小尺度
+  distance_sigma_max: 0.10  # 边界距离权重最大尺度
+  uniform_probability: 0.05  # 自适应采样中的均匀采样概率
+
+
+# =============================================================================
+# MeshONet
+# =============================================================================
+
+meshonet_training:  # MeshONet训练参数
+  learning_rate: 0.0004  # 初始学习率
+  lr_warmup_epochs: 1000  # 学习率预热轮数
+  lr_update_interval: 1000  # 学习率更新间隔
+  lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
+  lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
+
+  alpha: 1.0                 # 内部坐标损失权重。
+  beta: 5.0                  # 边界坐标损失权重。
+  interior_sample_count: 400 # 每批共享的随机内部点数。
+
+
+# =============================================================================
+# PI-MeshONet
+# =============================================================================
+
+pimeshonet_training:  # PI-MeshONet训练参数
+  learning_rate: 0.0004  # 初始学习率
+  lr_warmup_epochs: 1000  # 学习率预热轮数
+  lr_update_interval: 1000  # 学习率更新间隔
+  lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
+  lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
+
+  # L = pde_loss_weight * L_PDE + boundary_loss_weight * L_boundary。
+  pde_loss_weight: 1.0e-4  # 原始PDE损失权重
+  boundary_loss_weight: 1.0  # 边界坐标损失权重
+  interior_sample_count: 128  # 每批共享内部采样点数
+  # null 表示各轴采用 1/(n-1)；也可写 [h_xi, h_eta]。
+  fd_step: null  # 有限差分步长配置
+
+
+# =============================================================================
+# PI-HMONet
+# =============================================================================
+
+pihmonet_training:  # PI-HMONet训练参数
+  # 本模型独立使用的 Adam 初始学习率与学习率调度参数。
+  learning_rate: 0.0004  # 初始学习率
+  lr_warmup_epochs: 1000  # 学习率预热轮数
+  lr_update_interval: 1000  # 学习率更新间隔
+  lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
+  lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
+
+  # 默认总损失：L = L_PDE,norm + 0.1 * L_J + lambda_anchor * L_anchor。
+  # 原始 PDE 损失保留；权重为 0 时完全跳过其计算。
+  pde_loss_weight: 0.0  # 原始PDE损失权重
+  # 归一化 PDE 损失默认开启，减小几何尺度和度量系数量级的影响。
+  normalized_pde_loss_weight: 0.1  # 归一化PDE损失权重
+
+  # 使用 PDE 的同一有限差分模板计算 Jacobian，不增加额外网络前向。
+  jacobian_loss_enabled: true  # 是否启用Jacobian损失
+  jacobian_loss_weight: 0.1  # Jacobian损失权重
+  jacobian_minimum: 1.0e-4  # 最小允许Jacobian
+
+  # 固定中心区域 TFI 锚点；越出物理边界的锚点自动从损失中排除。
+  anchor_loss_weight: 0.1  # TFI锚点损失权重
+  # 权重从首轮的初始值线性衰减，在该 epoch 降为 0。
+  anchor_decay_end_epoch: 1000  # 锚点权重衰减结束epoch
+  # 每个计算域轴上的固定锚点数；二维共 n^2 个，三维共 n^3 个。
+  anchor_points_per_axis: 20  # 每轴锚点数量
+  # 锚点位于每个计算域轴的 [margin, 1-margin] 区间。
+  anchor_margin: 0.2  # 锚点边界余量
+
+  # 下列权重为 0 时不调用对应损失函数，也不产生额外计算。
+  smoothness_loss_weight: 0.0  # 网格线平滑损失权重
+  orthogonality_loss_weight: 0.0  # 正交性损失权重
+
+  # 每批随机有限差分中心点数，批内所有样本共享。
+  interior_sample_count: 128  # 每批共享内部采样点数
+  # null 使用各轴 1/(n-1)；也可写 [h_xi, h_eta]。
+  fd_step: null  # 有限差分步长配置
+
+
+# =============================================================================
+# Attention-PI-HMONet
+# =============================================================================
+
+attentionpihmonet_training:  # 带边界自注意力和精确投影的自监督模型训练参数
+  learning_rate: 0.0004  # Adam初始学习率
+  lr_warmup_epochs: 1000  # 学习率预热轮数
+  lr_update_interval: 1000  # 学习率更新间隔
+  lr_decay_gamma: 0.9  # 学习率乘法衰减系数
+  lr_stop_below: 1.0e-5  # 学习率停止继续衰减的下限
+
+  pde_backend: finite_difference  # 内部和边界层求导方式：finite_difference（默认）或autograd
+  interior_sample_count: 400  # 每批共享的内部物理配点数
+  interior_margin: 0.0  # 仅自动微分使用；0表示在整个开计算域内均匀采样
+  fd_step: null  # 有限差分后端步长；null时使用数据集逻辑网格步长
+
+  normalized_pde_loss_weight: 1.0  # 内部归一化PDE残差权重
+  boundary_loss_weight: 1.0  # 最终输出与精确参数边界之间的坐标损失权重
+  alpha_penalty_weight: 0.01  # 将可训练alpha约束回1的平方惩罚权重
+  boundary_loss_sample_count: 64  # 四条边合计的随机精确边界监督点数
+
+  jacobian_loss_weight: 0.0  # 当前二维训练策略关闭内部Jacobian损失
+  jacobian_minimum: 1.0e-4  # Jacobian行列式最低目标值
+  smoothness_loss_weight: 0.0  # 当前二维训练策略关闭内部平滑损失
+
+  boundary_pde_loss_weight: 0.0  # 当前二维训练策略关闭边界层PDE损失
+  boundary_jacobian_loss_weight: 0.0  # 当前二维训练策略关闭边界层Jacobian损失
+  boundary_physics_sample_count: 64  # 四条边合计的边界物理配点数
+  boundary_physics_offset: 0.01  # 仅自动微分使用的边界层向内偏移
+  boundary_physics_tangential_margin: 0.05  # 仅自动微分使用的角点避让宽度
+
+  anchor_loss_weight: 0.0  # TFI锚点初始权重；0表示不计算锚点损失
+  anchor_decay_end_epoch: 1000  # 锚点权重线性衰减为0的epoch
+  anchor_points_per_axis: 10  # 每个计算域方向的固定锚点数
+  anchor_margin: 0.2  # 锚点距计算域边界的参数余量
+
+  boundary_sample_counts: null  # null使用[nx,ny,nx,ny]采样四条边用于注意力编码
+
+
+
+
+
+
+
+
+

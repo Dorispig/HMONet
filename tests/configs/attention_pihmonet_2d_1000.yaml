@@ -1,0 +1,38 @@
+training:
+  datasets: [air_t_int_0_1000_41_20]
+  data_root: data/raw/2D
+  output_root: outputs/smoke_attention_pihmonet
+  num_iterations: 1000
+  batch_size: 1
+  seed: 20261006
+  device: cuda
+  learning_rate: 0.0002
+  gradient_clip_norm: 1.0
+  log_interval: 100
+  dataset_mse_interval: 0
+  dataset_mse_samples: 1
+model:
+  common:
+    branch_dim: 16
+    trunk_dim: 6
+    branch_hidden_dim: 24
+    trunk_hidden_dim: 24
+    branch_hidden_layer_num: 2
+    trunk_hidden_layer_num: 2
+    output_dim: 16
+    branch_mlp_hidden_dim: 24
+    branch_mlp_hidden_layer_num: 1
+  attention_pihmonet:
+    hmonet_mapping_mode: current
+    attention_dim: 16
+    attention_heads: 2
+    attention_layers: 1
+    attention_feedforward_dim: 32
+    attention_dropout: 0.0
+boundary_encoder:
+  sample_counts: [11, 8, 11, 8]
+pde_loss:
+  backend: autograd
+  interior_sample_count: 8
+  interior_margin: 0.0
+  fd_step: null

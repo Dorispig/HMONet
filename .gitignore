@@ -1,0 +1,94 @@
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local package metadata
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+pip-wheel-metadata/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+
+# Per-run training configuration snapshots
+configs/2D/*_p*/
+configs/3D/*_p*/
+
+# Runtime data and generated datasets
+outputs/
+data/raw/
+data/processed/
+data/interim/
+data/cache/
+tmp/
+temp/
+tmp_eval_*/
+.eval_tmp/
+experiments/.eval_tmp/
+
+# Training checkpoints and exported models
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+
+# Training logs and TensorBoard event files
+logs/
+tensorboard/
+**/tensorboard/
+*.log
+*.tfevents.*
+
+# Ablation and experiment outputs
+# Keep suite documentation, frozen baselines, variant definitions and empty markers.
+experiments/**
+!experiments/README.md
+!experiments/ex*/
+!experiments/ex*/README.md
+!experiments/ex*/configs/
+!experiments/ex*/configs/**
+!experiments/ex*/baseline/
+!experiments/ex*/baseline/experiment.yaml
+!experiments/ex*/baseline/evaluate.yaml
+!experiments/ex*/*/
+!experiments/ex*/*/experiment.yaml
+!experiments/**/.gitkeep
+
+# Generated tabular reports and figures
+*.csv
+*.tsv
+*.json
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+*.gif
+
+# Temporary and editor files
+*.tmp
+*.bak
+*.swp
+*.swo
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter runtime files
+.ipynb_checkpoints/
+/paper/

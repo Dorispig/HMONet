@@ -1,0 +1,14 @@
+# 本文件只定义相对于统一冻结基线的采样点损失权重消融。
+schema_version: 1
+experiment: point_weighting
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: position_weighted
+  value: position
+  overrides: []
+- name: uniform_weight
+  value: uniform
+  overrides:
+  - --point-loss-weighting
+  - uniform

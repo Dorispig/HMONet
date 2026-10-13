@@ -1,0 +1,14 @@
+# 仅定义相对于本套冻结基线的变量。
+schema_version: 1
+experiment: trunk_geometry_coefficients
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: trunk_off
+  value: false
+  overrides:
+  - --no-trunk-projection-coefficients-enabled
+- name: trunk_on
+  value: true
+  overrides:
+  - --trunk-projection-coefficients-enabled

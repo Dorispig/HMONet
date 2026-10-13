@@ -1,0 +1,109 @@
+# HMONet参数量消融。最大模型与ex3基线完全一致，可直接复用复制后的基线。
+schema_version: 1
+experiment: model_capacity
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: full_552k
+  value: 552198
+  overrides: []
+- name: compact_178k
+  value: 177770
+  overrides:
+  - --branch-dim
+  - 32
+  - --trunk-dim
+  - 16
+  - --adjust-hidden-dim
+  - 72
+  - --adjust-hidden-layer-num
+  - 4
+  - --branch-hidden-dim
+  - 72
+  - --branch-hidden-layer-num
+  - 4
+  - --trunk-hidden-dim
+  - 72
+  - --trunk-hidden-layer-num
+  - 4
+  - --output-dim
+  - 68
+  - --branch-mlp-hidden-dim
+  - 72
+  - --branch-mlp-hidden-layer-num
+  - 4
+- name: compact_80k
+  value: 80086
+  overrides:
+  - --branch-dim
+  - 8
+  - --trunk-dim
+  - 8
+  - --adjust-hidden-dim
+  - 64
+  - --adjust-hidden-layer-num
+  - 2
+  - --branch-hidden-dim
+  - 64
+  - --branch-hidden-layer-num
+  - 2
+  - --trunk-hidden-dim
+  - 64
+  - --trunk-hidden-layer-num
+  - 2
+  - --output-dim
+  - 64
+  - --branch-mlp-hidden-dim
+  - 64
+  - --branch-mlp-hidden-layer-num
+  - 2
+- name: compact_40k
+  value: 40046
+  overrides:
+  - --branch-dim
+  - 24
+  - --trunk-dim
+  - 16
+  - --adjust-hidden-dim
+  - 40
+  - --adjust-hidden-layer-num
+  - 3
+  - --branch-hidden-dim
+  - 40
+  - --branch-hidden-layer-num
+  - 3
+  - --trunk-hidden-dim
+  - 40
+  - --trunk-hidden-layer-num
+  - 3
+  - --output-dim
+  - 16
+  - --branch-mlp-hidden-dim
+  - 40
+  - --branch-mlp-hidden-layer-num
+  - 3
+- name: compact_16k
+  value: smallest_capacity
+  overrides:
+  - --branch-dim
+  - 8
+  - --trunk-dim
+  - 16
+  - --adjust-hidden-dim
+  - 22
+  - --adjust-hidden-layer-num
+  - 3
+  - --branch-hidden-dim
+  - 22
+  - --branch-hidden-layer-num
+  - 3
+  - --trunk-hidden-dim
+  - 22
+  - --trunk-hidden-layer-num
+  - 3
+  - --output-dim
+  - 16
+  - --branch-mlp-hidden-dim
+  - 22
+  - --branch-mlp-hidden-layer-num
+  - 3

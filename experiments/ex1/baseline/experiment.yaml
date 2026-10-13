@@ -1,0 +1,120 @@
+# 二维消融实验冻结基线。所有消融实验均从本文件读取公共训练参数。
+# 正常训练配置 configs/2D/train.yaml 的后续修改不会影响本文件。
+# 开始一轮论文实验后请保持本文件不变；需要新基线时创建新版本。
+
+datasets:
+  interpolation: data/raw/2D/air_t_int_0_1000_41_20
+grid:
+  nx: 41
+  ny: 20
+model:
+  name: hmonet
+  common:
+    branch_dim: 64
+    trunk_dim: 16
+    adjust_hidden_dim: 128
+    adjust_hidden_layer_num: 4
+    branch_hidden_dim: 128
+    branch_hidden_layer_num: 4
+    trunk_hidden_dim: 128
+    trunk_hidden_layer_num: 4
+    output_dim: 128
+    branch_mlp_hidden_dim: 128
+    branch_mlp_hidden_layer_num: 4
+  hmonet:
+    hmonet_mapping_mode: current
+    residual_regularization_weight: 0.0
+training:
+  dataset: interpolation
+  num_epochs: 30000
+  batch_size: 64
+  seed: 20260802
+  device: cuda
+  tensorboard_enabled: true
+  best_model_metric: dataset_mse
+  calculate_dataset_mse: true
+  dataset_mse_interval: 1
+  check_mse_convergence: false
+  mse_tolerance: 1.0e-06
+  mse_consecutive_epochs: 100
+  check_training_loss_convergence: false
+  training_loss_tolerance: 1.0e-06
+  training_loss_consecutive_epochs: 100
+  plateau_enabled: true
+  plateau_metric: mse
+  plateau_window: 200
+  fluctuation_quantiles:
+  - 0.1
+  - 0.9
+  fluctuation_relative_tolerance: 0.15
+  fluctuation_absolute_minimum: 1.0e-06
+  fluctuation_absolute_maximum: 1.0e-05
+  plateau_near_best_relative_tolerance: 0.2
+  plateau_near_best_absolute_tolerance: 1.0e-07
+  best_improvement_relative_tolerance: 0.005
+  convergence_start_epoch: 3000  # 所有自动收敛和失败判定开始检查并累计耐心的最早epoch
+  success_plateau_patience: 1000  # 无显著改善耐心；只在出现显著改善时归零
+  plateau_log_interval: 100
+  plateau_fluctuation_spread_enabled: true  # 是否启用长期波动收敛分支；与短窗口分支为或关系
+  plateau_fluctuation_spread_activation: 0.4
+  plateau_fluctuation_spread_start_epoch: 1000
+  plateau_fluctuation_spread_activation_epoch: 5000
+  plateau_fluctuation_spread_window: 1000
+  plateau_fluctuation_spread_quantiles:
+  - 0.1
+  - 0.9
+  plateau_fluctuation_spread_tolerance: 0.15
+
+  # [收敛条件5] 失败平台：与成功判定共用窗口，稳定但明显劣于历史最佳时停止。
+  # 它不把失败运行判为正常收敛；保存和评估仍使用训练过程中即时保存的最佳模型。
+  failure_plateau_enabled: true  # 是否启用失败平台提前停止
+  failure_plateau_patience: 2000  # 连续满足失败平台条件的检查次数；任一条件失败时归零
+  failure_plateau_metric_ratio: 1.5  # 近期中位数相对历史最佳窗口中位数的最小失败倍数
+  failure_plateau_relative_fluctuation: 0.15  # 失败平台仍需满足的最大相对波动
+  failure_plateau_min_lr_updates: 2  # 判断前至少完成的学习率调度次数
+  save_best_immediately: true  # 每次刷新最佳指标时立即原子保存最佳模型
+  stop_file_enabled: true  # 是否允许在训练或checkpoint目录放置STOP文件安全停止
+
+  gradient_clip_norm: 1.0
+  skip_nonfinite_loss: true
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+  plateau_stable_consecutive_checks: 50  # 短窗口连续稳定次数；满足后可走短窗口收敛分支
+hmonet_training:
+  learning_rate: 0.0002
+  lr_warmup_epochs: 1000
+  lr_update_interval: 1000
+  lr_decay_gamma: 0.9
+  lr_stop_below: 1.0e-05
+  target_interpolation: curved_boundary_cell
+  jacobian_loss_enabled: true
+  jacobian_method: finite_difference
+  jacobian_fd_step: 0.001
+  jacobian_loss_weight: 0.01
+  jacobian_minimum: 0.0001
+  boundary_normal_loss_enabled: false
+  boundary_normal_loss_weight: 0.001
+  boundary_normal_sample_count: 64
+  boundary_normal_offset: 0.01
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+hmonet_sampling:
+  mode: uniform
+  fixed_grid_count: 0
+  global_random_count: 400
+  curvature_adaptive_count: 400
+  candidate_multiplier: 10
+  curvature_quantile: 0.95
+  curvature_power: 1.0
+  distance_sigma_min: 0.02
+  distance_sigma_max: 0.1
+  uniform_probability: 0.05
+
+
+

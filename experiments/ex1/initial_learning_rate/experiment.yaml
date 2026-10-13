@@ -1,0 +1,31 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: initial_learning_rate
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: lr_1e-4
+  value: 0.0001
+  overrides:
+  - --lr
+  - 0.0001
+- name: lr_2e-4
+  value: 0.0002
+  overrides:
+  - --lr
+  - 0.0002
+- name: lr_4e-4
+  value: 0.0004
+  overrides:
+  - --lr
+  - 0.0004
+- name: lr_6e-4
+  value: 0.0006
+  overrides:
+  - --lr
+  - 0.0006
+- name: lr_1e-3
+  value: 0.001
+  overrides:
+  - --lr
+  - 0.001

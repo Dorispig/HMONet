@@ -1,0 +1,34 @@
+# 约17.8万参数HMONet下的Jacobian损失与曲边目标插值组合消融。
+schema_version: 1
+experiment: jacobian_interpolation
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: baseline
+  value: bilinear_no_jacobian
+  overrides:
+  - --no-jacobian-loss-enabled
+  - --target-interpolation
+  - bilinear
+- name: jacobian_only
+  value: bilinear_with_jacobian
+  overrides:
+  - --jacobian-loss-enabled
+  - --jacobian-loss-weight
+  - 0.0001
+  - --target-interpolation
+  - bilinear
+- name: curved_only
+  value: curved_no_jacobian
+  overrides:
+  - --no-jacobian-loss-enabled
+  - --target-interpolation
+  - curved_boundary_cell
+- name: jacobian_curved
+  value: curved_with_jacobian
+  overrides:
+  - --jacobian-loss-enabled
+  - --jacobian-loss-weight
+  - 0.0001
+  - --target-interpolation
+  - curved_boundary_cell

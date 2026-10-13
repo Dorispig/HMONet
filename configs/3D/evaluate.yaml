@@ -1,0 +1,128 @@
+# 三维参数边界评估入口：scripts/evaluate/evaluate_3d.py。
+#
+# stop_on_error 控制批量评估是否在首次失败时停止。
+# cases.<name>.enabled 控制该案例是否参与批量评估。
+# cases.<name>.boundary 和 parameter 分别指定已注册的边界类型与变化参数。
+# 可选的 cases.<name>.evaluation 覆盖该案例对应的全局评估参数，
+# 使各案例能够分别设置模型、内部映射、边界投影、
+# 缓存、求解器、运行设备和绘图选项。
+# cases.<name>.values 指定测试参数值；命令行覆盖方式：--values v1,v2,...。
+# cases.<name>.grid_shape 指定默认网格规模 [nx, ny, nz]；命令行覆盖示例：
+#   --grid-shapes 11x11x11,21x21x21
+# evaluation.methods 可选择 tfi、pde、meshonet、pimeshonet、hmonet 的任意子集。
+# hmonet_mapping_mode 指定内部映射：current、coons_residual 或 both（两者）。
+# 各模型的 *_boundary_projection 可设为 none、direct 或 inverse_distance。
+# inverse_distance_power 为 IDW 距离权重指数，必须为正数。
+# winslow_* 参数控制 PDE 最大迭代次数和收敛容差。
+# device 可设为 auto、cpu 或 cuda；output_root 支持相对路径或绝对路径。
+# 预热不计入测量；正式计时去掉一个最小值和一个最大值。
+# 报告剩余测量值的平均值；仅测量 1 至 2 次时直接取平均。
+# query_batch_size 限制每次网络前向计算的计算域点数量。
+# reuse_*_cache 控制网格生成或质量计算结果的缓存复用；强制执行的命令行开关
+# 会在本次运行中跳过对应缓存并重新计算。
+# save_plots 为绘图总开关；PNG、PDF 和分布图还可由下方独立开关控制。
+# NPZ、CSV 和 JSON 数值结果不受绘图开关影响，仍会保存。
+stop_on_error: false
+cases:
+  tap_int_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: tapered_duct, parameter: scale, values: [0.76, 0.78, 0.80], grid_shape: [11, 11, 11]}
+  tap_ext_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: tapered_duct, parameter: scale, values: [0.50, 0.55], grid_shape: [11, 11, 11]}
+  twi_int_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: twisted_duct, parameter: angle_degrees, values: [50, 55, 60], grid_shape: [11, 11, 11]}
+  twi_ext_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: twisted_duct, parameter: angle_degrees, values: [95, 105], grid_shape: [11, 11, 11]}
+  ben_int_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: bent_duct, parameter: amplitude, values: [0.38, 0.40, 0.42], grid_shape: [11, 11, 11]}
+  ben_ext_0_1000_11_11_11: {enabled: false, disabled_reason: "No exact parametric factory is implemented; never substitute a box", boundary: bent_duct, parameter: amplitude, values: [0.70, 0.75], grid_shape: [11, 11, 11]}
+  cah_t_int_0_1000_21_31_11: {boundary: cylindrical_domain_with_airfoil_hole, parameter: thickness, values: [0.18, 0.20, 0.22], grid_shape: [21, 31, 11]}
+  cah_t_ext_0_1000_21_31_11: {boundary: cylindrical_domain_with_airfoil_hole, parameter: thickness, values: [0.04, 0.38], grid_shape: [21, 31, 11]}
+  cah_t_int_0_1000_11_11_11: {boundary: cylindrical_domain_with_airfoil_hole, parameter: thickness, values: [0.18, 0.20, 0.22], grid_shape: [11, 11, 11]}
+  cah_t_ext_0_1000_11_11_11: {boundary: cylindrical_domain_with_airfoil_hole, parameter: thickness, values: [0.04, 0.38], grid_shape: [11, 11, 11]}
+  sch_r_int_0_1000_11_11_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.27, 0.30, 0.33], grid_shape: [11, 11, 11]}
+  sch_r_ext_0_1000_11_11_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.10, 0.50], grid_shape: [11, 11, 11]}
+  sch_r_int_0_1000_11_31_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.27, 0.30, 0.33], grid_shape: [11, 31, 11]}
+  sch_r_ext_0_1000_11_31_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.10, 0.50], grid_shape: [11, 31, 11]}
+evaluation:
+  attentionpihmonet_mapping_mode: current
+  # PI-HMONet：--model pihmonet 或 --methods tfi,pde,pihmonet。
+  # 内部映射独立于 HMONet；可用 --pihmonet-mapping-mode 覆盖，both 评估两种映射。
+  pihmonet_mapping_mode: current
+  # 默认无外部边界后处理；--pihmonet-boundary-projection 可覆盖。
+  pihmonet_boundary_projection: none
+  attentionpihmonet_boundary_projection: none
+  # 可用 --pihmonet-checkpoint 指定模型；null 自动查找对应数据集与映射的最新模型。
+  pihmonet_checkpoint: null
+  attentionpihmonet_checkpoint: null
+  default_cases: [sch_r_int_0_1000_11_31_11, sch_r_ext_0_1000_11_31_11]
+  # 图中按 TFI、PDE、MeshONet、PI-MeshONet、HMONet、PI-HMONet 排列，仅显示选中的方法。
+  methods: [tfi, pde, meshonet, hmonet]
+  hmonet_mapping_mode: current
+  # 适用于拉伸曲面、端面使用的参数曲线，也适用于二维参数曲线。
+  # 设备或几何类型不支持加速路径，或需要坐标梯度时，使用 Torch 公式。
+  curve_kernel_backend: auto
+  # 相同网格规模与模型的案例可合并评估；设置为 1 时逐个网格计时。
+  inference_batch_size: 1
+  # HMONet 内部施加精确曲面约束，默认不进行外部边界后处理。
+  hmonet_boundary_projection: none
+  meshonet_boundary_projection: none
+  inverse_distance_power: 2.0
+  winslow_max_iter: 1000
+  winslow_tolerance: 1.0e-6
+  device: auto
+  inference_warmup_runs: 3
+  # 默认测量 10 次，去掉一个最大值和一个最小值后取平均；支持命令行覆盖次数。
+  inference_timing_repeats: 10
+  query_batch_size: 65536
+  output_root: outputs/results
+  reuse_generation_cache: true
+  reuse_analysis_cache: true
+  force_regenerate: false
+  force_reanalyze: false
+  # 网格质量计算总开关；false 时仍保留网格图、网格数据、计时与边界误差。
+  # 命令行使用 --no-compute-grid-quality 关闭，使用 --compute-grid-quality 开启。
+  compute_grid_quality: true
+  # both 或 all 选择全部已实现指标；none 不选择指标；也可指定列表，如 [min_angle, cell_area]。
+  # 仅对已选中且独立开关为 true 的指标进行计算、数据导出与绘图。
+  quality_metrics: both
+  # 命令行选择指标示例：--quality-metrics min_angle,scaled_jacobian。
+  # 单项开关示例：--no-quality-intersecting-cell 关闭，--quality-intersecting-cell 开启。
+  # 公共指标用于体网格及 x_mid、y_mid、z_mid 切片；仅适用四边形的指标只用于切片。
+  quality_switches:
+    max_angle: true  # 单元最大内角，单位为度。
+    min_angle: true  # 单元最小内角，单位为度。
+    jacobian: true  # 二维网格或切片的雅可比指标。
+    scaled_jacobian: true  # 二维网格或切片的最小缩放雅可比指标。
+    skewness: true  # 单元角度偏斜度。
+    aspect_ratio: true  # 二维网格或切片的边长纵横比。
+    orthogonality: true  # 相邻边的正交性。
+    cell_area: true  # 二维网格或切片的单元面积。
+    concave_vertex_count: true  # 四边形单元的凹顶点数量；同时记录含凹顶点的单元比例。
+    self_intersection: true  # 单元内部对边自相交指标。
+    intersecting_cell: true  # 二维网格计算单元间相交；切片计算单元对边相交。
+    flipping_cell: true  # 二维网格或切片的翻转单元标记。
+    degenerate_cell: true  # 退化单元标记。
+    minimum_scaled_jacobian: true  # 体网格单元各角点的最小缩放雅可比。
+    center_jacobian: true  # 体网格单元中心的雅可比行列式。
+    center_condition_number: true  # 体网格单元中心的雅可比矩阵条件数。
+    edge_aspect_ratio: true  # 体网格单元最长边与最短边之比。
+    cell_volume: true  # 根据单元中心雅可比行列式绝对值估算的体积。
+    flipped_cell: true  # 体网格翻转单元标记。
+  save_plots: true
+  save_png: true
+  save_pdf: false
+  save_distribution_plots: false
+  # 可选局部视图；可通过 cases.<name>.evaluation 为各案例单独设置。
+  # 索引范围针对单元，采用从 0 开始的左闭右开区间 [start,end)。
+  zoom_views: []
+  # 配置示例：
+  # zoom_views:
+  #   - {name: middle_patch, mode: slice, slice: y_mid, i_range: [2, 8], j_range: [2, 8], metric: scaled_jacobian}
+  #   - {name: worst_volume, mode: volume, center_on: worst, reference: HMONet, cell_padding: 2, metric: minimum_scaled_jacobian, groups: [03_meshonet_hmonet]}
+  # 缺失网络检查点时明确提示并跳过，不生成替代网格。
+  skip_missing_checkpoints: true
+  require_pde_convergence: true
+  hmonet_checkpoint: null
+  meshonet_checkpoint: null
+  hmonet_pde_iterations: 0
+  generation_only: false
+  analysis_only: false
+
+  # 可选 PI-MeshONet：使用 --model pimeshonet 或 --methods tfi,pde,pimeshonet。
+  pimeshonet_checkpoint: null
+  pimeshonet_boundary_projection: none

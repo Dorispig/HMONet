@@ -1,0 +1,110 @@
+# 首轮训练开始前保存的本次实际生效参数。
+datasets:
+  interpolation: E:\projects\HMONet_p\data\raw\2D\air_t_int_0_1000_21_20
+grid:
+  nx: 21
+  ny: 20
+model:
+  name: hmonet
+  common:
+    branch_dim: 64
+    trunk_dim: 16
+    adjust_hidden_dim: 128
+    adjust_hidden_layer_num: 4
+    branch_hidden_dim: 128
+    branch_hidden_layer_num: 4
+    trunk_hidden_dim: 128
+    trunk_hidden_layer_num: 4
+    output_dim: 128
+    branch_mlp_hidden_dim: 128
+    branch_mlp_hidden_layer_num: 4
+  hmonet:
+    hmonet_mapping_mode: current
+    residual_regularization_weight: 0.0
+training:
+  dataset: interpolation
+  num_epochs: 30000
+  batch_size: 64
+  seed: 20261002
+  device: cuda
+  tensorboard_enabled: true
+  best_model_metric: dataset_mse
+  calculate_dataset_mse: true
+  dataset_mse_interval: 1
+  check_mse_convergence: false
+  mse_tolerance: 1.0e-06
+  mse_consecutive_epochs: 100
+  check_training_loss_convergence: false
+  training_loss_tolerance: 1.0e-06
+  training_loss_consecutive_epochs: 100
+  plateau_enabled: true
+  plateau_metric: mse
+  plateau_window: 200
+  fluctuation_quantiles:
+  - 0.1
+  - 0.9
+  fluctuation_relative_tolerance: 0.15
+  fluctuation_absolute_minimum: 1.0e-06
+  fluctuation_absolute_maximum: 1.0e-05
+  plateau_near_best_relative_tolerance: 0.2
+  plateau_near_best_absolute_tolerance: 1.0e-07
+  best_improvement_relative_tolerance: 0.005
+  convergence_start_epoch: 3000
+  success_plateau_patience: 1000
+  plateau_stable_consecutive_checks: 50
+  plateau_log_interval: 100
+  plateau_fluctuation_spread_enabled: true
+  plateau_fluctuation_spread_activation: 0.4
+  plateau_fluctuation_spread_start_epoch: 1000
+  plateau_fluctuation_spread_activation_epoch: 5000
+  plateau_fluctuation_spread_window: 1000
+  plateau_fluctuation_spread_quantiles:
+  - 0.1
+  - 0.9
+  plateau_fluctuation_spread_tolerance: 0.15
+  failure_plateau_enabled: true
+  failure_plateau_patience: 2000
+  failure_plateau_metric_ratio: 1.5
+  failure_plateau_relative_fluctuation: 0.15
+  failure_plateau_min_lr_updates: 2
+  save_best_immediately: true
+  stop_file_enabled: true
+  gradient_clip_norm: 1.0
+  skip_nonfinite_loss: true
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+hmonet_training:
+  learning_rate: 0.0002
+  lr_warmup_epochs: 1000
+  lr_update_interval: 1000
+  lr_decay_gamma: 0.9
+  lr_stop_below: 1.0e-05
+  target_interpolation: curved_boundary_cell
+  jacobian_loss_enabled: false
+  jacobian_method: finite_difference
+  jacobian_fd_step: 0.001
+  jacobian_loss_weight: 0.001
+  jacobian_minimum: 0.0001
+  boundary_normal_loss_enabled: false
+  boundary_normal_loss_weight: 0.001
+  boundary_normal_sample_count: 64
+  boundary_normal_offset: 0.01
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+hmonet_sampling:
+  mode: uniform
+  fixed_grid_count: 0
+  global_random_count: 400
+  curvature_adaptive_count: 400
+  candidate_multiplier: 10
+  curvature_quantile: 0.95
+  curvature_power: 1.0
+  distance_sigma_min: 0.02
+  distance_sigma_max: 0.1
+  uniform_probability: 0.05

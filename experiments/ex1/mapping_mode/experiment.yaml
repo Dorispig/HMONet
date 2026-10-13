@@ -1,0 +1,16 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: mapping_mode
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: current
+  value: current
+  overrides:
+  - --hmonet-mapping-mode
+  - current
+- name: coons_residual
+  value: coons_residual
+  overrides:
+  - --hmonet-mapping-mode
+  - coons_residual

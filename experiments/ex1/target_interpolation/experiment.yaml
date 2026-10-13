@@ -1,0 +1,16 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: target_interpolation
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: bilinear
+  value: bilinear
+  overrides:
+  - --target-interpolation
+  - bilinear
+- name: curved_boundary_cell
+  value: curved_boundary_cell
+  overrides:
+  - --target-interpolation
+  - curved_boundary_cell

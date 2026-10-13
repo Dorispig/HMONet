@@ -1,0 +1,104 @@
+# 二维消融实验共用的冻结评估配置。
+# 这里只保留消融实验实际使用的案例、方法、网格、计时、PDE和质量参数。
+# 正常评估配置 configs/2D/evaluate.yaml 的后续修改不会影响消融实验。
+# _fingerprint_compatibility 只用于兼容迁移前已有结果；修改某个案例或公共
+# 评估参数后，该案例会自动获得新指纹，新增其他案例不会使旧案例失效。
+_fingerprint_compatibility:
+  evaluate_config_sha256: 14396a8990fa2a50d66db105e8ccbc08acdde3f4c28138aa1c2e930a13e52ce7
+  case_content_sha256:
+    air_t_ext_0_1000_41_20: 08b84a52acc12a223f7e1736610739315b3f581e7073998a4d168da83d766fca
+    air_t_int_0_1000_41_20: 7bba4542b9c366598784dc20c43a7f96e5c2188f7b0ad50d95ba6ad2cce3702b
+cases:
+  air_t_ext_0_1000_41_20:
+    boundary_type: circle_airfoil_t
+    split: extrapolation
+    parameter: t
+    values:
+    - 0.04
+    - 0.62
+    - 0.65
+    train_grid:
+    - 41
+    - 20
+    fixed_parameters:
+      radius: 1.0
+      m: 0.02
+      p: 0.4
+      c: 1.0
+      center:
+      - 0.0
+      - 0.0
+  air_t_int_0_1000_41_20:
+    boundary_type: circle_airfoil_t
+    split: interpolation
+    parameter: t
+    values:
+    - 0.275
+    - 0.3
+    - 0.325
+    train_grid:
+    - 41
+    - 20
+    fixed_parameters:
+      radius: 1.0
+      m: 0.02
+      p: 0.4
+      c: 1.0
+      center:
+      - 0.0
+      - 0.0
+  air_t_ext_0_1000_21_20:
+    boundary_type: circle_airfoil_t
+    split: extrapolation
+    parameter: t
+    values: [0.04, 0.62, 0.65]
+    train_grid: [21, 20]
+    fixed_parameters:
+      radius: 1.0
+      m: 0.02
+      p: 0.4
+      c: 1.0
+      center: [0.0, 0.0]
+  air_t_int_0_1000_21_20:
+    boundary_type: circle_airfoil_t
+    split: interpolation
+    parameter: t
+    values: [0.275, 0.3, 0.325]
+    train_grid: [21, 20]
+    fixed_parameters:
+      radius: 1.0
+      m: 0.02
+      p: 0.4
+      c: 1.0
+      center: [0.0, 0.0]
+ablation:
+  grid_shapes:
+  - - 51
+    - 51
+  methods:
+  - tfi
+  - pde
+  - hmonet
+  quality_metrics: both
+  hmonet_boundary_projection: none
+evaluation:
+  default_cases:
+  - air_t_int_0_1000_41_20
+  - air_t_ext_0_1000_41_20
+  device: auto
+  query_batch_size: 50000
+  inference_batch_size: 1
+  curve_kernel_backend: auto
+  inference_warmup_runs: 3
+  inference_timing_repeats: 10
+  winslow_max_iter: 1000
+  winslow_tolerance: 1.0e-08
+  require_pde_convergence: true
+  compute_grid_quality: true
+  quality_metrics: both
+  save_plots: true
+  save_png: true
+  save_pdf: false
+  save_distribution_plots: false
+  reuse_generated_results: true
+  reuse_analysis_results: true

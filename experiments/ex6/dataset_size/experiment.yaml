@@ -1,0 +1,24 @@
+# 训练数据量消融；子集只在内存中建立，不生成新的数据集文件。
+schema_version: 1
+experiment: dataset_size
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: samples_1000
+  value: 1000
+  overrides: []
+- name: samples_800
+  value: 800
+  overrides:
+  - --dataset-sample-count
+  - 800
+- name: samples_500
+  value: 500
+  overrides:
+  - --dataset-sample-count
+  - 500
+- name: samples_250
+  value: 250
+  overrides:
+  - --dataset-sample-count
+  - 250

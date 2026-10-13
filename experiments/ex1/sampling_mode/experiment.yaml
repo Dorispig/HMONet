@@ -1,0 +1,16 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: sampling_mode
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: uniform
+  value: uniform
+  overrides:
+  - --sampling-mode
+  - uniform
+- name: adaptive
+  value: adaptive
+  overrides:
+  - --sampling-mode
+  - adaptive

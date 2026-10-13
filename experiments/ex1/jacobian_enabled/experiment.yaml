@@ -1,0 +1,16 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: jacobian_enabled
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: jac_off
+  value: 0.0
+  overrides:
+  - --no-jacobian-loss-enabled
+- name: jac_on
+  value: 0.01
+  overrides:
+  - --jacobian-loss-enabled
+  - --jacobian-loss-weight
+  - 0.01

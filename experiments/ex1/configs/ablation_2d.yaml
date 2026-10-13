@@ -1,0 +1,33 @@
+# 二维消融实验扫描与运行清单。训练公共参数固定读取 experiments/ex1/baseline/experiment.yaml。
+# 命令行参数优先于本文件；本文件不保存模型、损失或收敛基线。
+
+# 默认使用三个随机种子，汇总时计算均值、样本方差和样本标准差。
+seeds: [20260802, 20260917, 20261031]
+
+# 默认数据集。可通过重复传入 --dataset 临时替换。
+datasets:
+  - air_t_int_0_1000_21_20
+  - air_t_ext_0_1000_21_20
+
+# initial_learning_rate 的默认扫描范围；其余学习率调度参数使用冻结基线。
+initial_learning_rates: [0.0001, 0.0002, 0.0004, 0.0008, 0.001]
+
+# jacobian_enabled 中开启Jacobian损失时使用的权重。
+jacobian_enabled_weight: 0.01
+
+# jacobian_weight 的默认扫描范围，可由 --jacobian-weights 覆盖。
+jacobian_weights: [0.0, 0.0001, 0.001, 0.01, 0.1]
+
+# sampling_mode 比较 uniform 全局均匀随机与 adaptive 曲率-距离自适应采样。
+# 两者都使用冻结基线中各自的采样点数，默认均为 400。
+
+# target_interpolation 比较原双线性目标与边界第一层精确曲边单元目标。
+
+# point_weighting 比较原位置相关权重与所有采样点权重恒为1。
+
+# training_sample_count 的默认扫描范围。
+training_sample_counts: [50, 100, 200, 400, 800, 1200]
+
+# normal_loss 中开启法向损失时使用的权重。
+normal_loss_weight: 0.01
+

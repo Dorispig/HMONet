@@ -1,0 +1,14 @@
+# 仅定义相对于本套冻结基线的变量。
+schema_version: 1
+experiment: projection_activation
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: sigmoid
+  value: sigmoid
+  overrides:
+  - --no-projection-softplus-enabled
+- name: softplus
+  value: softplus
+  overrides:
+  - --projection-softplus-enabled

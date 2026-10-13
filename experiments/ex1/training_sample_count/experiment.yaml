@@ -1,0 +1,36 @@
+# 本文件只定义相对于统一冻结基线的变量。
+schema_version: 1
+experiment: training_sample_count
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: samples_50
+  value: 50
+  overrides:
+  - --global-random-count
+  - 50
+- name: samples_100
+  value: 100
+  overrides:
+  - --global-random-count
+  - 100
+- name: samples_200
+  value: 200
+  overrides:
+  - --global-random-count
+  - 200
+- name: samples_400
+  value: 400
+  overrides:
+  - --global-random-count
+  - 400
+- name: samples_800
+  value: 800
+  overrides:
+  - --global-random-count
+  - 800
+- name: samples_1200
+  value: 1200
+  overrides:
+  - --global-random-count
+  - 1200

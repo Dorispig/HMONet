@@ -1,0 +1,14 @@
+# 仅定义相对于本套冻结基线的变量。
+schema_version: 1
+experiment: boundary_self_attention
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+- name: attention_off
+  value: false
+  overrides:
+  - --no-boundary-self-attention-enabled
+- name: attention_on
+  value: true
+  overrides:
+  - --boundary-self-attention-enabled

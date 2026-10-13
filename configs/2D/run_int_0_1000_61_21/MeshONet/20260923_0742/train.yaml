@@ -1,0 +1,72 @@
+datasets:
+  interpolation: data/raw/2D/run_int_0_1000_61_21
+grid:
+  nx: 61
+  ny: 21
+model:
+  name: meshonet
+  common:
+    branch_dim: 64
+    trunk_dim: 16
+    adjust_hidden_dim: 128
+    adjust_hidden_layer_num: 4
+    branch_hidden_dim: 128
+    branch_hidden_layer_num: 4
+    trunk_hidden_dim: 128
+    trunk_hidden_layer_num: 4
+    output_dim: 128
+    branch_mlp_hidden_dim: 128
+    branch_mlp_hidden_layer_num: 4
+  meshonet: {}
+training:
+  dataset: interpolation
+  num_epochs: 100000
+  batch_size: 64
+  seed: 20260802
+  device: cuda
+  tensorboard_enabled: true
+  best_model_metric: dataset_mse
+  calculate_dataset_mse: true
+  dataset_mse_interval: 1
+  check_mse_convergence: false
+  mse_tolerance: 1.0e-06
+  mse_consecutive_epochs: 30
+  check_training_loss_convergence: true
+  training_loss_tolerance: 1.0e-06
+  training_loss_consecutive_epochs: 100
+  plateau_enabled: true
+  plateau_metric: train_loss
+  plateau_window: 200
+  fluctuation_quantiles:
+  - 0.1
+  - 0.9
+  fluctuation_relative_tolerance: 0.5
+  fluctuation_absolute_tolerance: 5.0e-06
+  plateau_near_best_relative_tolerance: 0.5
+  plateau_near_best_absolute_tolerance: 1.0e-07
+  best_improvement_relative_tolerance: 0.005
+  plateau_patience: 100
+  plateau_log_interval: 100
+  gradient_clip_norm: 1.0
+  skip_nonfinite_loss: true
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+  plateau_start_epoch: 200
+  plateau_stable_consecutive_checks: 50
+meshonet_training:
+  learning_rate: 0.0004
+  lr_warmup_epochs: 1000
+  lr_update_interval: 500
+  lr_decay_gamma: 0.9
+  lr_stop_below: 1.0e-05
+  alpha: 1.0
+  beta: 5.0
+  interior_sample_count: 400
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
