@@ -925,6 +925,12 @@ class TrainingState:
                 )
             if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet"):
                 self.writer.add_scalar("loss_components/loss_pde", losses["loss_pde"], epoch)
+            elif self.name == "hmonet" and self.config.get("hmonet_training", {}).get(
+                "pde_loss_enabled", False
+            ):
+                self.writer.add_scalar(
+                    "loss_components/loss_pde", losses.get("loss_pde", 0.0), epoch
+                )
             if self.name == "pihmonet":
                 for key in (
                     "loss_pde_normalized",
@@ -1281,6 +1287,10 @@ class TrainingState:
 
             if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet"):
                 row["loss_pde"] = item["loss_pde"]
+            elif self.name == "hmonet" and self.config.get("hmonet_training", {}).get(
+                "pde_loss_enabled", False
+            ):
+                row["loss_pde"] = item.get("loss_pde", "")
             if self.name == "pimeshonet":
                 row["loss_boundary"] = item["loss_boundary"]
             if self.name == "pihmonet":
@@ -1346,6 +1356,10 @@ class TrainingState:
                     ("jacobian_minimum", 1e-4),
                     ("jacobian_method", "finite_difference"),
                     ("jacobian_fd_step", 1e-3),
+                    ("pde_loss_enabled", False),
+                    ("pde_loss_weight", 1e-4),
+                    ("pde_interior_sample_count", 128),
+                    ("pde_fd_step", None),
                     ("target_interpolation", "curved_boundary_cell"),
                     ("idw_neighbors", -1),
                     ("idw_query_chunk_size", 512),
@@ -1477,7 +1491,12 @@ class TrainingState:
             "pde_loss_history": (
                 [item["loss_pde"] for item in self.history]
                 if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet")
-                else None
+                else (
+                    [item.get("loss_pde", 0.0) for item in self.history]
+                    if self.name == "hmonet"
+                    and h.get("pde_loss_enabled", False)
+                    else None
+                )
             ),
             **(
                 {

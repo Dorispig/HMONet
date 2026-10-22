@@ -6,8 +6,9 @@
 - `ex4/`：约17.8万参数HMONet下的Jacobian损失与曲边目标插值组合消融。
 - `ex5/`：沿用ex3基线训练策略的HMONet参数量消融。
 - `ex6/`：沿用ex3基线参数的数据集大小消融，训练子集不落盘。
+- `ex7/`：精简HMONet在曲边修正下的Jacobian与非归一化PDE损失组合消融。
 
-运行时用 `--experiment-set ex1|ex2|ex3|ex4|ex5|ex6` 选择套件。每套实验独立读取自己的 `baseline/experiment.yaml`、`baseline/evaluate.yaml` 和 `configs/ablation_2d.yaml`，训练、评估及汇总结果也只写入该套件目录。
+运行时用 `--experiment-set ex1|ex2|ex3|ex4|ex5|ex6|ex7` 选择套件。每套实验独立读取自己的 `baseline/experiment.yaml`、`baseline/evaluate.yaml` 和 `configs/ablation_2d.yaml`，训练、评估及汇总结果也只写入该套件目录。
 
 ## 评估输出
 

@@ -9,7 +9,7 @@ grid:  # 三维训练网格尺寸
   ny: 31  # eta周向节点数：内圆和外边界使用相同采样数
   nz: 11  # zeta方向节点数
 
-model:  # 模型与网络结构配置；支持五个单模型、both、pi和all
+model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi、all快捷别名
   name: both  # 默认分别训练HMONet和MeshONet
   common:  # 五种模型共用的网络结构
     branch_dim: 64  # 边界分支特征维度
@@ -23,15 +23,15 @@ model:  # 模型与网络结构配置；支持五个单模型、both、pi和all
     output_dim: 128  # 融合特征维度
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # 三坐标分支与共享Lift/Modified MLP主干
-    branch_dim: 64  # Adjust Layer输出维度
-    trunk_dim: 24  # 三维Lift Layer输出维度
-    adjust_hidden_dim: 128  # Adjust Layer隐藏宽度
+    branch_dim: 32  # Adjust Layer输出维度，与ex4精简HMONet一致
+    trunk_dim: 16  # 三维Lift Layer输出维度
+    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
-    branch_hidden_dim: 128  # Modified MLP分支隐藏宽度
+    branch_hidden_dim: 64  # Modified MLP分支隐藏宽度
     branch_hidden_layer_num: 4  # Modified MLP分支门控层数
-    trunk_hidden_dim: 128  # Modified MLP主干隐藏宽度
+    trunk_hidden_dim: 64  # Modified MLP主干隐藏宽度
     trunk_hidden_layer_num: 4  # Modified MLP主干门控层数
-    output_dim: 128  # 分支与主干点积的潜在维度
+    output_dim: 64  # 分支与主干点积的潜在维度
   pihmonet:  # PI-HMONet模型覆盖配置
     hmonet_mapping_mode: current  # HMONet内部映射方式
   attentionpihmonet:  # Attention-PI-HMONet模型覆盖配置
@@ -54,19 +54,19 @@ model:  # 模型与网络结构配置；支持五个单模型、both、pi和all
     attention_dropout: 0.0  # 注意力层dropout比例
     residual_regularization_weight: 0.0  # 仅coons_residual使用；0表示关闭
 
-  meshonet:  # 论文式三分支共享融合结构；32x32x32时参数量为154163
-    branch_dim: 24  # Adjust Layer输出维度
-    trunk_dim: 24  # 三维坐标增强后的主干输入维度
-    adjust_hidden_dim: 8  # Adjust Layer隐藏宽度
+  meshonet:  # 论文式三分支共享融合结构，默认宽度与ex4精简HMONet一致
+    branch_dim: 32  # Adjust Layer输出维度
+    trunk_dim: 16  # 三维坐标增强后的主干输入维度
+    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
-    branch_hidden_dim: 20  # Branch网络隐藏宽度
+    branch_hidden_dim: 64  # Branch网络隐藏宽度
     branch_hidden_layer_num: 4  # Branch网络隐藏层数
-    trunk_hidden_dim: 20  # Trunk网络隐藏宽度
+    trunk_hidden_dim: 64  # Trunk网络隐藏宽度
     trunk_hidden_layer_num: 4  # Trunk网络隐藏层数
-    output_dim: 24  # 分支和主干点积的潜在维度
+    output_dim: 64  # 分支和主干点积的潜在维度
     shared_branch_fusion_enabled: true  # 三个分支拼接后是否使用共享融合MLP
-    branch_mlp_hidden_dim: 24  # 共享融合MLP隐藏宽度
-    branch_mlp_hidden_layer_num: 3  # 共享融合MLP隐藏层数
+    branch_mlp_hidden_dim: 64  # 共享融合MLP隐藏宽度
+    branch_mlp_hidden_layer_num: 4  # 共享融合MLP隐藏层数
 
 training:  # 公共训练设置
   dataset: both  # 训练数据模式

@@ -49,6 +49,7 @@ ABLATIONS = (
     "jacobian_interpolation",
     "model_capacity",
     "dataset_size",
+    "pde_jacobian",
 )
 BASELINE_ABLATION = "baseline"
 DEFAULT_LEARNING_RATES = (0.0001, 0.0002, 0.0004, 0.0008, 0.001)
@@ -230,6 +231,7 @@ METRIC_PROFILES = {
 for _name in ("trunk_geometry_coefficients", "boundary_self_attention", "projection_activation"):
     METRIC_PROFILES[_name] = METRIC_PROFILES["mapping_mode"]
 METRIC_PROFILES["jacobian_interpolation"] = METRIC_PROFILES["jacobian_enabled"]
+METRIC_PROFILES["pde_jacobian"] = METRIC_PROFILES["jacobian_enabled"]
 METRIC_PROFILES["model_capacity"] = {
     "important": (
         "fixed_grid_best_mse",
@@ -630,6 +632,7 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
             "--trunk-projection-coefficients-enabled",
             "--projection-softplus-enabled",
             "--boundary-self-attention-enabled",
+            "--pde-loss-enabled",
         }:
             result[flag[2:].replace("-", "_")] = True
             index += 1
@@ -750,6 +753,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "branch_mlp_hidden_dim",
         "branch_mlp_hidden_layer_num",
         "dataset_sample_count",
+        "pde_interior_sample_count",
     }
     boolean_keys = {
         "jacobian_loss_enabled",
@@ -757,6 +761,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "trunk_projection_coefficients_enabled",
         "projection_softplus_enabled",
         "boundary_self_attention_enabled",
+        "pde_loss_enabled",
     }
     string_keys = {
         "hmonet_mapping_mode",

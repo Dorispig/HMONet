@@ -1,0 +1,50 @@
+# 精简HMONet中Jacobian损失与非归一化PDE损失的组合消融。
+schema_version: 1
+experiment: pde_jacobian
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+
+# 四组均使用开启trunk几何系数的精简HMONet，并固定开启曲边单元修正。
+# 实验只改变Jacobian与非归一化PDE两个损失项，保证控制变量一致。
+variants:
+- name: baseline
+  value: curved_no_physics
+  overrides:
+  - --no-jacobian-loss-enabled
+  - --target-interpolation
+  - curved_boundary_cell
+
+- name: jacobian_only
+  value: curved_with_jacobian
+  overrides:
+  - --jacobian-loss-enabled
+  - --jacobian-loss-weight
+  - 0.0001
+  - --target-interpolation
+  - curved_boundary_cell
+
+- name: pde_only
+  value: curved_with_raw_pde
+  overrides:
+  - --no-jacobian-loss-enabled
+  - --pde-loss-enabled
+  - --pde-loss-weight
+  - 0.0001
+  - --pde-interior-sample-count
+  - 128
+  - --target-interpolation
+  - curved_boundary_cell
+
+- name: jacobian_pde
+  value: curved_with_jacobian_and_raw_pde
+  overrides:
+  - --jacobian-loss-enabled
+  - --jacobian-loss-weight
+  - 0.0001
+  - --pde-loss-enabled
+  - --pde-loss-weight
+  - 0.0001
+  - --pde-interior-sample-count
+  - 128
+  - --target-interpolation
+  - curved_boundary_cell

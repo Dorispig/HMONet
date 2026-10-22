@@ -49,7 +49,7 @@ datasets:
 
 | 参数 | 修改的内容 |
 |---|---|
-| `--model all` | 五个模型分别训练；`both` 仅训练 HMONet、MeshONet，`pi` 训练三个 PI 模型，也可单选 `attentionpihmonet`。 |
+| `--model meshonet,pimeshonet` | 支持五个模型的任意逗号组合并按书写顺序训练；也支持 `both`、`pi`、`all` 快捷别名。 |
 | `--dataset-mode both` | 内插、外推数据集分别训练；也可以选择 `interpolation` 或 `extrapolation`。 |
 | `--nx 21` | 可选的一致性检查；训练规模自动读取数据集，显式值不一致时中止。 |
 | `--ny 20` | 可选的一致性检查；训练规模自动读取数据集，显式值不一致时中止。 |
@@ -72,7 +72,7 @@ python scripts/train/train_2d.py --help
 
 | 参数 | 修改的内容 |
 |---|---|
-| `--model both` | 仅评估 TFI、PDE、MeshONet、HMONet，不影响训练模型选择。模型选项详见文末。 |
+| `--model meshonet,pimeshonet` | 评估 TFI、PDE 和指定的任意模型组合，不影响训练模型选择；也支持 `both`、`pi`、`all`。 |
 | `--inference-warmup-runs 3` | 网络计时前预热3次。 |
 | `--inference-timing-repeats 10` | 网络计时运行10次，按评估代码的规则统计时间。 |
 | `--compute-grid-quality` | 开启网格质量计算。 |
@@ -171,7 +171,7 @@ python scripts/train/train_evaluate.py `
 - 评估 case 根据本次训练的数据集名称确定。
 - checkpoint 使用本次训练保存的文件。
 - HMONet、PI-HMONet、Attention-PI-HMONet 内部映射方式与本次训练保持一致。
-- 默认比较 TFI、PDE，以及本次实际训练的模型；可通过 `--evaluate-args "--model both"` 等选择评估模型，或通过外层 `--evaluate-methods` 选择方法。两种选择方式不能同时使用。
+- 默认比较 TFI、PDE，以及本次实际训练的模型；可通过 `--evaluate-args "--model meshonet,pimeshonet"` 选择任意模型组合，或通过外层 `--evaluate-methods` 选择方法。两种选择方式不能同时使用。
 - 更换评估配置文件请使用外层 `--evaluate-config`。
 - 更换训练配置文件请使用外层 `--train-config`，不能在 `--train-args` 内填写 `--config`。
 

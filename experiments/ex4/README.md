@@ -1,6 +1,7 @@
 # ex4：精简 HMONet 的训练策略组合消融
 
-本套实验采用约 17.8 万参数的 HMONet，比较普通双线性目标、Jacobian
+本套实验以 ex5 的 compact_178k 结构为基础，将四组隐藏层宽度统一为64；
+在41x20输入下共有152522个可训练参数。实验比较普通双线性目标、Jacobian
 损失、曲边目标插值以及二者同时启用。网络容量固定，其他训练和评估
 参数继承 `baseline/experiment.yaml` 与 `baseline/evaluate.yaml`。
 

@@ -16,6 +16,8 @@ import torch
 import yaml
 from tqdm import tqdm
 
+from scripts.train.model_selection import parse_model_selection
+from scripts.train.physics_loss import elliptic_residual, stencil_queries as physics_stencil_queries
 from scripts.train.training_common import (
     BatchLossTotals,
     boundary_normal_loss,
@@ -79,6 +81,21 @@ def train_hmonet(datasets, config, mode, args, device):
     if not 0 < jacobian_step <= 1 / 3:
         raise ValueError("jacobian_fd_step must be in (0, 1/3]")
     use_fd_jacobian = use_jacobian and jacobian_method == "finite_difference"
+    use_pde = bool(geometry_options.get("pde_loss_enabled", False))
+    pde_weight = float(geometry_options.get("pde_loss_weight", 1.0e-4))
+    pde_count = int(geometry_options.get("pde_interior_sample_count", 128))
+    configured_pde_step = geometry_options.get("pde_fd_step")
+    pde_steps = torch.as_tensor(
+        configured_pde_step
+        if configured_pde_step is not None
+        else [1.0 / (size - 1) for size in shape],
+        device=device,
+        dtype=torch.float32,
+    )
+    if use_pde and (pde_weight < 0 or pde_count < 1):
+        raise ValueError("PDE loss requires a nonnegative weight and positive sample count")
+    if pde_steps.shape != (2,) or torch.any(pde_steps <= 0) or torch.any(pde_steps >= 0.5):
+        raise ValueError("pde_fd_step must contain two values in (0, 0.5)")
     use_normal = bool(geometry_options.get("boundary_normal_loss_enabled", False))
     target_interpolation = str(
         geometry_options.get("target_interpolation", "curved_boundary_cell")
@@ -253,6 +270,23 @@ def train_hmonet(datasets, config, mode, args, device):
                     if jacobian_terms
                     else torch.zeros((), device=device)
                 )
+                pde = torch.zeros((), device=device)
+                if use_pde and pde_weight > 0:
+                    pde_centers = sample_shared_random_points(
+                        len(mesh),
+                        pde_count,
+                        2,
+                        device,
+                        margin=float(pde_steps.max().item()),
+                    )
+                    pde_queries = physics_stencil_queries(pde_centers, pde_steps)
+                    pde_prediction = predict_coordinates(
+                        model,
+                        boundary,
+                        pde_queries.flatten(-3, -2),
+                        geometries,
+                    ).reshape(*pde_queries.shape)
+                    pde = elliptic_residual(pde_prediction, pde_steps).square().sum(-1).mean()
                 normal = torch.zeros((), device=device)
                 if use_normal:
                     normal = boundary_normal_loss(
@@ -277,6 +311,7 @@ def train_hmonet(datasets, config, mode, args, device):
                     * jacobian
                     + float(geometry_options.get("boundary_normal_loss_weight", 0.01))
                     * normal
+                    + pde_weight * pde
                     + residual_weight * regularization
                 )
                 if not safe_optimizer_step(
@@ -293,6 +328,7 @@ def train_hmonet(datasets, config, mode, args, device):
                     coordinate_loss=coordinate_loss,
                     jacobian=jacobian,
                     boundary_normal=normal,
+                    loss_pde=pde,
                 )
                 postfix = {"loss": loss.item()}
                 postfix.update(
@@ -302,6 +338,8 @@ def train_hmonet(datasets, config, mode, args, device):
                     postfix["jacobian_loss"] = jacobian.item()
                 if use_normal:
                     postfix["boundary_normal_loss"] = normal.item()
+                if use_pde and pde_weight > 0:
+                    postfix["pde_loss"] = pde.item()
                 if residual_weight > 0:
                     postfix["displacement_regularization"] = regularization.item()
                 progress.set_postfix(**postfix)
@@ -528,7 +566,10 @@ def main(argv=None):
     )
     parser.add_argument(
         "--model",
-        choices=["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet", "both", "pi", "all"],
+        help=(
+            "Model name, alias (both/pi/all), or a comma-separated model list, "
+            "for example meshonet,pimeshonet"
+        ),
     )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
@@ -594,6 +635,12 @@ def main(argv=None):
     parser.add_argument("--jacobian-minimum", type=float)
     parser.add_argument("--jacobian-method", choices=["finite_difference", "autograd"])
     parser.add_argument("--jacobian-fd-step", type=float)
+    parser.add_argument(
+        "--pde-loss-enabled", action=argparse.BooleanOptionalAction, default=None
+    )
+    parser.add_argument("--pde-loss-weight", type=float)
+    parser.add_argument("--pde-interior-sample-count", type=int)
+    parser.add_argument("--pde-fd-step", type=float, nargs=2)
     parser.add_argument(
         "--target-interpolation",
         choices=["bilinear", "curved_boundary_cell"],
@@ -905,6 +952,9 @@ def main(argv=None):
         "jacobian_minimum",
         "jacobian_method",
         "jacobian_fd_step",
+        "pde_loss_weight",
+        "pde_interior_sample_count",
+        "pde_fd_step",
         "target_interpolation",
         "idw_neighbors",
         "idw_query_chunk_size",
@@ -916,7 +966,11 @@ def main(argv=None):
     ):
         if getattr(args, source) is not None:
             htraining[source] = getattr(args, source)
-    for source in ("jacobian_loss_enabled", "boundary_normal_loss_enabled"):
+    for source in (
+        "jacobian_loss_enabled",
+        "pde_loss_enabled",
+        "boundary_normal_loss_enabled",
+    ):
         if getattr(args, source) is not None:
             htraining[source] = getattr(args, source)
     attention_training = config.setdefault("attentionpihmonet_training", {})
@@ -959,17 +1013,7 @@ def main(argv=None):
     if not paths:
         raise ValueError("No dataset path supplied")
     choice = args.model or config.get("model", {}).get("name", "hmonet")
-    names = (
-        ["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"]
-        if choice == "all"
-        else (
-            ["hmonet", "meshonet"]
-            if choice == "both"
-            else ["pimeshonet", "pihmonet", "attentionpihmonet"]
-            if choice == "pi"
-            else [choice]
-        )
-    )
+    names = parse_model_selection(choice)
     device_name = training.get("device", "auto")
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"

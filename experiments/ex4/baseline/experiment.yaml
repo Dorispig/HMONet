@@ -29,16 +29,16 @@ model:  # 模型与网络结构配置
 
   # 五个模型共用的算子网络结构。模型专属段只覆盖差异项。
   common:  # 五种模型共用的网络结构
-    branch_dim: 32                 # 约17.8万参数基线的边界特征维度。
+    branch_dim: 32                 # 沿用ex5 compact_178k的边界特征维度。
     trunk_dim: 16                  # 计算坐标增强后的主干输入维度。
-    adjust_hidden_dim: 72          # 边界输入调整网络隐藏层宽度。
+    adjust_hidden_dim: 64          # 边界输入调整网络隐藏层宽度。
     adjust_hidden_layer_num: 4     # 边界输入调整网络隐藏层数。
-    branch_hidden_dim: 72          # 边界分支网络隐藏层宽度。
+    branch_hidden_dim: 64          # 边界分支网络隐藏层宽度。
     branch_hidden_layer_num: 4     # 边界分支网络隐藏层数。
-    trunk_hidden_dim: 72           # 坐标主干网络隐藏层宽度。
+    trunk_hidden_dim: 64           # 坐标主干网络隐藏层宽度。
     trunk_hidden_layer_num: 4      # 坐标主干网络隐藏层数。
-    output_dim: 68                 # 分支和主干融合特征维度。
-    branch_mlp_hidden_dim: 72      # x/y 融合 MLP 隐藏层宽度。
+    output_dim: 64                 # 分支和主干融合特征维度；与ex5的compact_178k一致。
+    branch_mlp_hidden_dim: 64      # x/y 融合 MLP 隐藏层宽度。
     branch_mlp_hidden_layer_num: 4 # x/y 融合 MLP 隐藏层数。
 
   hmonet:  # HMONet模型配置

@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.train.model_selection import parse_model_selection
+
 
 def normalize_evaluate_methods(value):
     """Normalize an optional subset while preserving the evaluator's method order."""
@@ -30,7 +32,7 @@ def extract_evaluation_model(evaluate_extra, evaluate_methods=None):
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     parser.add_argument(
         "--model",
-        choices=["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet", "both", "pi", "all"],
+        help="Model alias or comma-separated model list",
     )
     selected, remaining = parser.parse_known_args(evaluate_extra)
     if selected.model is None:
@@ -39,17 +41,7 @@ def extract_evaluation_model(evaluate_extra, evaluate_methods=None):
         raise ValueError(
             "Use either --evaluate-methods or --evaluate-args '--model ...', not both"
         )
-    models = (
-        ["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"]
-        if selected.model == "all"
-        else (
-            ["hmonet", "meshonet"]
-            if selected.model == "both"
-            else ["pimeshonet", "pihmonet", "attentionpihmonet"]
-            if selected.model == "pi"
-            else [selected.model]
-        )
-    )
+    models = parse_model_selection(selected.model)
     return normalize_evaluate_methods(["tfi", "pde"] + models), remaining
 
 
@@ -161,7 +153,7 @@ def main(argv=None):
     preflight = argparse.ArgumentParser(add_help=False)
     preflight.add_argument(
         "--model",
-        choices=["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet", "both", "pi", "all"],
+        help="Model alias or comma-separated model list",
     )
     preflight.add_argument("--dataset")
     preflight.add_argument("--dataset-mode")
@@ -169,17 +161,7 @@ def main(argv=None):
         preflight.add_argument(f"--{axis}", type=int)
     overrides, _ = preflight.parse_known_args(train_extra)
     choice = overrides.model or config.get("model", {}).get("name", "hmonet")
-    trained = (
-        {"hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"}
-        if choice == "all"
-        else (
-            {"hmonet", "meshonet"}
-            if choice == "both"
-            else {"pimeshonet", "pihmonet", "attentionpihmonet"}
-            if choice == "pi"
-            else {choice}
-        )
-    )
+    trained = set(parse_model_selection(choice))
     # Explicit evaluation methods may include an already trained model. Models
     # trained in this invocation are pinned to their new checkpoints; other
     # requested models are resolved by the evaluator from existing checkpoints.

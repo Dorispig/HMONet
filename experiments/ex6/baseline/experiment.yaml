@@ -156,14 +156,14 @@ hmonet_training:  # HMONet训练参数
 
   # 随机点监督值插值：bilinear 为普通双线性；curved_boundary_cell 为全局边界位移 IDW。
   # IDW 将每段边界网格参数区间四等分，只取1/4、1/2、3/4三个新增点，不重复原始边界点。
-  target_interpolation: bilinear  # 训练目标插值方式
+  target_interpolation: curved_boundary_cell  # 训练目标插值方式；ex6基线启用曲边单元修正
   idw_neighbors: -1  # IDW邻居数：-1使用全部边界支持点；设为32启用局部K近邻IDW
   idw_query_chunk_size: 128  # 二维实测最优查询分块；支持点仍由一个大块完成累计
   idw_support_chunk_size: 2048  # IDW边界支持点分块；增大后减少Python循环和GPU启动次数
   point_loss_weighting: position  # 采样点损失权重：position为边界增强，uniform为全1
 
   # Jacobian 方法：finite_difference 或 autograd。
-  jacobian_loss_enabled: false  # 是否启用Jacobian损失
+  jacobian_loss_enabled: true  # ex6基线启用Jacobian损失
   jacobian_method: finite_difference  # Jacobian计算方法
   jacobian_fd_step: 0.0001  # 有限差分步长
   jacobian_loss_weight: 1.0e-4  # Jacobian损失权重
@@ -305,6 +305,7 @@ attentionpihmonet_training:  # 带边界自注意力和精确投影的自监督�
   anchor_margin: 0.2  # 锚点距计算域边界的参数余量
 
   boundary_sample_counts: null  # null使用[nx,ny,nx,ny]采样四条边用于注意力编码
+
 
 
 

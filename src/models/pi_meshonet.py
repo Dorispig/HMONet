@@ -53,15 +53,15 @@ class _PIMeshONet(nn.Module):
         self,
         shape,
         *,
-        branch_dim=64,
+        branch_dim=32,
         trunk_dim=16,
-        adjust_hidden_dim=128,
-        branch_hidden_dim=128,
-        trunk_hidden_dim=128,
+        adjust_hidden_dim=64,
+        branch_hidden_dim=64,
+        trunk_hidden_dim=64,
         adjust_hidden_layer_num=4,
         branch_hidden_layer_num=4,
         trunk_hidden_layer_num=4,
-        output_dim=128,
+        output_dim=64,
         **_,
     ):
         super().__init__()
@@ -165,20 +165,18 @@ class PIMeshONet2D(_PIMeshONet):
     """Two-dimensional PI-MeshONet from the paper architecture."""
 
     def __init__(self, Nx, Ny, **kwargs):
-        # This balanced configuration contains 24,450 trainable parameters for
-        # the default 21 x 20 training grid, matching the paper's reported
-        # 24,452 parameters to within two parameters. Explicit caller options
-        # continue to take precedence over these two-dimensional defaults.
+        # Keep the default operator widths and depths aligned with compact ex4 HMONet.
+        # Explicit caller options continue to take precedence.
         defaults = {
-            "branch_dim": 20,
+            "branch_dim": 32,
             "trunk_dim": 16,
-            "adjust_hidden_dim": 20,
-            "adjust_hidden_layer_num": 1,
-            "branch_hidden_dim": 32,
+            "adjust_hidden_dim": 64,
+            "adjust_hidden_layer_num": 4,
+            "branch_hidden_dim": 64,
             "branch_hidden_layer_num": 4,
-            "trunk_hidden_dim": 32,
-            "trunk_hidden_layer_num": 3,
-            "output_dim": 32,
+            "trunk_hidden_dim": 64,
+            "trunk_hidden_layer_num": 4,
+            "output_dim": 64,
         }
         for name, value in defaults.items():
             kwargs.setdefault(name, value)
@@ -193,7 +191,19 @@ class PIMeshONet3D(_PIMeshONet):
     """Three-dimensional extension with three branches and one shared trunk."""
 
     def __init__(self, Nx, Ny, Nz, **kwargs):
-        kwargs.setdefault("trunk_dim", 24)
+        compact_defaults = {
+            "branch_dim": 32,
+            "trunk_dim": 16,
+            "adjust_hidden_dim": 64,
+            "adjust_hidden_layer_num": 4,
+            "branch_hidden_dim": 64,
+            "branch_hidden_layer_num": 4,
+            "trunk_hidden_dim": 64,
+            "trunk_hidden_layer_num": 4,
+            "output_dim": 64,
+        }
+        for name, value in compact_defaults.items():
+            kwargs.setdefault(name, value)
         super().__init__((Nx, Ny, Nz), **kwargs)
         self.Nx, self.Ny, self.Nz = self.declared_grid_shape
 

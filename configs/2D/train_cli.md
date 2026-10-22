@@ -84,7 +84,7 @@ python scripts/train/train_2d.py --model both --dataset-mode interpolation --epo
 
 ## 2. 数据集、模型、网格和基本训练参数
 
-- `--model both`：覆盖 `model.name`；可选 `hmonet`、`meshonet`、`both`。`both` 依次训练 HMONet、MeshONet。
+- `--model meshonet,pimeshonet`：覆盖 `model.name`；支持五个模型的任意逗号组合并按书写顺序依次训练。仍支持 `both`（HMONet＋MeshONet）、`pi`（三个 PI 模型）和 `all`（全部五个模型）。
 - `--dataset-mode both`：覆盖 `training.dataset`；可选 `interpolation`、`extrapolation`、`both`。未指定 `--dataset` 时从 YAML 的 `datasets` 读取对应路径；`both` 按内插、外推分别训练，不合并为一个训练集。
 - `--dataset data/raw/2D/air_t_int_0_1000_21_20`：直接指定一个数据集目录，替代 YAML 路径选择；也可指定该目录内的 `dataset.npy`。相对路径相对于运行命令的当前目录，推荐在项目根目录运行。
 - `--nx 21`：可选的一致性检查；训练规模自动读取数据集，若显式值与数据集不一致则中止。

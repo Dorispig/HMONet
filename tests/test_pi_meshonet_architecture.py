@@ -20,10 +20,10 @@ SMALL = dict(
 
 
 class PIMeshONetArchitectureTests(unittest.TestCase):
-    def test_default_2d_parameter_count_matches_paper_scale(self):
+    def test_default_2d_parameter_count_matches_compact_scale(self):
         model = PIMeshONet2D(21, 20)
         parameter_count = sum(parameter.numel() for parameter in model.parameters())
-        self.assertEqual(parameter_count, 24450)
+        self.assertEqual(parameter_count, 117570)
 
     def test_modified_mlp_uses_paper_gate_equation(self):
         torch.manual_seed(3)

@@ -22,8 +22,8 @@ grid:  # 二维训练网格尺寸
 # =============================================================================
 
 model:  # 模型与网络结构配置
-  # 可选：hmonet、meshonet、pimeshonet、pihmonet、attentionpihmonet、both、pi、all。
-  # both = HMONet + MeshONet；pi = 三个 PI 模型；all = 五个模型。
+  # 可写单个模型、逗号分隔的任意组合，或快捷别名 both、pi、all。
+  # 例如 meshonet,pimeshonet；both = HMONet + MeshONet；pi = 三个 PI 模型；all = 五个模型。
   name: hmonet  # 训练模型名称
 
   # 五个模型共用的算子网络结构。模型专属段只覆盖差异项。
@@ -42,29 +42,29 @@ model:  # 模型与网络结构配置
 
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # Adjust + Modified MLP分支 + Lift/Modified MLP共享主干
-    # 以 21x20 训练网格计算时共有 24450 个可训练参数，与论文报告的 24452 接近。
-    branch_dim: 20  # Adjust Layer输出维度
+    # 默认宽度和深度与ex4精简HMONet保持一致。
+    branch_dim: 32  # Adjust Layer输出维度
     trunk_dim: 16  # Lift Layer输出维度
-    adjust_hidden_dim: 20  # Adjust Layer隐藏宽度
-    adjust_hidden_layer_num: 1  # Adjust Layer隐藏层数
-    branch_hidden_dim: 32  # Modified MLP分支隐藏宽度
+    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
+    adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
+    branch_hidden_dim: 64  # Modified MLP分支隐藏宽度
     branch_hidden_layer_num: 4  # Modified MLP分支门控层数
-    trunk_hidden_dim: 32  # Modified MLP主干隐藏宽度
-    trunk_hidden_layer_num: 3  # Modified MLP主干门控层数
-    output_dim: 32  # 分支与主干点积的潜在维度
+    trunk_hidden_dim: 64  # Modified MLP主干隐藏宽度
+    trunk_hidden_layer_num: 4  # Modified MLP主干门控层数
+    output_dim: 64  # 分支与主干点积的潜在维度
 
   meshonet:  # MeshONet专属网络结构；覆盖common且不影响HMONet
-    branch_dim: 24  # Adjust Layer输出维度
-    trunk_dim: 24  # 计算坐标增强后的主干输入维度
-    adjust_hidden_dim: 8  # Adjust Layer隐藏宽度
-    adjust_hidden_layer_num: 3  # Adjust Layer隐藏层数
-    branch_hidden_dim: 24  # Branch网络隐藏宽度
+    branch_dim: 32  # Adjust Layer输出维度，与ex4精简HMONet一致
+    trunk_dim: 16  # 计算坐标增强后的主干输入维度
+    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
+    adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
+    branch_hidden_dim: 64  # Branch网络隐藏宽度
     branch_hidden_layer_num: 4  # Branch网络隐藏层数
-    trunk_hidden_dim: 32  # Trunk网络隐藏宽度
+    trunk_hidden_dim: 64  # Trunk网络隐藏宽度
     trunk_hidden_layer_num: 4  # Trunk网络隐藏层数
-    output_dim: 32  # 分支和主干点积的潜在维度
-    branch_mlp_hidden_dim: 24  # 融合MLP隐藏宽度，与三维MeshONet一致
-    branch_mlp_hidden_layer_num: 3  # 融合MLP隐藏层数，与三维MeshONet一致
+    output_dim: 64  # 分支和主干点积的潜在维度
+    branch_mlp_hidden_dim: 64  # 融合MLP隐藏宽度
+    branch_mlp_hidden_layer_num: 4  # 融合MLP隐藏层数
 
   hmonet:  # HMONet模型配置
     hmonet_mapping_mode: current  # 内部硬边界映射：current或coons_residual
@@ -102,7 +102,7 @@ training:  # 公共训练设置
   dataset: both  # 训练数据模式
   num_epochs: 50000  # 最大训练轮数
   batch_size: 64  # 批大小
-  seed: 20261002  # 随机种子
+  seed: 20261030  # 随机种子
   # 可选：auto、cpu、cuda、cuda:0 等。
   device: cuda  # 训练设备
   tensorboard_enabled: true  # 是否启用TensorBoard
@@ -193,6 +193,12 @@ hmonet_training:  # HMONet训练参数
   jacobian_fd_step: 0.0001  # 有限差分步长
   jacobian_loss_weight: 1.0e-3  # Jacobian损失权重
   jacobian_minimum: 1.0e-4  # 最小允许Jacobian
+
+  # 非归一化椭圆PDE残差；默认关闭，仅在监督HMONet的相关消融中启用。
+  pde_loss_enabled: false  # 是否启用非归一化PDE损失
+  pde_loss_weight: 1.0e-4  # 非归一化PDE损失权重
+  pde_interior_sample_count: 128  # 每批用于PDE残差的内部采样点数
+  pde_fd_step: null  # null按训练网格间距取值，也可设置为[h_xi, h_eta]
 
   # 法向损失默认关闭；开启后以下三个参数生效。
   boundary_normal_loss_enabled: false  # 是否启用边界法向损失

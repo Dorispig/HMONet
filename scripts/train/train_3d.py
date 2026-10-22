@@ -17,6 +17,7 @@ import torch
 import yaml
 from tqdm import tqdm
 
+from scripts.train.model_selection import parse_model_selection
 from scripts.train.training_common import (
     BatchLossTotals,
     boundary_normal_loss,
@@ -475,7 +476,10 @@ def main(argv=None):
     )
     parser.add_argument(
         "--model",
-        choices=["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet", "both", "pi", "all"],
+        help=(
+            "Model name, alias (both/pi/all), or a comma-separated model list, "
+            "for example meshonet,pimeshonet"
+        ),
     )
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--batch-size", type=int)
@@ -819,17 +823,7 @@ def main(argv=None):
     if not paths:
         raise ValueError("No dataset path supplied")
     choice = args.model or config.get("model", {}).get("name", "hmonet")
-    names = (
-        ["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"]
-        if choice == "all"
-        else (
-            ["hmonet", "meshonet"]
-            if choice == "both"
-            else ["pimeshonet", "pihmonet", "attentionpihmonet"]
-            if choice == "pi"
-            else [choice]
-        )
-    )
+    names = parse_model_selection(choice)
     device_name = training.get("device", "auto")
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"

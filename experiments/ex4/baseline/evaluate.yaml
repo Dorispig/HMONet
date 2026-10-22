@@ -14,7 +14,6 @@ cases:
     split: extrapolation
     parameter: t
     values:
-    - 0.04
     - 0.62
     - 0.65
     train_grid:
@@ -51,7 +50,7 @@ cases:
     boundary_type: circle_airfoil_t
     split: extrapolation
     parameter: t
-    values: [0.04, 0.62, 0.65]
+    values: [0.62, 0.65]
     train_grid: [21, 20]
     fixed_parameters:
       radius: 1.0

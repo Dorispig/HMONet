@@ -10,7 +10,7 @@ from src.models.model import MeshONet3D
 class MeshONet3DArchitectureTests(unittest.TestCase):
     def test_default_32_cubed_parameter_count_and_gradients(self):
         model = MeshONet3D(32, 32, 32)
-        self.assertEqual(sum(p.numel() for p in model.parameters()), 154163)
+        self.assertEqual(sum(p.numel() for p in model.parameters()), 1266787)
         self.assertTrue(hasattr(model, "branch_fusion"))
         self.assertEqual(len(model.coefficient_heads), 3)
 

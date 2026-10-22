@@ -164,17 +164,17 @@ class MeshONet2D(nn.Module):
         self,
         Nx,
         Ny,
-        branch_dim=24,
-        trunk_dim=24,
-        adjust_hidden_dim=8,
-        branch_hidden_dim=24,
-        trunk_hidden_dim=32,
-        adjust_hidden_layer_num=3,
+        branch_dim=32,
+        trunk_dim=16,
+        adjust_hidden_dim=64,
+        branch_hidden_dim=64,
+        trunk_hidden_dim=64,
+        adjust_hidden_layer_num=4,
         branch_hidden_layer_num=4,
         trunk_hidden_layer_num=4,
-        output_dim=32,
-        branch_mlp_hidden_dim=24,
-        branch_mlp_hidden_layer_num=3,
+        output_dim=64,
+        branch_mlp_hidden_dim=64,
+        branch_mlp_hidden_layer_num=4,
     ):
         super().__init__()
         if branch_mlp_hidden_dim <= 0:
@@ -1140,23 +1140,22 @@ class MeshONet3D(_OperatorNet3D):
         Nx,
         Ny,
         Nz,
-        branch_mlp_hidden_dim=24,
-        branch_mlp_hidden_layer_num=3,
+        branch_mlp_hidden_dim=64,
+        branch_mlp_hidden_layer_num=4,
         shared_branch_fusion_enabled=True,
         **kwargs,
     ):
-        # Together with the shared fusion block below, these defaults contain
-        # exactly 154,163 trainable parameters at a 32 x 32 x 32 resolution.
+        # Keep the default widths and depths aligned with the compact ex4 HMONet.
         defaults = {
-            "branch_dim": 24,
-            "trunk_dim": 24,
-            "adjust_hidden_dim": 8,
+            "branch_dim": 32,
+            "trunk_dim": 16,
+            "adjust_hidden_dim": 64,
             "adjust_hidden_layer_num": 4,
-            "branch_hidden_dim": 20,
+            "branch_hidden_dim": 64,
             "branch_hidden_layer_num": 4,
-            "trunk_hidden_dim": 20,
+            "trunk_hidden_dim": 64,
             "trunk_hidden_layer_num": 4,
-            "output_dim": 24,
+            "output_dim": 64,
         }
         for name, value in defaults.items():
             kwargs.setdefault(name, value)
