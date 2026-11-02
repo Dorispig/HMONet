@@ -126,8 +126,6 @@ def quality_tables(case, baseline):
                 metric(row, "aspect_ratio", "maximum"),
                 metric(row, "orthogonality", "mean"),
                 metric(row, "orthogonality", "minimum"),
-                metric(row, "cell_area", "mean"),
-                metric(row, "cell_area", "minimum"),
                 metric(row, "boundary_layer_orthogonality", "mean"),
                 metric(row, "boundary_layer_orthogonality", "minimum"),
             ]
@@ -169,8 +167,6 @@ def quality_tables(case, baseline):
                 "长宽比最差↓",
                 "正交性均值↑",
                 "正交性最差↑",
-                "面积均值",
-                "面积最差↑",
                 "边界层正交均值↑",
                 "边界层正交最差↑",
             ],

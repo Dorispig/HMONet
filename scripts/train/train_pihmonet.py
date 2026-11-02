@@ -5,11 +5,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from src.models.model import HMONet2D, HMONet3D
-from scripts.train.physics_loss import (
+from src.models import HMONet2D, HMONet3D
+from src.losses.physics import (
     stencil_queries,
-    elliptic_residual,
-    normalized_pde_loss,
+    elliptic_grid_pde_residual,
+    elliptic_grid_normalized_pde_loss,
     jacobian_positive_loss,
     grid_line_smoothness_loss,
     orthogonality_loss,
@@ -19,7 +19,7 @@ from scripts.train.pi_anchor import (
     masked_anchor_mse,
     tfi_anchor_targets,
 )
-from scripts.train.training_common import (
+from src.engine.training import (
     BatchLossTotals,
     make_data_loader,
     predict_coordinates,
@@ -27,7 +27,7 @@ from scripts.train.training_common import (
     seed_everything,
     update_learning_rate,
 )
-from scripts.train.training_state import TrainingState, prepare_training_config
+from src.engine.state import TrainingState, prepare_training_config
 
 
 def _anchor_weight(initial_weight, epoch, decay_end_epoch):
@@ -209,10 +209,10 @@ def train_pihmonet(datasets, config, mode, args, device):
                         size, count, stencil.shape[-2], dimension
                     )
                     if weights["pde_loss_weight"] > 0:
-                        residual = elliptic_residual(values, h)
+                        residual = elliptic_grid_pde_residual(values, h)
                         raw_pde = residual.square().sum(-1).mean()
                     if weights["normalized_pde_loss_weight"] > 0:
-                        normalized_pde = normalized_pde_loss(values, h)
+                        normalized_pde = elliptic_grid_normalized_pde_loss(values, h)
                     if pi["jacobian_loss_enabled"] and weights["jacobian_loss_weight"] > 0:
                         jacobian = jacobian_positive_loss(
                             values, h, jacobian_minimum
@@ -249,23 +249,28 @@ def train_pihmonet(datasets, config, mode, args, device):
                     training["skip_nonfinite_loss"],
                 ):
                     continue
-                totals.add(
-                    size,
-                    loss=loss,
-                    loss_pde=raw_pde,
-                    loss_pde_normalized=normalized_pde,
-                    jacobian=jacobian,
-                    anchor=anchor,
-                    anchor_weight=current_anchor_weight,
-                    valid_anchor_ratio=valid_anchor_ratio,
-                    grid_smoothness=smoothness,
-                    orthogonality=orthogonality,
-                )
+                # Keep the raw PDE residual in the scientific record even when
+                # optimization uses only its normalized form.  This preserves
+                # comparability between PI-MeshONet/PI-HMONet runs.
+                active_losses = {"loss": loss, "loss_pde": raw_pde}
+                if weights["normalized_pde_loss_weight"] > 0:
+                    active_losses["loss_pde_normalized"] = normalized_pde
+                if pi["jacobian_loss_enabled"] and weights["jacobian_loss_weight"] > 0:
+                    active_losses["jacobian"] = jacobian
+                if current_anchor_weight > 0:
+                    active_losses.update(
+                        anchor=anchor,
+                        anchor_weight=current_anchor_weight,
+                        valid_anchor_ratio=valid_anchor_ratio,
+                    )
+                if weights["smoothness_loss_weight"] > 0:
+                    active_losses["grid_smoothness"] = smoothness
+                if weights["orthogonality_loss_weight"] > 0:
+                    active_losses["orthogonality"] = orthogonality
+                totals.add(size, **active_losses)
                 progress.set_postfix(
-                    loss=loss.item(),
-                    pde_norm=normalized_pde.item(),
-                    jacobian=jacobian.item(),
-                    anchor=anchor.item(),
+                    **{key: value.item() if torch.is_tensor(value) else value
+                       for key, value in active_losses.items()}
                 )
             update_learning_rate(
                 optimizer,

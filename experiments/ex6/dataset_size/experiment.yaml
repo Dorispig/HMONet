@@ -4,9 +4,6 @@ experiment: dataset_size
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml
 variants:
-- name: samples_1000
-  value: 1000
-  overrides: []
 - name: samples_800
   value: 800
   overrides:

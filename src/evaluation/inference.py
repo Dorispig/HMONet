@@ -12,12 +12,12 @@ from .artifacts import file_digest, read_json
 from .configuration import ROOT, resolve_path
 from src.data.mesh.sampling import sample_boundary
 from src.data.backend.curve_kernels import curve_kernel_mode, kernel_status
-from src.models.model import (
+from src.models import (
     HMONet2D, MeshONet2D, HMONet3D, MeshONet3D,
     AttentionHMONet2D, AttentionHMONet3D,
     PIMeshONet2D, PIMeshONet3D,
 )
-from scripts.train.attention_pihmonet_common import build_boundary_inputs
+from src.engine.attention import build_boundary_inputs
 
 
 def resolve_device(value):
@@ -105,6 +105,17 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
                 f"Checkpoint mapping is {stored_mapping}, requested {mapping}: {path}"
             )
     state_dict = payload.get("model_state_dict", payload)
+    if (
+        method in ("HMONet", "PI-HMONet")
+        and "weight_head_mlp_enabled" not in kwargs
+    ):
+        # Older checkpoints predate the explicit architecture flag. Infer the
+        # geometry-head graph from its parameter names so both Linear and MLP
+        # checkpoints remain strictly loadable after the project default changes.
+        prefix = "weight_head." if dimension == 2 else "projection_weight_head."
+        kwargs["weight_head_mlp_enabled"] = any(
+            key.startswith(prefix + "input_layer.") for key in state_dict
+        )
     paper_pi_architecture = method == "PI-MeshONet" and any(
         key.startswith("branch_layers.") for key in state_dict
     )
@@ -120,17 +131,20 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
         (3, "PI-HMONet"): HMONet3D,
         (3, "Attention-PI-HMONet"): AttentionHMONet3D,
     }[(dimension, method)]
-    if cls is MeshONet3D and not any(
+    if cls in (MeshONet2D, MeshONet3D) and not any(
         key.startswith("branch_fusion.") for key in state_dict
     ):
-        # Checkpoints created before the paper-aligned 3-D fusion update have
-        # no shared fusion block. Preserve their original inference graph.
+        # Checkpoints created before the paper-aligned fusion updates have no
+        # shared fusion block. Preserve their original inference graph.
         kwargs["shared_branch_fusion_enabled"] = False
     kwargs.pop("residual_regularization_weight", None)
     kwargs.pop("architecture", None)
-    if dimension == 2 and not paper_pi_architecture:
+    # Ignore retired configuration fields embedded in archived checkpoints.
+    kwargs.pop("projection_softplus_enabled", None)
+    if not paper_pi_architecture:
         allowed = inspect.signature(cls.__init__).parameters
-        kwargs = {k: v for k, v in kwargs.items() if k in allowed}
+        if not any(item.kind == inspect.Parameter.VAR_KEYWORD for item in allowed.values()):
+            kwargs = {k: v for k, v in kwargs.items() if k in allowed}
     model = cls(*shape, **kwargs)
     model.load_state_dict(state_dict, strict=True)
     model.to(device).eval()

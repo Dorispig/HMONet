@@ -1,0 +1,59 @@
+# e9_3：保持e9_1的损失、混合采样和有限差分，仅将硬边界约束改为current。
+schema_version: 1
+experiment: e9_3
+
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+
+variants:
+  - name: e9_3
+    value: normalized_physics_mixed_sampling_fd_current
+    overrides:
+      - --lr
+      - "0.0008"
+      - --hmonet-mapping-mode
+      - current
+      - --hmonet-random-mse-loss-weight
+      - "0"
+      - --hmonet-physics-pde-loss-weight
+      - "1"
+      - --hmonet-physics-scale-invariant-pde-enabled
+      - --pde-fd-step
+      - "0.01"
+      - "0.01"
+      - --hmonet-physics-jacobian-loss-weight
+      - "0"
+      - --hmonet-physics-normalized-jacobian-loss-weight
+      - "0.01"
+      - --hmonet-physics-normalized-jacobian-minimum
+      - "0.02"
+      - --hmonet-physics-singular-value-loss-weight
+      - "0.05"
+      - --hmonet-physics-singular-value-minimum
+      - "0.05"
+      - --hmonet-physics-barrier-reduction
+      - all
+      - --hmonet-physics-winslow-loss-weight
+      - "0"
+      - --hmonet-physics-winslow-jacobian-barrier-weight
+      - "0"
+      - --hmonet-random-loss-sample-count
+      - "400"
+      - --hmonet-random-loss-sampling-mode
+      - mixed_boundary
+      - --hmonet-random-loss-derivative-backend
+      - finite_difference
+      - --hmonet-random-loss-global-sample-count
+      - "200"
+      - --hmonet-random-loss-curvature-sample-count
+      - "100"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "100"
+      - --hmonet-random-loss-boundary-band-min-step-multiple
+      - "1"
+      - --hmonet-random-loss-boundary-band-max-step-multiple
+      - "4"
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss

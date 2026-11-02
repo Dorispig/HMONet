@@ -119,16 +119,15 @@ python scripts/train/train_2d.py --model both --dataset-mode interpolation --epo
 - `--interior-sample-count 400`：覆盖 `meshonet_training.interior_sample_count`，修改 MeshONet 每个样本的内部随机点数；必须大于 0，同一 batch 共享一组随机点。
 - `--alpha 1.0`：覆盖 `meshonet_training.alpha`，修改 MeshONet 内部坐标损失权重。
 - `--beta 5.0`：覆盖 `meshonet_training.beta`，修改 MeshONet 边界坐标损失权重。
-- `--hmonet-mapping-mode current`：覆盖 `model.hmonet.hmonet_mapping_mode`；训练入口只支持 `current`、`coons_residual`。分别使用当前投影映射或 Coons 基础映射加网络残差。
+- `--hmonet-mapping-mode current`：覆盖 `model.hmonet.hmonet_mapping_mode`；训练入口支持 `current`、`coons_residual`、`corner_corrected`。依次使用当前投影映射、Coons 基础映射加网络残差、角点校正加权映射。
 - `--residual-regularization-weight 0.0`：覆盖 `model.hmonet.residual_regularization_weight`，修改 Coons 残差位移的正则权重；0 关闭，值必须非负，仅 Coons 残差模式具有对应位移项。
 - `--target-interpolation curved_boundary_cell`：使用精确参数边界位移的 IDW 修正训练目标；也可设为 `bilinear`。
-- `--idw-neighbors -1`：IDW 邻居数；`-1` 使用全部支持点（默认），`32` 启用 K=32 局部近邻模式。
+- 曲边目标修正固定使用全部边界支持点的全局 IDW，不再提供局部近邻模式。
 - `--idw-query-chunk-size 128`：IDW 查询点分块；二维默认 128，三维配置默认 512。
 - `--idw-support-chunk-size 2048`：IDW 支持点分块；较大的分块可减少 Python 循环和 GPU 内核启动次数。
 - `--jacobian-loss-enabled`：设置 `hmonet_training.jacobian_loss_enabled=true`，启用 HMONet 内部点的正 Jacobian 约束。
 - `--no-jacobian-loss-enabled`：设置 `hmonet_training.jacobian_loss_enabled=false`，关闭上述约束，当前 YAML 默认关闭。
-- `--trunk-projection-coefficients-enabled` / `--no-trunk-projection-coefficients-enabled`：开启或关闭主干几何系数 MLP；开启后主干与分支的四个系数逐位相乘。
-- `--projection-softplus-enabled` / `--no-projection-softplus-enabled`：几何系数使用 Softplus 或原 Sigmoid 激活。
+- HMONet几何系数固定为分支系数与Trunk位置系数逐位相乘，两组系数均使用Sigmoid激活。
 - `--boundary-self-attention-enabled` / `--no-boundary-self-attention-enabled`：开启或关闭四条边界的联合自注意力编码。
 - `--projection-mlp-hidden-dim 64`：主干几何系数 MLP 的隐藏层宽度。
 - `--attention-dim 64 --attention-heads 4 --attention-layers 2 --attention-feedforward-dim 128 --attention-dropout 0`：覆盖 HMONet 自注意力结构。
@@ -184,7 +183,7 @@ HMONet 的固定点数量和当前模式对应的随机点数量必须非负且�
 - `--plateau-window 200`：覆盖 `training.plateau_window`，设置成功平台和失败平台共用的滑动窗口，至少为 2。
 - `--fluctuation-quantiles 0.1 0.9`：覆盖 `training.fluctuation_quantiles`，设置波动统计的上下分位数；使用两个空格分隔的数字，满足 `0 <= lower < upper <= 1`。
 - `--fluctuation-relative-tolerance 0.5`：覆盖 `training.fluctuation_relative_tolerance`，设置相对波动 `(Q_upper-Q_lower)/max(abs(median),1e-12)` 的允许上限。
-- `--best-improvement-relative-tolerance 0.005`：覆盖 `training.best_improvement_relative_tolerance`，设置有效最优值的最小显著改善比例；0.005 表示 0.5%。
+- `--best-improvement-relative-tolerance 0.002`：覆盖 `training.best_improvement_relative_tolerance`，设置有效最优值的最小显著改善比例；0.002 表示 0.2%。
 - `--success-plateau-patience 1000`：覆盖 `training.success_plateau_patience`；记录连续无显著改善的检查次数，该计数只在出现显著改善时归零。达到该耐心并接近历史最佳后，`training.plateau_stable_consecutive_checks` 控制的短窗口连续稳定分支或长期波动稳定分支任一通过即可停止。
 - `--plateau-log-interval 100`：覆盖 `training.plateau_log_interval`，设置平台详细状态按 epoch 输出的间隔；不改变检查频率或每个 epoch 的训练进度输出。
 - --failure-plateau-enabled / --no-failure-plateau-enabled：启用或关闭失败平台停止。

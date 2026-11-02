@@ -1,0 +1,32 @@
+# 实验7：仅使用边界输入，以PDE、正则化Winslow能量和正Jacobian屏障训练。
+schema_version: 1
+experiment: e7_pde_winslow_jac
+
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+
+variants:
+  - name: e7_pde_winslow_jac
+    value: pde_winslow_jacobian_barrier
+    overrides:
+      - --hmonet-random-mse-loss-weight
+      - "0"
+      - --hmonet-physics-pde-loss-weight
+      - "0.001"
+      - --pde-fd-step
+      - "0.01"
+      - "0.01"
+      - --hmonet-physics-jacobian-loss-weight
+      - "0"
+      - --hmonet-physics-winslow-loss-weight
+      - "1"
+      - --hmonet-physics-winslow-jacobian-barrier-weight
+      - "0.01"
+      - --hmonet-physics-winslow-jacobian-minimum
+      - "0.01"
+      - --hmonet-physics-winslow-epsilon
+      - "0.01"
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss

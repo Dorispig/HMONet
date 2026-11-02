@@ -8,12 +8,33 @@ import unittest
 
 from scripts.experiments.run_ablation_2d import (
     aggregate_experiment,
+    compact_evaluation_result_directory,
     find_reusable_evaluation,
     read_results,
 )
 
 
 class GridIsolationTests(unittest.TestCase):
+    def test_compaction_keeps_summary_and_images_only(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "results.json").write_text("{}", encoding="utf-8")
+            (root / "per_cell.csv").write_text("cell,value\n0,1\n", encoding="utf-8")
+            (root / "mesh_comparison.png").write_bytes(b"png")
+            quality = root / "grid_quality"
+            quality.mkdir()
+            (quality / "quality_scaled_jacobian.pdf").write_bytes(b"pdf")
+            (quality / "quality_data.npz").write_bytes(b"npz")
+
+            result = compact_evaluation_result_directory(root)
+
+            self.assertEqual(result, root / "results.json")
+            self.assertTrue(result.is_file())
+            self.assertTrue((root / "mesh_comparison.png").is_file())
+            self.assertTrue((quality / "quality_scaled_jacobian.pdf").is_file())
+            self.assertFalse((root / "per_cell.csv").exists())
+            self.assertFalse((quality / "quality_data.npz").exists())
+
     def test_per_grid_manifest_entries_are_reused_independently(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

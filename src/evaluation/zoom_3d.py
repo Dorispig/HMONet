@@ -30,7 +30,7 @@ from src.evaluation.quality_3d import (
     surface_quad_quality_fields,
 )
 from src.evaluation.quality_output import summarize_fields, quality_plot_style
-from src.utils.metrics import evaluate_hexahedral_grid_quality
+from src.metrics import evaluate_hexahedral_grid_quality
 
 VERSION = 6
 FACES = np.array(

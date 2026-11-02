@@ -43,6 +43,20 @@ cases:
       c: 1.0
       center: [0.0, 0.0]
 
+  air_t_ext_1_500_21_21:
+    boundary_type: circle_airfoil_t
+    split: extrapolation
+    parameter: t
+    values: [0.52, 0.55]
+    train_grid: [21, 21]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters:
+      radius: 1.0
+      m: 0.02
+      p: 0.4
+      c: 1.0
+      center: [0.0, 0.0]
+
   air_t_int_0_1000_21_20:
     boundary_type: circle_airfoil_t
     split: interpolation
@@ -148,6 +162,19 @@ cases:
     values: [1.52, 1.535, 1.55]
     train_grid: [61, 21]
     grid_shapes: [[61, 21], [81, 41], [101, 101]]
+    fixed_parameters:
+      width: 3.0
+      height: 2.0
+      notch_width: 0.9
+      radius: 0.25
+
+  run_ext_1_500_41_41:
+    boundary_type: rounded_u_notch
+    split: extrapolation
+    parameter: depth
+    values: [1.22, 1.25]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters:
       width: 3.0
       height: 2.0
@@ -271,7 +298,7 @@ evaluation:
   # 不指定 --case 时评估这些案例。
   default_cases: [air_t_int_0_1000_41_20, air_t_ext_0_1000_41_20]
 
-  # HMONet/PI-HMONet 内部映射：current、coons_residual、both。
+  # HMONet内部映射：current、coons_residual、corner_corrected；both仍表示前两种。
   hmonet_mapping_mode: current
   pihmonet_mapping_mode: current
 
@@ -339,6 +366,7 @@ evaluation:
 
   save_plots: true
   save_png: true
+  compact_outputs: true  # 仅保留 results.json 与图片；指纹一致时直接复用汇总结果。
   save_pdf: false
   save_distribution_plots: false
 

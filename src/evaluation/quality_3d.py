@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from src.utils.metrics import evaluate_hexahedral_grid_quality
+from src.metrics import evaluate_hexahedral_grid_quality
 from src.utils.quality_selection import QUAD_METRICS, metric_names
 from .method_order import ordered_methods, method_label
 

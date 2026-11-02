@@ -35,6 +35,7 @@ class QualitySelectionTests(unittest.TestCase):
             self.assertEqual(defaults["inference_warmup_runs"], 3)
             self.assertEqual(defaults["inference_timing_repeats"], 10)
             names = QUAD_METRICS if dimension == 2 else HEX_METRICS
+            names = tuple(name for name in names if name != "cell_area")
             self.assertEqual(selected_quality_metrics(defaults, dimension), names)
             config = {"evaluation": {"quality_switches": {"min_angle": False}}}
             args = parser.parse_args(
@@ -216,7 +217,7 @@ class QualitySelectionTests(unittest.TestCase):
 
     def test_3d_volume_only_and_surface_only_selection(self):
         config = self.configuration(3, ["tfi"])
-        for metric, volume in (("cell_volume", True), ("cell_area", False)):
+        for metric, volume in (("cell_volume", True), ("aspect_ratio", False)):
             result = self.run_evaluation(3, config, "--quality-metrics", metric)[0]
             group = Path(result["comparison_directory"])
             self.assertEqual(
@@ -225,6 +226,14 @@ class QualitySelectionTests(unittest.TestCase):
             self.assertEqual(
                 (group / "boundary_faces/z_mid/comparison_quality_data.npz").is_file(),
                 not volume,
+            )
+
+    def test_cell_area_is_globally_suppressed(self):
+        for dimension in (2, 3):
+            options = {"compute_grid_quality": True, "quality_metrics": "cell_area"}
+            self.assertNotIn(
+                "cell_area",
+                selected_quality_metrics(options, dimension, surface=dimension == 3),
             )
 
     def test_configured_zooms_follow_switches_and_prune_disabled_quality(self):

@@ -11,16 +11,20 @@ grid:  # 三维训练网格尺寸
 
 model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi、all快捷别名
   name: both  # 默认分别训练HMONet和MeshONet
-  common:  # 五种模型共用的网络结构
-    branch_dim: 64  # 边界分支特征维度
-    trunk_dim: 24  # 坐标主干特征维度
-    adjust_hidden_dim: 128  # 边界调整网络隐藏层宽度
-    branch_hidden_dim: 128  # 边界分支隐藏层宽度
-    trunk_hidden_dim: 128  # 坐标主干隐藏层宽度
+  common:  # 正式实验采用与二维ex7基线一致的精简算子网络
+    branch_dim: 32  # 边界分支特征维度
+    trunk_dim: 16  # legacy坐标增强后的主干输入维度；power_fourier模式下自动推导
+    coordinate_lift_mode: legacy  # legacy保持当前实验格式；power_fourier启用幂次-周期联合编码
+    coordinate_lift_max_power: 1  # power_fourier的最高次幂，必须>=1；legacy模式忽略
+    adjust_hidden_dim: 64  # 边界调整网络隐藏层宽度
+    branch_hidden_dim: 64  # 边界分支隐藏层宽度
+    trunk_hidden_dim: 64  # 坐标主干隐藏层宽度
     adjust_hidden_layer_num: 4  # 边界调整网络隐藏层数
     branch_hidden_layer_num: 4  # 边界分支隐藏层数
     trunk_hidden_layer_num: 4  # 坐标主干隐藏层数
-    output_dim: 128  # 融合特征维度
+    output_dim: 64  # 融合特征维度
+    branch_mlp_hidden_dim: 64  # 三轴联合几何特征融合MLP隐藏层宽度，与二维HMONet一致
+    branch_mlp_hidden_layer_num: 4  # 三轴联合几何特征融合MLP隐藏层数，与二维HMONet一致
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # 三坐标分支与共享Lift/Modified MLP主干
     branch_dim: 32  # Adjust Layer输出维度，与ex4精简HMONet一致
@@ -42,11 +46,11 @@ model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi�
     attention_feedforward_dim: 128  # 注意力层前馈网络宽度
     attention_dropout: 0.0  # 注意力层dropout比例
   hmonet:  # HMONet模型配置
-    hmonet_mapping_mode: current  # 内部硬边界映射：current或coons_residual
-    trunk_projection_coefficients_enabled: false  # 是否由主干MLP输出位置相关系数并与分支系数逐位相乘；HMONet基线默认关闭
-    projection_softplus_enabled: false  # true使用Softplus，false使用Sigmoid；HMONet基线默认关闭Softplus
-    boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；HMONet基线默认关闭
-    projection_mlp_hidden_dim: 64  # 主干几何系数MLP隐藏层宽度
+    hmonet_mapping_mode: current  # 内部硬边界映射：current、coons_residual或corner_corrected
+    # 几何系数固定为 Branch Sigmoid × Trunk Sigmoid，不再提供关闭位置调制或Softplus选项。
+    boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；正式实验默认关闭
+    weight_head_mlp_enabled: true  # true默认使用与Location MLP相同宽度、Tanh激活的单隐藏层MLP；false兼容原Linear
+    projection_mlp_hidden_dim: 64  # 两侧系数MLP共用的隐藏层宽度（weight_head启用MLP时生效）
     attention_dim: 64  # 边界自注意力特征维度
     attention_heads: 4  # 多头注意力头数
     attention_layers: 2  # 自注意力编码层数
@@ -102,7 +106,7 @@ training:  # 公共训练设置
   fluctuation_absolute_maximum: 1.0e-5  # 绝对波动上限
   plateau_near_best_relative_tolerance: 0.2  # 接近最佳的相对容差
   plateau_near_best_absolute_tolerance: 1.0e-7  # 接近最佳的绝对容差
-  best_improvement_relative_tolerance: 0.005  # 显著改善相对阈值
+  best_improvement_relative_tolerance: 0.002  # 显著改善相对阈值（0.2%）
 
   convergence_start_epoch: 3000  # 所有自动收敛和失败判定开始检查并累计耐心的最早epoch
   success_plateau_patience: 1000  # 无显著改善耐心；只在出现显著改善时归零
@@ -142,7 +146,6 @@ hmonet_training:
   lr_stop_below: 1.0e-5  # 学习率停止衰减下限
   # curved_boundary_cell将六个参数面网格双向三等分，删除原始面节点后用全局IDW修正三线性目标。
   target_interpolation: curved_boundary_cell  # 训练目标插值方式：bilinear或curved_boundary_cell
-  idw_neighbors: -1  # IDW邻居数：-1使用全部参数面支持点；设为32启用局部K近邻IDW
   idw_query_chunk_size: 512  # IDW查询点分块；默认可一次覆盖当前400个训练采样点
   idw_support_chunk_size: 2048  # IDW参数面支持点分块；11立方网格约需3次大张量累计
   jacobian_loss_enabled: true  # 是否启用Jacobian损失
@@ -175,7 +178,7 @@ pimeshonet_training:
   pde_loss_weight: 1.0e-4  # 原始PDE损失权重
   boundary_loss_weight: 1.0
   interior_sample_count: 128  # 每批共享内部采样点数
-  fd_step: null  # 有限差分步长配置
+  fd_step: [0.01, 0.01, 0.01]  # PI-MeshONet PDE有限差分步长，分别对应三个计算轴
 
 pihmonet_training:
   learning_rate: 0.0004  # 初始学习率

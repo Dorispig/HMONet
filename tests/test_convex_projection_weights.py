@@ -13,19 +13,46 @@ SMALL = dict(
 
 
 class HMONetProjectionConfigurationTests(unittest.TestCase):
-    def test_sigmoid_and_softplus_coefficients_are_positive(self):
+    def test_corner_corrected_mode_preserves_2d_edges_and_3d_faces(self):
+        model2 = HMONet2D(3, 3, hmonet_mapping_mode="corner_corrected",
+                            **{**SMALL, "trunk_dim": 2}).eval()
+        boundary2 = torch.tensor([[[0., 0.], [.5, 0.], [1., 0.],
+                                   [1., .5], [1., 1.], [.5, 1.],
+                                   [0., 1.], [0., .5]]])
+        query2 = torch.tensor([[[0., .3], [1., .7], [.2, 0.],
+                                [.8, 1.], [0., 0.], [1., 1.], [.3, .4]]],
+                              requires_grad=True)
+        actual2 = torch.cat(model2(*boundary2.unbind(-1), *query2.unbind(-1)), -1)
+        torch.testing.assert_close(actual2[:, :6], query2[:, :6], atol=1e-6, rtol=0)
+        actual2.square().mean().backward()
+        self.assertTrue(bool(torch.isfinite(query2.grad).all()))
+
+        model3 = HMONet3D(3, 3, 3, hmonet_mapping_mode="corner_corrected", **SMALL).eval()
+        z, y, x = torch.meshgrid(*(torch.linspace(0, 1, 3) for _ in range(3)),
+                                 indexing="ij")
+        grid = torch.stack((x, y, z), -1).reshape(1, -1, 3)
+        boundary3 = grid[:, model3.boundary_flat_indices]
+        query3 = torch.tensor([[[0., .3, .4], [1., .3, .4],
+                                [.2, 0., .4], [.2, 1., .4],
+                                [.2, .3, 0.], [.2, .3, 1.],
+                                [0., 0., .37], [1., 1., 1.],
+                                [.3, .4, .6]]], requires_grad=True)
+        actual3 = torch.cat(model3(*boundary3.unbind(-1), *query3.unbind(-1)), -1)
+        torch.testing.assert_close(actual3[:, :8], query3[:, :8], atol=1e-6, rtol=0)
+        actual3.square().mean().backward()
+        self.assertTrue(bool(torch.isfinite(query3.grad).all()))
+
+    def test_sigmoid_coefficients_stay_in_the_open_unit_interval(self):
         joint2 = torch.randn(2, 8)
-        for softplus in (False, True):
-            model = HMONet2D(3, 3, projection_softplus_enabled=softplus, **SMALL)
-            coefficients = model.projection_weights(joint2, None)
-            self.assertTrue(bool((coefficients > 0).all()))
-            if not softplus:
-                self.assertTrue(bool((coefficients < 1).all()))
+        trunk2 = torch.randn(2, 5, 4)
+        model = HMONet2D(3, 3, **SMALL)
+        coefficients = model.projection_weights(joint2, trunk2)
+        self.assertTrue(bool((coefficients > 0).all()))
+        self.assertTrue(bool((coefficients < 1).all()))
 
     def test_trunk_coefficients_are_query_dependent(self):
         model = HMONet2D(
-            3, 3, trunk_projection_coefficients_enabled=True,
-            projection_softplus_enabled=True, **SMALL,
+            3, 3, **SMALL,
         )
         joint = torch.randn(2, 8)
         trunk = torch.randn(2, 7, 4)
@@ -45,8 +72,7 @@ class HMONetProjectionConfigurationTests(unittest.TestCase):
 
     def test_current_mapping_is_exact_on_2d_edges_and_3d_faces(self):
         model2 = HMONet2D(
-            3, 3, trunk_projection_coefficients_enabled=True,
-            projection_softplus_enabled=True, **{**SMALL, "trunk_dim": 2},
+            3, 3, **{**SMALL, "trunk_dim": 2},
         ).eval()
         boundary2 = torch.rand(1, 8, 2)
         query2 = torch.tensor([[[0.0, 0.3], [1.0, 0.7], [0.2, 0.0], [0.8, 1.0]]])
@@ -56,8 +82,7 @@ class HMONetProjectionConfigurationTests(unittest.TestCase):
         torch.testing.assert_close(actual2, expected2)
 
         model3 = HMONet3D(
-            3, 3, 3, trunk_projection_coefficients_enabled=True,
-            projection_softplus_enabled=True, **SMALL,
+            3, 3, 3, **SMALL,
         ).eval()
         boundary3 = torch.rand(1, 26, 3)
         query3 = torch.tensor([[[0.0, .3, .4], [1.0, .3, .4], [.2, 0.0, .4],
@@ -67,15 +92,31 @@ class HMONetProjectionConfigurationTests(unittest.TestCase):
         expected3 = torch.stack(tuple(projected3[:, index, index] for index in range(6)), dim=1)
         torch.testing.assert_close(actual3, expected3)
 
-    def test_legacy_3d_state_loads_with_unit_branch_coefficients(self):
-        source = HMONet3D(3, 3, 3, **SMALL)
+    def test_legacy_3d_state_loads_with_sigmoid_branch_initialization(self):
+        options = {**SMALL, "weight_head_mlp_enabled": False}
+        source = HMONet3D(3, 3, 3, **options)
         legacy = source.state_dict()
         legacy.pop("projection_weight_head.weight")
         legacy.pop("projection_weight_head.bias")
-        restored = HMONet3D(3, 3, 3, **SMALL)
+        restored = HMONet3D(3, 3, 3, **options)
         restored.load_state_dict(legacy, strict=True)
-        coefficients = restored.projection_coefficients(torch.randn(2, 12))
-        torch.testing.assert_close(coefficients, torch.ones_like(coefficients))
+        coefficients = restored.projection_coefficients(
+            torch.randn(2, 12), torch.randn(2, 5, 4)
+        )
+        self.assertEqual(coefficients.shape, (2, 5, 6))
+        self.assertTrue(bool((coefficients > 0).all()))
+        self.assertTrue(bool((coefficients < 1).all()))
+
+    def test_3d_shared_edges_and_corners_use_compatible_exact_values(self):
+        model = HMONet3D(3, 3, 3, **SMALL).eval()
+        boundary = torch.rand(1, 26, 3)
+        query = torch.tensor([[[0.0, 0.0, 0.37], [1.0, 1.0, 1.0]]])
+        projected = model.project(*boundary.unbind(-1), *query.unbind(-1))
+        actual = torch.cat(model(*boundary.unbind(-1), *query.unbind(-1)), -1)
+        edge_expected = 0.5 * (projected[:, 0, 0] + projected[:, 0, 2])
+        corner_expected = projected[:, 1, 5]
+        torch.testing.assert_close(actual[:, 0], edge_expected)
+        torch.testing.assert_close(actual[:, 1], corner_expected)
 
 
 if __name__ == "__main__":

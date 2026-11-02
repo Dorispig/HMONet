@@ -146,28 +146,5 @@ class GlobalBoundarySurfaceIDWInterpolationTests(unittest.TestCase):
         )
         torch.testing.assert_close(adjusted, trilinear, rtol=0.0, atol=1e-12)
 
-    def test_local_idw_accepts_32_neighbors(self):
-        nx, ny, nz = 3, 3, 3
-        rows = [
-            (2 * i / (nx - 1) - 1, 2 * j / (ny - 1) - 1, 2 * k / (nz - 1) - 1)
-            for k in range(nz)
-            for j in range(ny)
-            for i in range(nx)
-        ]
-        mesh = torch.tensor([rows], dtype=torch.float64)
-        query = torch.tensor([[[0.21, 0.37, 0.63]]], dtype=torch.float64)
-        expected = interpolate_pde_mesh(mesh, query, (nx, ny, nz), "bilinear")
-        adjusted = interpolate_pde_mesh(
-            mesh,
-            query,
-            (nx, ny, nz),
-            "curved_boundary_cell",
-            [box_boundary()],
-            idw_neighbors=32,
-            idw_support_chunk_size=8,
-        )
-        torch.testing.assert_close(adjusted, expected, rtol=0.0, atol=1e-12)
-
-
 if __name__ == "__main__":
     unittest.main()

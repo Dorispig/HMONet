@@ -1,0 +1,14 @@
+schema_version: 1
+experiment: pimeshonet
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: pimeshonet
+    value: PI-MeshONet
+    overrides:
+      - --model
+      - pimeshonet
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss

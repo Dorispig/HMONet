@@ -1,0 +1,28 @@
+# 实验8：仅使用随机内部点的非归一化PDE残差训练；最多50,000 epoch。
+schema_version: 1
+experiment: e8_pde_only
+
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+
+variants:
+  - name: e8_pde_only
+    value: pde_only
+    overrides:
+      - --hmonet-random-mse-loss-weight
+      - "0"
+      - --hmonet-physics-pde-loss-weight
+      - "1"
+      - --pde-fd-step
+      - "0.01"
+      - "0.01"
+      - --hmonet-physics-jacobian-loss-weight
+      - "0"
+      - --hmonet-physics-winslow-loss-weight
+      - "0"
+      - --hmonet-physics-winslow-jacobian-barrier-weight
+      - "0"
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss

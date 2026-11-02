@@ -17,8 +17,8 @@ HMONet/
 ├── configs/        # 二维和三维训练、评估配置
 ├── data/           # 本地数据集，不纳入 Git
 ├── experiments/    # 消融实验配置
-├── scripts/        # 训练、评估、PDE、TFI 和可视化入口
-├── src/            # 数据、模型、评估和通用模块
+├── scripts/        # 训练、评估、实验和可视化入口
+├── src/            # 数据、模型、损失、数值方法、评估和训练引擎
 ├── tests/          # 自动化测试
 ├── docs/           # 补充说明
 └── requirements.txt
@@ -108,10 +108,10 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 
 ## 消融实验
 
-二维消融实验通过统一入口运行：
+二维消融实验通过精简入口运行：
 
 ```bash
-python scripts/experiments/run_ablations_2d.py --experiment-set ex3 --ablations jacobian_interpolation --dataset air_t_ext_0_1000_41_20 --seeds 20260802 20260917 20261031 --run-tag paper_v1 --continue-on-error
+python scripts/experiments/run.py ex3 jacobian_interpolation --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 401 --tag paper_v1
 ```
 
 不同实验套件及参数见 [experiments/README.md](experiments/README.md)。实验配置与结果位于 `experiments/ex*/`。

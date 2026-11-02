@@ -26,7 +26,7 @@ from .quality_output import (
 )
 from .quality_3d import middle_surface_grids, surface_quad_quality_fields, HIGHER
 from .zoom_3d import quad_cells, draw_volume, DEFAULTS as ZOOM_DEFAULTS
-from src.utils.metrics import evaluate_hexahedral_grid_quality
+from src.metrics import evaluate_hexahedral_grid_quality
 from src.utils.quality_selection import selected_quality_metrics
 
 

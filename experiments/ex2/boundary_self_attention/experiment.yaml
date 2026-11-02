@@ -4,10 +4,6 @@ experiment: boundary_self_attention
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml
 variants:
-- name: attention_off
-  value: false
-  overrides:
-  - --no-boundary-self-attention-enabled
 - name: attention_on
   value: true
   overrides:

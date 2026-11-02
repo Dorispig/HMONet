@@ -140,6 +140,52 @@ def sample_uniform_global_interior_points(
     return torch.empty(batch_size, int(count), 2, device=device).uniform_(lower, upper)
 
 
+def sample_inward_boundary_band_points_2d(
+    batch_size,
+    count,
+    *,
+    min_distance,
+    max_distance,
+    device=None,
+    dtype=torch.float32,
+    tangent_margin=0.0,
+):
+    """Sample points in a logical strip immediately inside all four sides.
+
+    A side is chosen uniformly for every point. The inward normal distance is
+    uniform in ``[min_distance, max_distance]`` and the tangential coordinate
+    is uniform in ``[tangent_margin, 1-tangent_margin]``.  Keeping a finite-
+    difference step as the tangent margin prevents a mixed-derivative stencil
+    from leaving the logical square near a corner.
+    """
+    count = int(count)
+    min_distance = float(min_distance)
+    max_distance = float(max_distance)
+    tangent_margin = float(tangent_margin)
+    if count < 0:
+        raise ValueError("boundary-band sample count must be non-negative")
+    if count == 0:
+        return torch.empty(batch_size, 0, 2, device=device, dtype=dtype)
+    if not 0 <= min_distance <= max_distance < 0.5:
+        raise ValueError("boundary-band distances must satisfy 0 <= min <= max < 0.5")
+    if not 0 <= tangent_margin < 0.5:
+        raise ValueError("boundary-band tangent_margin must lie in [0, 0.5)")
+
+    sides = torch.randint(0, 4, (batch_size, count), device=device)
+    distance = torch.empty(batch_size, count, device=device, dtype=dtype)
+    distance.uniform_(min_distance, max_distance)
+    tangent = torch.empty(batch_size, count, device=device, dtype=dtype)
+    tangent.uniform_(tangent_margin, 1.0 - tangent_margin)
+    points = torch.empty(batch_size, count, 2, device=device, dtype=dtype)
+
+    vertical = sides < 2
+    lower = (sides % 2) == 0
+    normal_coordinate = torch.where(lower, distance, 1.0 - distance)
+    points[..., 0] = torch.where(vertical, normal_coordinate, tangent)
+    points[..., 1] = torch.where(vertical, tangent, normal_coordinate)
+    return points
+
+
 def sample_curvature_distance_adaptive_points(
     boundary_curvature,
     computational_boundary,

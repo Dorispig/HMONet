@@ -43,22 +43,42 @@ ABLATIONS = (
     "sampling_mode",
     "target_interpolation",
     "training_sample_count",
-    "trunk_geometry_coefficients",
     "boundary_self_attention",
-    "projection_activation",
+    "trunk_geometry_coefficients",
     "jacobian_interpolation",
     "model_capacity",
     "dataset_size",
     "pde_jacobian",
+    "physics_training_strategy",
+    "e1_mse_pde",
+    "e2_pde_jac",
+    "e3_jac_pde",
+    "e4_mse_pde_jac",
+    "e5_staged_mse_pde_jac",
+    "e6_pde_fixed_mse",
+    "e7_pde_winslow_jac",
+    "e8_pde_only",
+    "e9_norm_pde_jac_svd",
+    "e9_1",
+    "e9_2",
+    "e9_3",
+    "e9_4",
+    "uniform_400",
+    "global200_adaptive200",
+    "global200_boundary200",
+    "pimeshonet",
+    "meshonet",
 )
 BASELINE_ABLATION = "baseline"
 DEFAULT_LEARNING_RATES = (0.0001, 0.0002, 0.0004, 0.0008, 0.001)
 DEFAULT_WEIGHTS = (0.0, 0.0001, 0.001, 0.01, 0.1)
 DEFAULT_SAMPLE_COUNTS = (50, 100, 200, 400, 800, 1200)
+EVALUATION_IMAGE_SUFFIXES = {".jpeg", ".jpg", ".pdf", ".png", ".svg", ".webp"}
 TRAINING_IDENTITY_SCHEMA_VERSION = 4
 DEFAULT_EXPERIMENT_SET = "ex1"
 DEFAULT_BASELINE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/experiment.yaml"
 DEFAULT_EVALUATE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/evaluate.yaml"
+EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*(?:_[1-9][0-9]*)*")
 
 
 class BaselineCompatibilityError(RuntimeError):
@@ -228,10 +248,40 @@ METRIC_PROFILES = {
 
 # Architecture ablations use the mapping profile; the combined training-policy
 # ablation emphasizes legality and approximation error.
-for _name in ("trunk_geometry_coefficients", "boundary_self_attention", "projection_activation"):
+for _name in ("boundary_self_attention", "trunk_geometry_coefficients"):
     METRIC_PROFILES[_name] = METRIC_PROFILES["mapping_mode"]
 METRIC_PROFILES["jacobian_interpolation"] = METRIC_PROFILES["jacobian_enabled"]
 METRIC_PROFILES["pde_jacobian"] = METRIC_PROFILES["jacobian_enabled"]
+for _name in (
+    "e1_mse_pde", "e2_pde_jac", "e3_jac_pde", "e4_mse_pde_jac",
+    "e5_staged_mse_pde_jac", "e6_pde_fixed_mse", "e7_pde_winslow_jac",
+    "e8_pde_only",
+    "e9_norm_pde_jac_svd",
+    "e9_1", "e9_2", "e9_3", "e9_4",
+):
+    METRIC_PROFILES[_name] = METRIC_PROFILES["pde_jacobian"]
+METRIC_PROFILES["physics_training_strategy"] = {
+    "important": (
+        "fixed_grid_best_mse",
+        "fixed_grid_final_mse",
+        "invalid_cell_fraction",
+        "self_intersection__affected_cell_fraction",
+        "flipping_cell__affected_cell_fraction",
+        "scaled_jacobian__minimum",
+        "network_inference_seconds",
+        "total_model_seconds",
+    ),
+    "secondary": (
+        "jacobian__minimum",
+        "skewness__mean",
+        "orthogonality__mean",
+        "boundary_max_error",
+        "boundary_mean_error",
+        "training_seconds",
+        "average_epoch_seconds",
+        "completed_epochs",
+    ),
+}
 METRIC_PROFILES["model_capacity"] = {
     "important": (
         "fixed_grid_best_mse",
@@ -294,6 +344,33 @@ def default_experiment_config(ablation: str, experiment_root: Path | None = None
     return root / ablation / "experiment.yaml"
 
 
+def validate_experiment_set_name(value: str) -> str:
+    """Accept numbered suites and numbered sub-suites such as ``ex8_1``."""
+    if not EXPERIMENT_SET_PATTERN.fullmatch(value):
+        raise ValueError(
+            "--experiment-set must use the form ex1, ex2, ... or a numbered "
+            "sub-suite such as ex8_1"
+        )
+    return value
+
+
+def declared_config_path(definition_path: Path, key: str) -> Path | None:
+    """Resolve an optional shared config declared by an experiment definition."""
+    definition = _load_yaml_mapping(definition_path)
+    configured = definition.get(key)
+    if not configured:
+        return None
+    return (definition_path.parent / configured).resolve()
+
+
+def baseline_experiment_root(baseline_config: Path, fallback: Path) -> Path:
+    """Return the suite that owns a canonical ``baseline/experiment.yaml``."""
+    baseline_config = baseline_config.resolve()
+    if baseline_config.parent.name == BASELINE_ABLATION:
+        return baseline_config.parent.parent.resolve()
+    return fallback.resolve()
+
+
 def variants_from_definition(definition: dict) -> list[Variant]:
     """Build variants from an experiment-local YAML definition."""
     items = definition.get("variants", [])
@@ -314,6 +391,17 @@ def variants_from_definition(definition: dict) -> list[Variant]:
             )
         )
     return variants
+
+
+def reject_embedded_baseline_variants(variants: list[Variant], definition_path: Path):
+    """Keep canonical baselines out of experiment-local variant definitions."""
+    embedded = [variant.name for variant in variants if variant.name == BASELINE_ABLATION]
+    if embedded:
+        raise ValueError(
+            f"{definition_path} contains an experiment-local baseline variant. "
+            "Ablation commands never train or evaluate baselines; keep the canonical "
+            "baseline only in the suite baseline/ directory and remove this variant."
+        )
 
 
 def _weight_name(value: float) -> str:
@@ -524,7 +612,7 @@ def dataset_mode(name: str) -> str:
     candidate = ROOT / "data/raw/2D" / name
     if candidate.is_dir():
         try:
-            from src.data.dataset import read_dataset_metadata
+            from src.data.parametric_dataset import read_dataset_metadata
 
             split = read_dataset_metadata(candidate).get("split")
             if split in {"interpolation", "extrapolation"}:
@@ -539,7 +627,7 @@ def dataset_mode(name: str) -> str:
 
 
 def dataset_grid(path: Path) -> tuple[int, int]:
-    from src.data.dataset import ParametricDataset2D
+    from src.data.parametric_dataset import ParametricDataset2D
 
     data = ParametricDataset2D(path, load_boundary=False)
     shape = tuple(map(int, data.grid_shape))
@@ -573,6 +661,11 @@ def evaluation_grid_shapes(args) -> list[tuple[int, int]]:
 
 
 def run_directory(root: Path, ablation: str, dataset: str, variant: str, seed: int, tag: str):
+    # Single-variant experiments conventionally give the variant the same
+    # short name as the experiment. Avoid storing ``.../e9/e9/...`` while
+    # retaining the established layout for true multi-variant ablations.
+    if variant == ablation:
+        return root / ablation / dataset / f"seed_{seed}" / tag
     return root / ablation / dataset / variant / f"seed_{seed}" / tag
 
 
@@ -626,13 +719,23 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
         if flag.startswith("--no-"):
             result[flag[5:].replace("-", "_")] = False
             index += 1
+        elif flag == "--pde-fd-step":
+            if index + 2 >= len(overrides):
+                raise ValueError("--pde-fd-step requires xi and eta step values")
+            result["pde_fd_step"] = [
+                overrides[index + 1],
+                overrides[index + 2],
+            ]
+            index += 3
         elif flag in {
             "--jacobian-loss-enabled",
             "--boundary-normal-loss-enabled",
-            "--trunk-projection-coefficients-enabled",
-            "--projection-softplus-enabled",
             "--boundary-self-attention-enabled",
             "--pde-loss-enabled",
+            "--hmonet-physics-jacobian-enabled",
+            "--hmonet-save-phase-best-checkpoints",
+            "--hmonet-reset-optimizer-on-phase-transition",
+            "--hmonet-physics-scale-invariant-pde-enabled",
         }:
             result[flag[2:].replace("-", "_")] = True
             index += 1
@@ -640,6 +743,44 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
             if index + 1 >= len(overrides):
                 raise ValueError(f"Missing value for ablation override {flag}")
             result[flag[2:].replace("-", "_")] = overrides[index + 1]
+            index += 2
+    return result
+
+
+def variant_model(variant: Variant) -> str:
+    """Return the one network trained by a variant (HMONet by default)."""
+    model = str(_variant_options(variant.overrides).get("model", "hmonet")).lower()
+    if model not in {"hmonet", "meshonet", "pimeshonet"}:
+        raise ValueError(f"Unsupported ablation model: {model!r}")
+    return model
+
+
+def variant_training_overrides(variant: Variant) -> list[str]:
+    """Remove the runner-owned --model pair from forwarded training flags."""
+    values = list(variant.overrides)
+    result = []
+    index = 0
+    while index < len(values):
+        if values[index] == "--model":
+            index += 2
+            continue
+        result.append(values[index])
+        if values[index].startswith("--no-") or values[index] in {
+            "--jacobian-loss-enabled",
+            "--boundary-normal-loss-enabled",
+            "--boundary-self-attention-enabled",
+            "--pde-loss-enabled",
+            "--hmonet-physics-jacobian-enabled",
+            "--hmonet-save-phase-best-checkpoints",
+            "--hmonet-reset-optimizer-on-phase-transition",
+            "--hmonet-physics-scale-invariant-pde-enabled",
+        }:
+            index += 1
+        elif values[index] == "--pde-fd-step":
+            result.extend(values[index + 1 : index + 3])
+            index += 3
+        else:
+            result.append(values[index + 1])
             index += 2
     return result
 
@@ -659,6 +800,18 @@ def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
     normalized = copy.deepcopy(snapshot)
     mode = dataset_mode(dataset_name(dataset))
     normalized["datasets"] = {mode: dataset_name(dataset)}
+    # Explicit default Linear is equivalent to legacy snapshots without this option.
+    for block in normalized.get("model", {}).values():
+        if not isinstance(block, dict):
+            continue
+        if block.get("weight_head_mlp_enabled") is False:
+            block.pop("weight_head_mlp_enabled")
+        lift_mode = str(block.get("coordinate_lift_mode", "legacy")).lower()
+        if lift_mode == "legacy":
+            block.pop("coordinate_lift_mode", None)
+            block.pop("coordinate_lift_max_power", None)
+        elif block.get("coordinate_lift_max_power") == 1:
+            block.pop("coordinate_lift_max_power")
     return normalized
 
 
@@ -682,8 +835,8 @@ def _legacy_dataset_identity(value):
 
 
 def effective_training_identity(args, dataset: Path, variant: Variant, seed: int):
-    """Build the exact effective HMONet training configuration for reuse checks."""
-    from scripts.train.training_state import (
+    """Build the exact effective single-model configuration for reuse checks."""
+    from src.engine.state import (
         model_specific_training_config,
         prepare_training_config,
     )
@@ -696,21 +849,56 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
     training["dataset"] = dataset_mode(dataset_name(dataset))
     if args.device:
         training["device"] = args.device
+    model_name = variant_model(variant)
     model = config.setdefault("model", {}).setdefault("hmonet", {})
     common_model = config.setdefault("model", {}).setdefault("common", {})
     htraining = config.setdefault("hmonet_training", {})
     sampling = config.setdefault("hmonet_sampling", {})
     options = _variant_options(variant.overrides)
+    options.pop("model", None)
+    if model_name != "hmonet":
+        model_training = config.setdefault(f"{model_name}_training", {})
+        if "lr" in options:
+            model_training["learning_rate"] = float(options.pop("lr"))
+        if "best_model_metric" in options:
+            training["best_model_metric"] = str(options.pop("best_model_metric"))
+        if "plateau_metric" in options:
+            training["plateau_metric"] = str(options.pop("plateau_metric"))
+        if options:
+            raise ValueError(
+                f"Unsupported {model_name} ablation overrides: {sorted(options)}"
+            )
+        resolved = prepare_training_config(config, model_name, SimpleNamespace())
+        snapshot = model_specific_training_config(
+            resolved,
+            model_name,
+            dataset,
+            dataset_mode(dataset_name(dataset)),
+        )
+        payload = {
+            "schema_version": TRAINING_IDENTITY_SCHEMA_VERSION,
+            "effective_training_config": _normalize_training_snapshot(snapshot, dataset),
+            "dataset_name": dataset_name(dataset),
+            "dataset_sha256": _dataset_digest(dataset),
+        }
+        encoded = json.dumps(
+            _legacy_dataset_identity(payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), payload
     model_keys = {
         "hmonet_mapping_mode",
         "residual_regularization_weight",
-        "trunk_projection_coefficients_enabled",
-        "projection_softplus_enabled",
+        "weight_head_mlp_enabled",
         "boundary_self_attention_enabled",
     }
     common_model_keys = {
         "branch_dim",
         "trunk_dim",
+        "coordinate_lift_mode",
+        "coordinate_lift_max_power",
         "adjust_hidden_dim",
         "adjust_hidden_layer_num",
         "branch_hidden_dim",
@@ -733,7 +921,44 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "distance_sigma_max",
         "uniform_probability",
     }
-    aliases = {"lr": "learning_rate", "sampling_mode": "mode"}
+    aliases = {
+        "lr": "learning_rate",
+        "sampling_mode": "mode",
+        "hmonet_training_strategy": "training_strategy",
+        "hmonet_tfi_warmup_epochs": "tfi_warmup_epochs",
+        "hmonet_phase1_max_epochs": "phase1_max_epochs",
+        "hmonet_phase2_max_epochs": "phase2_max_epochs",
+        "hmonet_save_phase_best_checkpoints": "save_phase_best_checkpoints",
+        "hmonet_reset_optimizer_on_phase_transition": "reset_optimizer_on_phase_transition",
+        "hmonet_fixed_mse_sample_count": "fixed_mse_sample_count",
+        "hmonet_fixed_mse_loss_weight": "fixed_mse_loss_weight",
+        "hmonet_physics_pde_loss_weight": "physics_pde_loss_weight",
+        "hmonet_physics_jacobian_enabled": "physics_jacobian_enabled",
+        "hmonet_physics_jacobian_loss_weight": "physics_jacobian_loss_weight",
+        "hmonet_random_mse_loss_weight": "random_mse_loss_weight",
+        "hmonet_random_loss_sample_count": "random_loss_sample_count",
+        "hmonet_random_loss_derivative_backend": "random_loss_derivative_backend",
+        "hmonet_random_loss_sampling_mode": "random_loss_sampling_mode",
+        "hmonet_random_loss_global_sample_count": "random_loss_global_sample_count",
+        "hmonet_random_loss_curvature_sample_count": "random_loss_curvature_sample_count",
+        "hmonet_random_loss_boundary_band_sample_count": "random_loss_boundary_band_sample_count",
+        "hmonet_random_loss_boundary_band_min_step_multiple": "random_loss_boundary_band_min_step_multiple",
+        "hmonet_random_loss_boundary_band_max_step_multiple": "random_loss_boundary_band_max_step_multiple",
+        "hmonet_random_loss_boundary_band_min_distance": "random_loss_boundary_band_min_distance",
+        "hmonet_random_loss_boundary_band_max_distance": "random_loss_boundary_band_max_distance",
+        "hmonet_physics_jacobian_minimum": "physics_jacobian_minimum",
+        "hmonet_physics_interior_sample_count": "physics_interior_sample_count",
+        "hmonet_physics_winslow_loss_weight": "physics_winslow_loss_weight",
+        "hmonet_physics_winslow_jacobian_barrier_weight": "physics_winslow_jacobian_barrier_weight",
+        "hmonet_physics_winslow_jacobian_minimum": "physics_winslow_jacobian_minimum",
+        "hmonet_physics_winslow_epsilon": "physics_winslow_epsilon",
+        "hmonet_physics_scale_invariant_pde_enabled": "physics_scale_invariant_pde_enabled",
+        "hmonet_physics_normalized_jacobian_loss_weight": "physics_normalized_jacobian_loss_weight",
+        "hmonet_physics_normalized_jacobian_minimum": "physics_normalized_jacobian_minimum",
+        "hmonet_physics_singular_value_loss_weight": "physics_singular_value_loss_weight",
+        "hmonet_physics_singular_value_minimum": "physics_singular_value_minimum",
+        "hmonet_physics_barrier_reduction": "physics_barrier_reduction",
+    }
     integer_keys = {
         "lr_warmup_epochs",
         "lr_update_interval",
@@ -743,6 +968,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "curvature_adaptive_count",
         "branch_dim",
         "trunk_dim",
+        "coordinate_lift_max_power",
         "adjust_hidden_dim",
         "adjust_hidden_layer_num",
         "branch_hidden_dim",
@@ -754,26 +980,47 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "branch_mlp_hidden_layer_num",
         "dataset_sample_count",
         "pde_interior_sample_count",
+        "tfi_warmup_epochs",
+        "phase1_max_epochs",
+        "phase2_max_epochs",
+        "physics_interior_sample_count",
+        "fixed_mse_sample_count",
+        "random_loss_sample_count",
+        "random_loss_global_sample_count",
+        "random_loss_curvature_sample_count",
+        "random_loss_boundary_band_sample_count",
     }
     boolean_keys = {
         "jacobian_loss_enabled",
         "boundary_normal_loss_enabled",
-        "trunk_projection_coefficients_enabled",
-        "projection_softplus_enabled",
+        "weight_head_mlp_enabled",
         "boundary_self_attention_enabled",
         "pde_loss_enabled",
+        "physics_jacobian_enabled",
+        "save_phase_best_checkpoints",
+        "reset_optimizer_on_phase_transition",
+        "physics_scale_invariant_pde_enabled",
     }
     string_keys = {
         "hmonet_mapping_mode",
+        "coordinate_lift_mode",
         "jacobian_method",
         "mode",
         "target_interpolation",
         "point_loss_weighting",
+        "training_strategy",
+        "random_loss_derivative_backend",
+        "random_loss_sampling_mode",
+        "physics_barrier_reduction",
+        "best_model_metric",
+        "plateau_metric",
     }
-    training_keys = {"dataset_sample_count"}
+    training_keys = {"dataset_sample_count", "best_model_metric", "plateau_metric"}
     for raw_key, raw_value in options.items():
         key = aliases.get(raw_key, raw_key)
-        if key in boolean_keys:
+        if key == "pde_fd_step":
+            value = [float(item) for item in raw_value]
+        elif key in boolean_keys:
             value = bool(raw_value)
         elif key in integer_keys:
             value = int(raw_value)
@@ -814,7 +1061,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
 
 def hmonet_parameter_count(identity: dict) -> int:
     """Instantiate the resolved 2-D HMONet and return its exact trainable size."""
-    from src.models.model import HMONet2D
+    from src.models import HMONet2D
 
     snapshot = identity["effective_training_config"]
     grid = snapshot["grid"]
@@ -822,6 +1069,8 @@ def hmonet_parameter_count(identity: dict) -> int:
     options = dict(model_config.get("common", {}))
     options.update(model_config.get("hmonet", {}))
     options.pop("residual_regularization_weight", None)
+    options.pop("projection_softplus_enabled", None)
+    options["trunk_projection_coefficients_enabled"] = True
     model = HMONet2D(int(grid["nx"]), int(grid["ny"]), **options)
     return sum(
         parameter.numel()
@@ -897,34 +1146,64 @@ def ablation_evaluation_settings(args) -> dict:
         "hmonet_boundary_projection": values.get(
             "hmonet_boundary_projection", "none"
         ),
+        "meshonet_boundary_projection": values.get(
+            "meshonet_boundary_projection", "none"
+        ),
+        "pimeshonet_boundary_projection": values.get(
+            "pimeshonet_boundary_projection", "none"
+        ),
     }
 
 
+def evaluated_model(summary: dict) -> str:
+    model = str(summary.get("model", "hmonet")).lower().replace("-", "")
+    aliases = {"pimeshonet": "pimeshonet", "meshonet": "meshonet", "hmonet": "hmonet"}
+    if model not in aliases:
+        raise ValueError(f"Unsupported evaluated model: {summary.get('model')!r}")
+    return aliases[model]
+
+
+def evaluated_methods(settings: dict, summary: dict) -> list[str]:
+    """Evaluate the traditional references plus the variant's trained model."""
+    model = evaluated_model(summary)
+    traditional = [name for name in settings["methods"] if name in {"tfi", "pde"}]
+    return list(dict.fromkeys([*traditional, model]))
+
+
 def _evaluation_source_digest() -> str:
-    """Hash evaluation, quality, geometry and mesh code that affects saved results."""
-    roots = (
-        ROOT / "scripts/evaluate",
-        ROOT / "src/evaluation",
-        ROOT / "src/data/geometry",
-        ROOT / "src/data/mesh",
-    )
-    files = [
-        item
-        for source_root in roots
-        for item in sorted(source_root.rglob("*.py"))
-        if "__pycache__" not in item.parts
-    ]
-    files.extend(
-        [
-            ROOT / "src/utils/quality_selection.py",
-            ROOT / "src/utils/metrics.py",
-        ]
-    )
-    digest = hashlib.sha256()
-    for item in files:
-        digest.update(str(item.relative_to(ROOT)).replace("\\", "/").encode("utf-8"))
-        digest.update(_file_digest(item).encode("ascii"))
-    return digest.hexdigest()
+    """Return the explicit numerical-evaluation revision.
+
+    File-content hashes made import-only refactors invalidate every completed
+    evaluation even when no numerical algorithm changed. This revision must
+    be bumped whenever generation, quality metrics, or intersection semantics
+    change; moving code between modules deliberately leaves it unchanged.
+    """
+    return hashlib.sha256(
+        b"hmonet-evaluation:endpoint-contact-v2:no-cell-area:4"
+    ).hexdigest()
+
+
+# Digests written immediately before the package-only 2026-10 refactor. They
+# are accepted only after every other identity field matches exactly.
+_REFACTOR_COMPATIBLE_EVALUATION_DIGESTS = {
+    "afb05603b43e1c34eb608c31b80672a63c03870e0787e4d1ce0935965d8d41e7",
+    "db8cb49049a2c6fc03e96727d4da1574ca51146493b48062e84b699949b57887",
+    "371663049dc8c2047c09b999946e2908d9d4763cc4d10ef73652260b7e0fd88f",
+}
+
+
+def _refactor_compatible_evaluation_identity(current: dict, saved: dict) -> bool:
+    """Accept a legacy identity only for this semantics-preserving refactor."""
+    if not isinstance(saved, dict):
+        return False
+    legacy_digest = saved.get("evaluation_source_sha256")
+    if legacy_digest not in _REFACTOR_COMPATIBLE_EVALUATION_DIGESTS:
+        return False
+    current_without_source = dict(current)
+    saved_without_source = dict(saved)
+    current_without_source.pop("evaluation_source_sha256", None)
+    saved_without_source.pop("evaluation_source_sha256", None)
+    return current_without_source == saved_without_source
 
 
 def effective_evaluation_identity(args, dataset: Path, summary: dict, training_fingerprint: str):
@@ -946,12 +1225,15 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
         "evaluation_source_sha256": _evaluation_source_digest(),
         "dataset": dataset_name(dataset),
         "grid_shapes": [list(shape) for shape in settings["grid_shapes"]],
-        "methods": settings["methods"],
+        "model": evaluated_model(summary),
+        "methods": evaluated_methods(settings, summary),
         "hmonet_mapping_mode": summary.get("hmonet_mapping_mode", "current"),
         "hmonet_boundary_projection": settings["hmonet_boundary_projection"],
         "quality_metrics": settings["quality_metrics"],
         "device": args.device,
     }
+    if summary.get("evaluation_checkpoint_stage"):
+        payload["checkpoint_stage"] = summary["evaluation_checkpoint_stage"]
     # Preserve fingerprints created before selective parameter evaluation was
     # introduced. A subset receives its own identity; the default full case
     # remains reusable without rewriting completed experiment records.
@@ -959,6 +1241,45 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
         payload["values"] = settings["values"]
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), payload
+
+
+def evaluation_checkpoint_stages(summary: dict) -> list[tuple[str | None, dict]]:
+    """Return available phase optima and the whole-run optimum."""
+    phase1 = summary.get("phase1_best_checkpoint")
+    phase2 = summary.get("phase2_best_checkpoint")
+    global_best = summary.get("global_best_checkpoint") or summary.get(
+        "best_checkpoint"
+    )
+    if phase1 and global_best and summary.get("phase_best_checkpoints_required"):
+        stages = []
+        checkpoints = [("phase1", phase1)]
+        if phase2:
+            checkpoints.append(("phase2", phase2))
+        checkpoints.append(("global", global_best))
+        for label, checkpoint in checkpoints:
+            staged = copy.deepcopy(summary)
+            staged["best_checkpoint"] = checkpoint
+            staged["best_epoch"] = summary.get(f"{label}_best_epoch")
+            staged["best_metric_value"] = summary.get(
+                f"{label}_best_metric_value"
+            )
+            staged["best_model_dataset_mse"] = summary.get(
+                f"{label}_best_model_dataset_mse"
+            )
+            staged["evaluation_checkpoint_stage"] = label
+            stages.append((label, staged))
+        return stages
+    return [(None, summary)]
+
+
+def tag_evaluation_results(result_files: list[Path], stage: str | None) -> None:
+    """Persist the evaluated training stage so aggregate rows remain distinct."""
+    if stage is None:
+        return
+    for result_file in result_files:
+        result = json.loads(Path(result_file).read_text(encoding="utf-8"))
+        result["experiment_checkpoint_stage"] = stage
+        write_json(Path(result_file), result)
 
 
 def grid_shape_name(shape) -> str:
@@ -1025,6 +1346,11 @@ def _completed_training_summary(summary: dict) -> bool:
         value = summary.get(key)
         if not value or not resolve_project_path(value).is_file():
             return False
+    if summary.get("phase_best_checkpoints_required"):
+        for key in ("phase1_best_checkpoint",):
+            value = summary.get(key)
+            if not value or not resolve_project_path(value).is_file():
+                return False
     return True
 
 
@@ -1246,7 +1572,7 @@ def train_one(args, dataset: Path, variant: Variant, seed: int, destination: Pat
         "--dataset-mode",
         dataset_mode(name),
         "--model",
-        "hmonet",
+        variant_model(variant),
         "--nx",
         str(nx),
         "--ny",
@@ -1258,7 +1584,7 @@ def train_one(args, dataset: Path, variant: Variant, seed: int, destination: Pat
     ]
     if args.device:
         command += ["--device", args.device]
-    command += list(variant.overrides)
+    command += variant_training_overrides(variant)
     summaries = train_2d.main(command)
     if len(summaries) != 1:
         raise RuntimeError(f"Expected one training summary, received {len(summaries)}")
@@ -1274,6 +1600,13 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
     settings = ablation_evaluation_settings(args)
     evaluation_shapes = settings["grid_shapes"]
     grid_argument = ",".join("x".join(map(str, shape)) for shape in evaluation_shapes)
+    model = evaluated_model(summary)
+    checkpoint_flags = {
+        "hmonet": "--hmonet-checkpoint",
+        "meshonet": "--meshonet-checkpoint",
+        "pimeshonet": "--pimeshonet-checkpoint",
+    }
+    projection = settings[f"{model}_boundary_projection"]
     command = [
         "--config",
         str(args.evaluate_config),
@@ -1282,25 +1615,57 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
         "--grid-shapes",
         grid_argument,
         "--methods",
-        ",".join(settings["methods"]),
-        "--hmonet-checkpoint",
+        ",".join(evaluated_methods(settings, summary)),
+        checkpoint_flags[model],
         str(checkpoint),
-        "--hmonet-mapping-mode",
-        summary.get("hmonet_mapping_mode", "current"),
-        "--hmonet-boundary-projection",
-        settings["hmonet_boundary_projection"],
+        f"--{model}-boundary-projection",
+        projection,
         "--output-root",
         str(evaluation_root),
         "--quality-metrics",
         str(settings["quality_metrics"]),
         "--force",
     ]
+    if model == "hmonet":
+        command += [
+            "--hmonet-mapping-mode",
+            summary.get("hmonet_mapping_mode", "current"),
+        ]
     if args.device:
         command += ["--device", args.device]
+    command += [
+        "--save-plots" if getattr(args, "evaluation_plots", True) else "--no-plots"
+    ]
     if settings["values"]:
         command += ["--values", ",".join(map(str, settings["values"]))]
     evaluate_2d.main(command)
     return command
+
+
+def compact_evaluation_result_directory(directory: Path) -> Path:
+    """Keep the reusable summary and every generated evaluation image."""
+    directory = Path(directory)
+    result_file = directory / "results.json"
+    if not result_file.is_file():
+        raise FileNotFoundError(
+            f"Cannot compact evaluation without its summary: {result_file}"
+        )
+    for child in list(directory.rglob("*")):
+        if not child.is_file():
+            continue
+        if child == result_file or child.suffix.lower() in EVALUATION_IMAGE_SUFFIXES:
+            continue
+        child.unlink()
+    for child in sorted(
+        (item for item in directory.rglob("*") if item.is_dir()),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    ):
+        try:
+            child.rmdir()
+        except OSError:
+            pass
+    return result_file
 
 
 def evaluation_directory(experiment_root, dataset, variant, seed, run_tag, grid=None):
@@ -1347,7 +1712,7 @@ def organize_evaluation_results(
             shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(result_file.parent), str(target))
-        organized.append(target / "results.json")
+        organized.append(compact_evaluation_result_directory(target))
     shutil.rmtree(staging_root, ignore_errors=True)
     staging_parent = staging_root.parent
     if staging_parent.exists() and not any(staging_parent.iterdir()):
@@ -1381,8 +1746,6 @@ def read_results(destination: Path, grid: str | None = None):
         entries = manifest_evaluations(manifest)
         results = []
         for grid_name, entry in entries.items():
-            if grid is not None and grid_shape_name(grid_name) != grid_shape_name(grid):
-                continue
             results.extend(
                 resolve_project_path(item)
                 for item in entry.get("result_files", [])
@@ -1404,8 +1767,10 @@ def read_results(destination: Path, grid: str | None = None):
             selected.append(result_path)
     return sorted(set(selected))
 
-def find_reusable_evaluation(experiment_root: Path, fingerprint: str):
-    """Find the newest completed per-grid or legacy evaluation by fingerprint."""
+def find_reusable_evaluation(
+    experiment_root: Path, fingerprint: str, identity: dict | None = None
+):
+    """Find a completed evaluation by exact or refactor-compatible identity."""
     if not experiment_root.is_dir():
         return None
     candidates = []
@@ -1415,7 +1780,20 @@ def find_reusable_evaluation(experiment_root: Path, fingerprint: str):
         except (OSError, json.JSONDecodeError):
             continue
         for grid, entry in manifest_evaluations(manifest).items():
-            if entry.get("fingerprint") != fingerprint:
+            exact_match = entry.get("fingerprint") == fingerprint
+            compatible_match = False
+            identity_file = entry.get("identity_file")
+            if not exact_match and identity is not None and identity_file:
+                try:
+                    saved_identity = json.loads(
+                        resolve_project_path(identity_file).read_text(encoding="utf-8")
+                    )
+                    compatible_match = _refactor_compatible_evaluation_identity(
+                        identity, saved_identity
+                    )
+                except (OSError, json.JSONDecodeError):
+                    compatible_match = False
+            if not exact_match and not compatible_match:
                 continue
             if entry.get("status") != "completed":
                 continue
@@ -1462,19 +1840,34 @@ def _numeric_items(prefix, mapping):
 
 def result_rows(manifest: dict, summary: dict, result_path: Path):
     result = json.loads(result_path.read_text(encoding="utf-8"))
-    method = "HMONet"
+    method = {
+        "hmonet": "HMONet",
+        "meshonet": "MeshONet",
+        "pimeshonet": "PI-MeshONet",
+    }[evaluated_model(summary)]
+    checkpoint_stage = result.get("experiment_checkpoint_stage")
+    variant = manifest["variant"]
+    variant_value = manifest["variant_value"]
+    if checkpoint_stage:
+        variant = f"{variant}__{checkpoint_stage}"
+        variant_value = f"{variant_value} [{checkpoint_stage}]"
     common = {
         "ablation": manifest["ablation"],
         "dataset": manifest["dataset"],
-        "variant": manifest["variant"],
-        "variant_value": manifest["variant_value"],
+        "variant": variant,
+        "variant_value": variant_value,
+        "checkpoint_stage": checkpoint_stage or "best",
         "seed": manifest["seed"],
         "run_tag": manifest["run_tag"],
         "method": method,
         "parameter": result.get("parameter"),
         "value": result.get("value"),
         "grid_shape": "x".join(map(str, result.get("grid_shape", []))),
-        "best_epoch": summary.get("best_epoch"),
+        "best_epoch": (
+            summary.get(f"{checkpoint_stage}_best_epoch")
+            if checkpoint_stage
+            else summary.get("best_epoch")
+        ),
         "completed_epochs": summary.get("completed_epochs"),
         "training_seconds": summary.get("training_time_seconds"),
         "average_epoch_seconds": (
@@ -1484,7 +1877,11 @@ def result_rows(manifest: dict, summary: dict, result_path: Path):
             and summary.get("completed_epochs") > 0
             else None
         ),
-        "fixed_grid_best_mse": summary.get("best_model_dataset_mse"),
+        "fixed_grid_best_mse": (
+            summary.get(f"{checkpoint_stage}_best_model_dataset_mse")
+            if checkpoint_stage
+            else summary.get("best_model_dataset_mse")
+        ),
         "fixed_grid_final_mse": summary.get("final_dataset_mse"),
     }
     metrics = result.get("metrics", {}).get(method, {})
@@ -1897,7 +2294,7 @@ def write_profiled_metric_outputs(rows: list[dict], experiment_root: Path, run_t
 
 
 
-def aggregate_experiment(experiment_root: Path, run_tag: str):
+def aggregate_experiment(experiment_root: Path, run_tag: str, *, save_plots: bool = True):
     """Create training outputs and completely grid-isolated evaluation summaries."""
     plot_training_histories(experiment_root, run_tag)
     rows = []
@@ -1975,15 +2372,18 @@ def aggregate_experiment(experiment_root: Path, run_tag: str):
                     )
                 grid_summaries.append(record)
             write_csv(grid_aggregate / "mean_variance_by_case.csv", grid_summaries)
-            plot_metrics(grid_rows, figures_root / grid_name)
+            if save_plots:
+                plot_metrics(grid_rows, figures_root / grid_name)
             all_summaries.extend(grid_summaries)
             index["grids"][grid_name] = {
                 "case_count": len(grid_rows),
                 "aggregate_directory": portable_project_path(grid_aggregate),
-                "figures_directory": portable_project_path(figures_root / grid_name),
             }
+            if save_plots:
+                index["grids"][grid_name]["figures_directory"] = (
+                    portable_project_path(figures_root / grid_name)
+                )
         write_json(aggregate_root / "evaluation_index.json", index)
-    write_profiled_metric_outputs(rows, experiment_root, run_tag)
     return all_summaries
 
 def plot_metrics(rows: list[dict], output: Path):
@@ -2089,6 +2489,13 @@ def execute(args, config, variants: list[Variant]):
                 )
                 is_baseline_configuration = fingerprint == baseline_fingerprint
                 cache_root = args.experiment_root.resolve()
+                baseline_cache_root = Path(
+                    getattr(args, "baseline_experiment_root", cache_root)
+                ).resolve()
+                cache_roots = list(
+                    dict.fromkeys((cache_root, baseline_cache_root))
+                )
+                external_baseline = baseline_cache_root != cache_root
                 baseline_key = (name, seed)
                 if (
                     args.ablation != BASELINE_ABLATION
@@ -2096,7 +2503,7 @@ def execute(args, config, variants: list[Variant]):
                 ):
                     checked_baselines.add(baseline_key)
                     issue = check_trained_baseline_identity(
-                        cache_root,
+                        baseline_cache_root,
                         name,
                         seed,
                         baseline_fingerprint,
@@ -2104,13 +2511,21 @@ def execute(args, config, variants: list[Variant]):
                     )
                     if issue is not None:
                         baseline_compatibility_issues.append(issue)
+                if args.ablation != BASELINE_ABLATION and is_baseline_configuration:
+                    print(
+                        f"Skip canonical-baseline-equivalent variant: {name} | "
+                        f"{variant.name} | seed={seed}. Ablation commands never run "
+                        "baseline training or evaluation.",
+                        flush=True,
+                    )
+                    continue
                 # A variant whose complete training identity equals the frozen
                 # baseline shares the suite's single baseline evaluation store.
                 # Its ablation manifest still labels the row as that experiment's
                 # baseline, but no duplicate ``<ablation>/base`` images are made.
                 if is_baseline_configuration:
                     evaluation_dataset_root = (
-                        args.experiment_root.resolve() / BASELINE_ABLATION / name
+                        baseline_cache_root / BASELINE_ABLATION / name
                     )
                     evaluation_variant = "baseline"
                 else:
@@ -2119,8 +2534,19 @@ def execute(args, config, variants: list[Variant]):
                 # --force affects only the phase that is actually requested. This
                 # lets ``--evaluate-only --force`` replace evaluation output while
                 # preserving and reusing the trained baseline checkpoint.
-                force_training = bool(args.force and not args.evaluate_only)
-                force_evaluation = bool(args.force and not args.train_only)
+                immutable_external_baseline = bool(
+                    external_baseline and is_baseline_configuration
+                )
+                force_training = bool(
+                    args.force
+                    and not args.evaluate_only
+                    and not immutable_external_baseline
+                )
+                force_evaluation = bool(
+                    args.force
+                    and not args.train_only
+                    and not immutable_external_baseline
+                )
                 reusable = None
                 if not force_training:
                     # Prefer the explicitly selected run when it is complete and
@@ -2138,7 +2564,18 @@ def execute(args, config, variants: list[Variant]):
                         if selected_metadata.get("training_fingerprint") == fingerprint:
                             reusable = selected
                     if reusable is None:
-                        reusable = find_reusable_training(cache_root, fingerprint)
+                        for search_root in cache_roots:
+                            reusable = find_reusable_training(search_root, fingerprint)
+                            if reusable is not None:
+                                break
+                if immutable_external_baseline and reusable is None:
+                    raise FileNotFoundError(
+                        "The referenced external baseline has no complete training "
+                        f"for dataset={name}, seed={seed}, run-tag={args.run_tag}: "
+                        f"{baseline_cache_root / BASELINE_ABLATION}. Train the owning "
+                        "baseline suite first; the current suite will never create or "
+                        "modify it."
+                    )
                 if args.dry_run:
                     if not reusable:
                         action = "missing-training" if args.evaluate_only else "train+evaluate"
@@ -2149,17 +2586,30 @@ def execute(args, config, variants: list[Variant]):
                         for shape in ablation_evaluation_settings(args)["grid_shapes"]:
                             grid = grid_shape_name(shape)
                             grid_args = single_grid_evaluation_args(args, shape)
-                            evaluation_fingerprint, _ = effective_evaluation_identity(
-                                grid_args, dataset, reusable["summary"], fingerprint
-                            )
-                            reusable_evaluation = (
-                                None
-                                if force_evaluation
-                                else find_reusable_evaluation(cache_root, evaluation_fingerprint)
-                            )
-                            grid_actions.append(
-                                f"{grid}={'reuse' if reusable_evaluation else 'evaluate'}"
-                            )
+                            for stage, evaluation_summary in evaluation_checkpoint_stages(
+                                reusable["summary"]
+                            ):
+                                evaluation_fingerprint, evaluation_identity = effective_evaluation_identity(
+                                    grid_args,
+                                    dataset,
+                                    evaluation_summary,
+                                    fingerprint,
+                                )
+                                reusable_evaluation = None
+                                if not force_evaluation:
+                                    for search_root in cache_roots:
+                                        reusable_evaluation = find_reusable_evaluation(
+                                            search_root,
+                                            evaluation_fingerprint,
+                                            evaluation_identity,
+                                        )
+                                        if reusable_evaluation is not None:
+                                            break
+                                label = f"{grid}/{stage}" if stage else grid
+                                grid_actions.append(
+                                    f"{label}="
+                                    f"{'reuse' if reusable_evaluation else 'evaluate'}"
+                                )
                         action = "reuse-training+evaluation[" + ", ".join(grid_actions) + "]"
                     storage = portable_project_path(
                         evaluation_collection_root(evaluation_dataset_root)
@@ -2278,80 +2728,120 @@ def execute(args, config, variants: list[Variant]):
                         for shape in ablation_evaluation_settings(args)["grid_shapes"]:
                             grid = grid_shape_name(shape)
                             grid_args = single_grid_evaluation_args(args, shape)
-                            evaluation_fingerprint, evaluation_identity = effective_evaluation_identity(
-                                grid_args, dataset, summary, fingerprint
-                            )
-                            evaluation_identity_path = (
-                                destination / "evaluation_identities" / f"{grid}.json"
-                            )
-                            write_json(evaluation_identity_path, evaluation_identity)
-                            reusable_evaluation = (
-                                None
-                                if force_evaluation
-                                else find_reusable_evaluation(cache_root, evaluation_fingerprint)
-                            )
-                            if reusable_evaluation:
-                                result_files = reusable_evaluation["result_files"]
-                                reused = True
-                                source_directory = portable_project_path(
-                                    reusable_evaluation["directory"]
+                            for stage, evaluation_summary in evaluation_checkpoint_stages(
+                                summary
+                            ):
+                                entry_key = f"{grid}__{stage}" if stage else grid
+                                storage_variant = (
+                                    f"{evaluation_variant}__{stage}"
+                                    if stage
+                                    else evaluation_variant
                                 )
-                                source_manifest = portable_project_path(
-                                    reusable_evaluation["manifest_path"]
+                                staging_variant = (
+                                    f"{variant.name}__{stage}"
+                                    if stage
+                                    else variant.name
                                 )
-                                evaluate_command = None
-                                print(
-                                    f"Reuse evaluation [{grid}]: {source_directory}",
-                                    flush=True,
+                                evaluation_fingerprint, evaluation_identity = effective_evaluation_identity(
+                                    grid_args,
+                                    dataset,
+                                    evaluation_summary,
+                                    fingerprint,
                                 )
-                            else:
-                                reused = False
-                                source_directory = None
-                                source_manifest = None
-                                grid_eval_root = evaluation_directory(
-                                    experiment_root,
-                                    name,
-                                    variant.name,
-                                    seed,
-                                    args.run_tag,
-                                    grid,
+                                if stage:
+                                    evaluation_identity["checkpoint_stage"] = stage
+                                evaluation_identity_path = (
+                                    destination
+                                    / "evaluation_identities"
+                                    / f"{entry_key}.json"
                                 )
-                                shutil.rmtree(grid_eval_root, ignore_errors=True)
-                                evaluate_command = evaluate_one(
-                                    grid_args, dataset, summary, grid_eval_root
-                                )
-                                result_files = organize_evaluation_results(
-                                    grid_eval_root,
-                                    evaluation_dataset_root,
-                                    evaluation_variant,
-                                    seed,
-                                    args.run_tag,
-                                    overwrite=force_evaluation,
-                                )
-                                # A values-only repair run writes just the requested
-                                # parameter directories. Keep previously completed
-                                # parameters registered in the run manifest as well.
-                                if getattr(grid_args, "evaluation_values", None):
-                                    result_files = stored_grid_results(
-                                        evaluation_dataset_root,
-                                        evaluation_variant,
+                                write_json(evaluation_identity_path, evaluation_identity)
+                                reusable_evaluation = None
+                                if not force_evaluation:
+                                    for search_root in cache_roots:
+                                        reusable_evaluation = find_reusable_evaluation(
+                                            search_root,
+                                            evaluation_fingerprint,
+                                            evaluation_identity,
+                                        )
+                                        if reusable_evaluation is not None:
+                                            break
+                                if reusable_evaluation:
+                                    result_files = reusable_evaluation["result_files"]
+                                    reused = True
+                                    source_directory = portable_project_path(
+                                        reusable_evaluation["directory"]
+                                    )
+                                    source_manifest = portable_project_path(
+                                        reusable_evaluation["manifest_path"]
+                                    )
+                                    evaluate_command = None
+                                    print(
+                                        f"Reuse evaluation [{entry_key}]: "
+                                        f"{source_directory}",
+                                        flush=True,
+                                    )
+                                else:
+                                    reused = False
+                                    source_directory = None
+                                    source_manifest = None
+                                    grid_eval_root = evaluation_directory(
+                                        experiment_root,
+                                        name,
+                                        staging_variant,
                                         seed,
                                         args.run_tag,
                                         grid,
                                     )
-                            evaluations[grid] = {
-                                "status": "completed",
-                                "fingerprint": evaluation_fingerprint,
-                                "identity_file": portable_project_path(evaluation_identity_path),
-                                "result_files": [portable_project_path(item) for item in result_files],
-                                "reused": reused,
-                                "source_directory": source_directory,
-                                "source_manifest": source_manifest,
-                                "evaluate_command": evaluate_command,
-                                "finished_at": datetime.now().isoformat(timespec="seconds"),
-                            }
-                            evaluation_reused_by_grid[grid] = reused
-                            evaluate_commands[grid] = evaluate_command
+                                    shutil.rmtree(grid_eval_root, ignore_errors=True)
+                                    evaluate_command = evaluate_one(
+                                        grid_args,
+                                        dataset,
+                                        evaluation_summary,
+                                        grid_eval_root,
+                                    )
+                                    result_files = organize_evaluation_results(
+                                        grid_eval_root,
+                                        evaluation_dataset_root,
+                                        storage_variant,
+                                        seed,
+                                        args.run_tag,
+                                        overwrite=force_evaluation,
+                                    )
+                                    tag_evaluation_results(result_files, stage)
+                                    # A values-only repair run writes just the requested
+                                    # parameter directories. Keep previously completed
+                                    # parameters registered in the run manifest as well.
+                                    if getattr(grid_args, "evaluation_values", None):
+                                        result_files = stored_grid_results(
+                                            evaluation_dataset_root,
+                                            storage_variant,
+                                            seed,
+                                            args.run_tag,
+                                            grid,
+                                        )
+                                evaluations[entry_key] = {
+                                    "status": "completed",
+                                    "grid_shape": grid,
+                                    "checkpoint_stage": stage or "best",
+                                    "fingerprint": evaluation_fingerprint,
+                                    "identity_file": portable_project_path(
+                                        evaluation_identity_path
+                                    ),
+                                    "result_files": [
+                                        portable_project_path(item)
+                                        for item in result_files
+                                    ],
+                                    "reused": reused,
+                                    "source_directory": source_directory,
+                                    "source_manifest": source_manifest,
+                                    "evaluate_command": evaluate_command,
+                                    "finished_at": datetime.now().isoformat(
+                                        timespec="seconds"
+                                    ),
+                                }
+                                evaluation_reused_by_grid[entry_key] = reused
+                                evaluate_commands[entry_key] = evaluate_command
                         manifest["evaluation_directory"] = portable_project_path(
                             evaluation_collection_root(evaluation_dataset_root)
                         )
@@ -2368,6 +2858,15 @@ def execute(args, config, variants: list[Variant]):
                         status=status,
                         finished_at=datetime.now().isoformat(timespec="seconds"),
                         best_checkpoint=summary.get("best_checkpoint"),
+                        phase1_best_checkpoint=summary.get(
+                            "phase1_best_checkpoint"
+                        ),
+                        phase2_best_checkpoint=summary.get(
+                            "phase2_best_checkpoint"
+                        ),
+                        global_best_checkpoint=summary.get(
+                            "global_best_checkpoint", summary.get("best_checkpoint")
+                        ),
                     )
                     write_json(destination / "run_manifest.json", manifest)
                     marker_name = "training_completed.json" if args.train_only else "completed.json"
@@ -2398,7 +2897,11 @@ def execute(args, config, variants: list[Variant]):
             # baseline comparison or aggregate evaluation scientifically invalid.
             plot_training_histories(experiment_root, args.run_tag)
         else:
-            aggregate_experiment(experiment_root, args.run_tag)
+            aggregate_experiment(
+                experiment_root,
+                args.run_tag,
+                save_plots=getattr(args, "evaluation_plots", True),
+            )
     if not args.dry_run:
         for dataset in map(resolve_dataset, args.dataset or config.get("datasets", [])):
             name = dataset_name(dataset)
@@ -2412,11 +2915,17 @@ def execute(args, config, variants: list[Variant]):
             (experiment_root / "failures.json").unlink(missing_ok=True)
     compatibility_report = experiment_root / "baseline_compatibility_errors.json"
     if baseline_compatibility_issues:
-        if not args.dry_run:
-            write_json(compatibility_report, baseline_compatibility_issues)
         message = _baseline_error_message(baseline_compatibility_issues)
-        print(message, file=sys.stderr, flush=True)
-        raise BaselineCompatibilityError(message)
+        if args.dry_run:
+            print(
+                "Dry-run note: the baseline is not written, so later selected "
+                "experiments cannot validate it until the real batch run.",
+                flush=True,
+            )
+        else:
+            write_json(compatibility_report, baseline_compatibility_issues)
+            print(message, file=sys.stderr, flush=True)
+            raise BaselineCompatibilityError(message)
     if not args.dry_run and args.ablation != BASELINE_ABLATION:
         compatibility_report.unlink(missing_ok=True)
     return completed
@@ -2451,6 +2960,15 @@ def build_parser():
         help=(
             "Evaluate only these geometry parameter values. Existing results for "
             "other values remain untouched."
+        ),
+    )
+    parser.add_argument(
+        "--evaluation-plots",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Generate pure-grid, quality, and comparison figures during ablation "
+            "evaluation (default: enabled). Use --no-evaluation-plots to disable."
         ),
     )
     parser.add_argument(
@@ -2493,13 +3011,43 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if not re.fullmatch(r"ex[1-9][0-9]*", args.experiment_set):
-        raise ValueError("--experiment-set must use the form ex1, ex2, ...")
+    validate_experiment_set_name(args.experiment_set)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()
-    args.baseline_config = (args.baseline_config or suite_root / "baseline/experiment.yaml").resolve()
-    args.evaluate_config = (args.evaluate_config or suite_root / "baseline/evaluate.yaml").resolve()
+    definition = {}
+    definition_path = None
+    if args.ablation != BASELINE_ABLATION:
+        definition_path = (
+            args.experiment_config.resolve()
+            if args.experiment_config
+            else default_experiment_config(args.ablation, args.experiment_root).resolve()
+        )
+        definition = _load_yaml_mapping(definition_path)
+        args.experiment_config_resolved = definition_path
+    declared_baseline = (
+        declared_config_path(definition_path, "baseline_config")
+        if definition_path is not None
+        else None
+    )
+    declared_evaluation = (
+        declared_config_path(definition_path, "evaluation_config")
+        if definition_path is not None
+        else None
+    )
+    args.baseline_config = (
+        args.baseline_config
+        or declared_baseline
+        or suite_root / "baseline/experiment.yaml"
+    ).resolve()
+    args.evaluate_config = (
+        args.evaluate_config
+        or declared_evaluation
+        or suite_root / "baseline/evaluate.yaml"
+    ).resolve()
+    args.baseline_experiment_root = baseline_experiment_root(
+        args.baseline_config, args.experiment_root
+    )
     if args.train_only and args.evaluate_only:
         raise ValueError("--train-only and --evaluate-only are mutually exclusive")
     os.chdir(ROOT)
@@ -2510,31 +3058,17 @@ def main(argv=None):
             "--baseline-config; update the selected experiment set baseline/experiment.yaml instead."
         )
     args.training_config = args.baseline_config.resolve()
-    definition = {}
     if args.ablation != BASELINE_ABLATION:
-        definition_path = (
-            args.experiment_config.resolve()
-            if args.experiment_config
-            else default_experiment_config(args.ablation, args.experiment_root).resolve()
-        )
-        definition = _load_yaml_mapping(definition_path)
-        args.experiment_config_resolved = definition_path
-        declared_baseline = definition.get("baseline_config")
-        if declared_baseline:
-            declared_path = (definition_path.parent / declared_baseline).resolve()
-            if declared_path != args.training_config:
-                raise ValueError(
-                    f"{definition_path} declares baseline {declared_path}, but the "
-                    f"active baseline is {args.training_config}."
-                )
-        declared_evaluation = definition.get("evaluation_config")
-        if declared_evaluation:
-            declared_path = (definition_path.parent / declared_evaluation).resolve()
-            if declared_path != args.evaluate_config.resolve():
-                raise ValueError(
-                    f"{definition_path} declares evaluation config {declared_path}, "
-                    f"but the active config is {args.evaluate_config.resolve()}."
-                )
+        if declared_baseline and declared_baseline != args.training_config:
+            raise ValueError(
+                f"{definition_path} declares baseline {declared_baseline}, but the "
+                f"active baseline is {args.training_config}."
+            )
+        if declared_evaluation and declared_evaluation != args.evaluate_config.resolve():
+            raise ValueError(
+                f"{definition_path} declares evaluation config {declared_evaluation}, "
+                f"but the active config is {args.evaluate_config.resolve()}."
+            )
     else:
         args.experiment_config_resolved = args.training_config
     datasets = args.dataset or config.get("datasets", [])
@@ -2546,6 +3080,8 @@ def main(argv=None):
     args.dataset = datasets
     args.seeds = list(map(int, seeds))
     configured_variants = variants_from_definition(definition)
+    if args.ablation != BASELINE_ABLATION and definition_path is not None:
+        reject_embedded_baseline_variants(configured_variants, definition_path)
     if args.ablation == BASELINE_ABLATION:
         variants = [Variant("baseline", "baseline", ())]
     elif args.ablation == "initial_learning_rate" and args.initial_learning_rates:

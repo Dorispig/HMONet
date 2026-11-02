@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import yaml
 
-from scripts.train.attention_pihmonet_common import (
+from src.engine.attention import (
     autograd_physics_losses,
     autograd_normalized_pde_loss,
     build_boundary_inputs,
@@ -34,9 +34,9 @@ from scripts.train.pi_anchor import (
     masked_anchor_mse,
     tfi_anchor_targets,
 )
-from scripts.train.training_common import make_data_loader, seed_everything
-from src.data.dataset import ParametricDataset2D, ParametricDataset3D
-from src.models.model import AttentionHMONet2D, AttentionHMONet3D
+from src.engine.training import make_data_loader, seed_everything
+from src.data.parametric_dataset import ParametricDataset2D, ParametricDataset3D
+from src.models import AttentionHMONet2D, AttentionHMONet3D
 
 
 ROOT = Path(__file__).resolve().parents[2]

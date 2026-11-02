@@ -12,7 +12,55 @@ __all__ = [
     "BoundarySelfAttentionEncoder2D",
     "BoundarySurfaceTokenBuilder3D",
     "BoundarySelfAttentionEncoder3D",
+    "coordinate_lift_input_dim",
+    "normalize_coordinate_lift_mode",
+    "power_fourier_lift",
 ]
+
+
+COORDINATE_LIFT_MODES = frozenset({"legacy", "power_fourier"})
+
+
+def normalize_coordinate_lift_mode(mode):
+    """Return a validated coordinate-lifting mode name."""
+    normalized = str(mode).strip().lower().replace("-", "_")
+    if normalized not in COORDINATE_LIFT_MODES:
+        choices = ", ".join(sorted(COORDINATE_LIFT_MODES))
+        raise ValueError(f"coordinate_lift_mode must be one of: {choices}")
+    return normalized
+
+
+def coordinate_lift_input_dim(dimension, configured_dim, mode, max_power):
+    """Resolve the trunk input width without changing the legacy encoding."""
+    normalized = normalize_coordinate_lift_mode(mode)
+    power = int(max_power)
+    if power < 1:
+        raise ValueError("coordinate_lift_max_power must be at least 1")
+    if normalized == "legacy":
+        return int(configured_dim)
+    return 3 * int(dimension) * power
+
+
+def power_fourier_lift(coordinates, max_power):
+    """Lift coordinates by axiswise powers and matching sine/cosine features.
+
+    For every coordinate axis, powers one through ``max_power`` are first
+    concatenated. The sine and cosine of ``2*pi`` times that same ordered
+    power vector are then appended. Thus the output width is ``3*d*p``.
+    """
+    power = int(max_power)
+    if power < 1:
+        raise ValueError("coordinate_lift_max_power must be at least 1")
+    powers = torch.cat(
+        [
+            coordinates[..., axis : axis + 1].pow(degree)
+            for axis in range(coordinates.shape[-1])
+            for degree in range(1, power + 1)
+        ],
+        dim=-1,
+    )
+    phase = (2.0 * torch.pi) * powers
+    return torch.cat((powers, torch.sin(phase), torch.cos(phase)), dim=-1)
 
 
 class MGNet2DBlock(nn.Module):

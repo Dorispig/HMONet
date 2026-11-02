@@ -1,0 +1,20 @@
+# 实验5：前5000轮MSE+Jacobian，随后加入PDE；总上限50000轮。
+schema_version: 1
+experiment: e5_staged_mse_pde_jac
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e5_staged_mse_pde_jac
+    value: mse_jac_then_mse_pde_jac
+    overrides:
+      - --hmonet-training-strategy
+      - random_mse_jac_then_mse_pde_jac
+      - --hmonet-phase1-max-epochs
+      - "5000"
+      - --hmonet-phase2-max-epochs
+      - "45000"
+      - --hmonet-physics-pde-loss-weight
+      - "0.0001"
+      - --no-hmonet-reset-optimizer-on-phase-transition
+      - --lr
+      - "0.0004"

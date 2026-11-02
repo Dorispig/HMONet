@@ -6,8 +6,8 @@ import torch
 from tqdm import tqdm
 from src.models.pi_meshonet import PIMeshONet2D, PIMeshONet3D
 from src.data.mesh.sampling import logical_grid, boundary_indices
-from scripts.train.physics_loss import stencil_queries, elliptic_residual
-from scripts.train.training_common import (
+from src.losses.physics import stencil_queries, elliptic_grid_pde_residual
+from src.engine.training import (
     BatchLossTotals,
     make_data_loader,
     predict_coordinates,
@@ -15,7 +15,7 @@ from scripts.train.training_common import (
     seed_everything,
     update_learning_rate,
 )
-from scripts.train.training_state import TrainingState, prepare_training_config
+from src.engine.state import TrainingState, prepare_training_config
 
 
 def train_pimeshonet(datasets, config, mode, args, device):
@@ -111,7 +111,7 @@ def train_pimeshonet(datasets, config, mode, args, device):
                 values = prediction[:, nb:].reshape(
                     size, count, stencil.shape[-2], dimension
                 )
-                residual = elliptic_residual(values, h)
+                residual = elliptic_grid_pde_residual(values, h)
                 pde_loss = residual.square().sum(-1).mean()
                 loss = weights[0] * pde_loss + weights[1] * boundary_loss
                 if not safe_optimizer_step(

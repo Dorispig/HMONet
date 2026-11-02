@@ -165,8 +165,8 @@ def main(argv=None):
     # Explicit evaluation methods may include an already trained model. Models
     # trained in this invocation are pinned to their new checkpoints; other
     # requested models are resolved by the evaluator from existing checkpoints.
-    from scripts.train.training_common import resolve_dataset_paths
-    from src.data.dataset import ParametricDataset2D, ParametricDataset3D
+    from src.engine.training import resolve_dataset_paths
+    from src.data.parametric_dataset import ParametricDataset2D, ParametricDataset3D
 
     mode = overrides.dataset_mode or config.get("training", {}).get(
         "dataset", "interpolation"

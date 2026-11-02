@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import uuid
+import warnings
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -23,10 +24,10 @@ if __package__ in (None, ""):
 
 import numpy as np
 
-from scripts.pde.vectorized_winslow_2d import (
+from src.numerics.traditional.winslow_vectorized_2d import (
     solve_winslow_2d_vectorized as solve_winslow_2d,
 )
-from scripts.tfi.tfi_2d import tfi_from_curves
+from src.numerics.traditional.tfi_2d import tfi_from_curves
 from src.data.geometry.boundary_generator_2d import (
     BOUNDARY_GENERATORS,
     smooth_constricted_channel_boundary,
@@ -39,7 +40,7 @@ from src.data.geometry.boundary_generator_2d import (
     VerticallyAsymmetricConvexTriBoundary,
     generate_boundary,
 )
-from src.data.dataset import (
+from src.data.parametric_dataset import (
     BOUNDARY_GEOMETRY_FILENAME,
     NUMERICAL_DATA_FILENAME,
     PAIRED_FORMAT,
@@ -60,12 +61,14 @@ DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parents[3] / "data" / "raw" / "2D
 DATASET_GENERATORS = {
     "circle_airfoil": circle_airfoil_boundary,
     "eccentric_semiannulus": EccentricAnnularSectorBoundary,
-    "gear_spline": gear_spline_boundary,
-    "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
-    "rounded_u_notch": rounded_u_notch_boundary,
     "smooth_constricted_channel": smooth_constricted_channel_boundary,
-    "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,
     "variable_width_s_channel": variable_width_s_channel_boundary,
+    "rounded_u_notch": rounded_u_notch_boundary,
+    "gear_spline": gear_spline_boundary,
+    "four_convex_semicircle": BOUNDARY_GENERATORS["four_convex_semicircle"],
+    "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
+    "rectangle": BOUNDARY_GENERATORS["rectangle"],
+    "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,
 }
 
 # 按数据集族完整名称排序，与 SELECTED_DATASETS 和专用生成函数一致。
@@ -105,6 +108,44 @@ DATASET_FAMILIES = {
         "interpolation": [[0.3, 0.45], [0.55, 0.7]],
         "extrapolation": [[0.3, 0.7]],
     },
+    "smooth_constricted_channel": {
+        "output_name": "scc",
+        "function": "smooth_constricted_channel",
+        "parameter": "depth",
+        "description": "上下光滑相向凹陷的通道；最小间隙 height-2*depth。",
+        "fixed_parameters": {"length": 3.0, "height": 1.0},
+        "grid_shape": [41, 41],
+        "equal_interval_counts": True,
+        "interpolation": [[0.05, 0.25], [0.35, 0.42]],
+        "extrapolation": [[0.05, 0.4]],
+    },
+    "variable_width_s_channel": {
+        "output_name": "vsc",
+        "function": "variable_width_s_channel",
+        "parameter": "constriction",
+        "description": "Bézier 变宽 S 通道；仅变化收缩控制量，弯曲控制量固定。",
+        "fixed_parameters": {"length": 4.0, "height": 0.8, "bend": 2.0},
+        "grid_shape": [41, 41],
+        "equal_interval_counts": True,
+        "interpolation": [[0, 0.3], [0.6, 0.85]],
+        "extrapolation": [[0, 0.8]],
+    },
+    "rounded_u_notch_compact": {
+        "output_name": "run",
+        "function": "rounded_u_notch",
+        "parameter": "depth",
+        "description": "小规模深 U 槽；61x21均匀网格，圆角半径0.25，仅变化depth。",
+        "fixed_parameters": {
+            "width": 3.0,
+            "height": 2.0,
+            "notch_width": 0.9,
+            "radius": 0.25,
+        },
+        "grid_shape": [61, 21],
+        "equal_interval_counts": True,
+        "interpolation": [[0.55, 1.0], [1.3, 1.5]],
+        "extrapolation": [[0.55, 1.5]],
+    },
     "gear_spline": {
         "output_name": "gsp",
         "function": "gear_spline",
@@ -132,33 +173,6 @@ DATASET_FAMILIES = {
         "interpolation": [[0.0, 0.2], [0.3, 0.5]],
         "extrapolation": [[0.0, 0.4]],
     },
-    "rounded_u_notch_compact": {
-        "output_name": "run",
-        "function": "rounded_u_notch",
-        "parameter": "depth",
-        "description": "小规模深 U 槽；61x21均匀网格，圆角半径0.25，仅变化depth。",
-        "fixed_parameters": {
-            "width": 3.0,
-            "height": 2.0,
-            "notch_width": 0.9,
-            "radius": 0.25,
-        },
-        "grid_shape": [61, 21],
-        "equal_interval_counts": True,
-        "interpolation": [[0.55, 1.0], [1.3, 1.5]],
-        "extrapolation": [[0.55, 1.5]],
-    },
-    "smooth_constricted_channel": {
-        "output_name": "scc",
-        "function": "smooth_constricted_channel",
-        "parameter": "depth",
-        "description": "上下光滑相向凹陷的通道；最小间隙 height-2*depth。",
-        "fixed_parameters": {"length": 3.0, "height": 1.0},
-        "grid_shape": [41, 41],
-        "equal_interval_counts": True,
-        "interpolation": [[0.05, 0.25], [0.35, 0.42]],
-        "extrapolation": [[0.05, 0.4]],
-    },
     "symmetric_convex_tri": {
         "output_name": "tri",
         "function": "symmetric_convex_tri",
@@ -169,17 +183,6 @@ DATASET_FAMILIES = {
         "equal_interval_counts": True,
         "interpolation": [[0.05, 0.2], [0.3, 0.5]],
         "extrapolation": [[0.05, 0.4]],
-    },
-    "variable_width_s_channel": {
-        "output_name": "vsc",
-        "function": "variable_width_s_channel",
-        "parameter": "constriction",
-        "description": "Bézier 变宽 S 通道；仅变化收缩控制量，弯曲控制量固定。",
-        "fixed_parameters": {"length": 4.0, "height": 0.8, "bend": 2.0},
-        "grid_shape": [41, 41],
-        "equal_interval_counts": True,
-        "interpolation": [[0, 0.3], [0.6, 0.85]],
-        "extrapolation": [[0, 0.8]],
     },
     "variable_width_s_channel_bend": {
         "output_name": "vsb",
@@ -209,18 +212,18 @@ SELECTED_DATASETS = [
     ("circle_airfoil_t", "extrapolation", 0),
     ("eccentric_semiannulus", "interpolation", 0),
     ("eccentric_semiannulus", "extrapolation", 0),
+    ("smooth_constricted_channel", "interpolation", 0),
+    ("smooth_constricted_channel", "extrapolation", 0),
+    ("variable_width_s_channel", "interpolation", 0),
+    ("variable_width_s_channel", "extrapolation", 0),
+    ("rounded_u_notch_compact", "interpolation", 0),
+    ("rounded_u_notch_compact", "extrapolation", 0),
     ("gear_spline", "interpolation", 0),
     ("gear_spline", "extrapolation", 0),
     ("rect_top_semiellipse", "interpolation", 0),
     ("rect_top_semiellipse", "extrapolation", 0),
-    ("rounded_u_notch_compact", "interpolation", 0),
-    ("rounded_u_notch_compact", "extrapolation", 0),
-    ("smooth_constricted_channel", "interpolation", 0),
-    ("smooth_constricted_channel", "extrapolation", 0),
     ("symmetric_convex_tri", "interpolation", 0),
     ("symmetric_convex_tri", "extrapolation", 0),
-    ("variable_width_s_channel", "interpolation", 0),
-    ("variable_width_s_channel", "extrapolation", 0),
     ("variable_width_s_channel_bend", "interpolation", 0),
     ("variable_width_s_channel_bend", "extrapolation", 0),
 ]
@@ -435,6 +438,56 @@ def _solve_dataset_sample(payload):
     return descriptor, points, mesh, info, time.perf_counter() - start
 
 
+def _check_extreme_grid_legality(
+    numerical_records, geometry_records, nx, ny, parameter_name
+):
+    """Fully assess the meshes at the minimum and maximum parameter values.
+
+    Dataset generation already records a cheap local corner-determinant check for
+    every sample.  This additional check intentionally runs the complete 2-D
+    legality evaluator only for the two parameter extremes, including concavity,
+    cell self-intersection, overlap with another cell, flipping, degeneracy and a
+    non-positive Jacobian.  The returned records are JSON-serializable so they can
+    be retained in the geometry metadata.
+    """
+    from src.evaluation.quality_output import compute_quad_quality
+
+    values = np.asarray(
+        [row["parameters"][parameter_name] for row in geometry_records], dtype=float
+    )
+    indices = [int(np.argmin(values)), int(np.argmax(values))]
+    # Keep exactly one result if an explicit dataset has a constant parameter.
+    indices = list(dict.fromkeys(indices))
+    metrics = (
+        "jacobian",
+        "scaled_jacobian",
+        "concave_vertex_count",
+        "self_intersection",
+        "intersecting_cell",
+        "flipping_cell",
+        "degenerate_cell",
+    )
+    checks = []
+    for index in indices:
+        quality = compute_quad_quality(
+            numerical_records[index]["mesh_points"], nx, ny, metrics=metrics
+        )
+        invalid = quality["invalid_cells"]
+        reason_counts = quality["summary"]["invalid_cells"]["reason_counts"]
+        checks.append(
+            {
+                "sample_id": index,
+                "parameter": parameter_name,
+                "parameter_value": float(values[index]),
+                "legal": not invalid,
+                "invalid_cell_count": len(invalid),
+                "invalid_cell_fraction": len(invalid) / max((nx - 1) * (ny - 1), 1),
+                "reason_counts": reason_counts,
+            }
+        )
+    return checks
+
+
 def _generate_pde_dataset(
     name,
     parameters,
@@ -479,6 +532,7 @@ def _generate_pde_dataset(
     started = time.perf_counter()
     next_percent = 10
     numerical_records, geometry_records, diagnostics = [], [], []
+    legality_warnings = []
 
     # Publish both files together only after every PDE solve and write succeeds.
     with ExitStack() as stack:
@@ -543,6 +597,22 @@ def _generate_pde_dataset(
                 )
                 next_percent += 10
 
+        extreme_legality_checks = (
+            _check_extreme_grid_legality(
+                numerical_records, geometry_records, nx, ny, parameter_names[0]
+            )
+            if parameter_names
+            else []
+        )
+        for check in extreme_legality_checks:
+            if not check["legal"]:
+                legality_warnings.append(
+                    f"dataset {name}: extreme {check['parameter']}="
+                    f"{check['parameter_value']:.12g} has "
+                    f"{check['invalid_cell_count']} invalid cells "
+                    f"({check['reason_counts']})"
+                )
+
         # Numeric-file metadata contains no curve descriptions or geometry parameters.
         numerical_metadata = {
             "format": PAIRED_FORMAT,
@@ -581,6 +651,13 @@ def _generate_pde_dataset(
             "all_pde_converged": True,
             "workers": int(workers),
             "quality_check_scope": "local_corner_determinants_only_not_global_overlap",
+            "extreme_grid_legality_check_scope": (
+                "complete_quad_legality_at_minimum_and_maximum_parameter"
+            ),
+            "extreme_grid_legality_checks": extreme_legality_checks,
+            "all_extreme_grids_legal": all(
+                check["legal"] for check in extreme_legality_checks
+            ),
             "samples_with_nonpositive_corner_cells": sum(
                 d["nonpositive_corner_cell_count"] > 0 for d in diagnostics
             ),
@@ -607,6 +684,8 @@ def _generate_pde_dataset(
         stage.rename(destination)
     update_dataset_catalog(root)
     print(f"Dataset saved: {destination}", flush=True)
+    for message in legality_warnings:
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
     return destination
 
 
@@ -697,6 +776,7 @@ def generate_dataset(
     timing_samples=3,
     output_dir=None,
     workers=1,
+    parameter_ranges=None,
 ):
     """Generate one configured family/split using exact parametric boundaries.
 
@@ -722,8 +802,9 @@ def generate_dataset(
         raise ValueError(f"Unregistered parametric boundary constructor: {function!r}")
     constructor = DATASET_GENERATORS[function]
     parameter = specification["parameter"]
+    requested_ranges = specification[split] if parameter_ranges is None else parameter_ranges
     values, intervals, interval_counts = sample_parameter_ranges(
-        specification[split],
+        requested_ranges,
         size,
         positive=(function == "circle_airfoil" and parameter == "t"),
     )
@@ -772,6 +853,9 @@ def generate_dataset(
             "parameter": parameter,
             "description": specification["description"],
             "parameter_intervals": intervals,
+            "parameter_intervals_source": (
+                "family_default" if parameter_ranges is None else "command_override"
+            ),
             "boundary_type": function,
             "boundary_description": specification["description"],
             "fixed_parameters": fixed,
@@ -1016,6 +1100,19 @@ def main(argv=None):
     parser.add_argument("--grid-shape", type=parse_grid_shape)
     parser.add_argument("--size", "--count", dest="size", type=int)
     parser.add_argument(
+        "--parameter-range",
+        "--range",
+        dest="parameter_ranges",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("MIN", "MAX"),
+        help=(
+            "Override the varying-parameter interval for one --family/--split. "
+            "Repeat this option to define a disjoint interpolation range."
+        ),
+    )
+    parser.add_argument(
         "--winslow-max-iter", "--pde-max-iter", dest="winslow_max_iter", type=int
     )
     parser.add_argument(
@@ -1036,6 +1133,8 @@ def main(argv=None):
     }
     if (args.family is None) != (args.split is None):
         parser.error("--family and --split must be supplied together")
+    if args.parameter_ranges is not None and args.family is None:
+        parser.error("--parameter-range requires --family and --split")
     if args.family is not None:
         return generate_dataset(
             family=resolve_family(args.family),
@@ -1048,4 +1147,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-

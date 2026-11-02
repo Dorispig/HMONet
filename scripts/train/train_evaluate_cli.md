@@ -60,7 +60,7 @@ datasets:
 | `--device cuda` | 使用 CUDA 训练；也可以选择 `cpu` 或 `auto`。 |
 | `--jacobian-method finite_difference` | HMONet 的 Jacobian 损失采用有限差分；可改为 `autograd`。仅在该损失开启时生效。 |
 | `--jacobian-fd-step 0.001` | Jacobian 有限差分的计算域步长。 |
-| `--hmonet-mapping-mode current` | HMONet 内部映射方式；也可以选择 `coons_residual`。 |
+| `--hmonet-mapping-mode current` | HMONet 内部映射方式；也可以选择 `coons_residual` 或 `corner_corrected`。 |
 
 训练损失、收敛条件、学习率调度等未在示例中覆盖的参数，继续使用训练 YAML 的设置。其他训练命令行参数也可以放入 `--train-args`，完整列表可查看：
 

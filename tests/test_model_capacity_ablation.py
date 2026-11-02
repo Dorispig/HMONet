@@ -37,7 +37,7 @@ class ModelCapacityAblationTests(unittest.TestCase):
         )
         options = dict(config["model"]["common"])
         model = HMONet2D(21, 20, **options)
-        self.assertEqual(sum(p.numel() for p in model.parameters()), 177770)
+        self.assertEqual(sum(p.numel() for p in model.parameters()), 157450)
 
     def test_ex5_capacity_ladder_reaches_below_meshonet(self):
         baseline = yaml.safe_load(
@@ -56,7 +56,9 @@ class ModelCapacityAblationTests(unittest.TestCase):
             options.update(_options(variant["overrides"]))
             model = HMONet2D(21, 20, **options)
             counts.append(sum(p.numel() for p in model.parameters()))
-        self.assertEqual(counts, [552198, 177770, 80086, 40046, 15188])
+        # Counts reflect the current trunk-modulated geometry head; historical
+        # labels in the YAML are descriptive names, not fingerprint inputs.
+        self.assertEqual(counts, [190926, 92506, 43634, 18776])
         meshonet = MeshONet2D(21, 20)
         meshonet_count = sum(p.numel() for p in meshonet.parameters())
         self.assertLessEqual(counts[-1], round(meshonet_count * 0.8) + 2)

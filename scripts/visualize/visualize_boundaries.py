@@ -146,21 +146,13 @@ VARIANTS_2D = {
     },
 }
 VARIANTS_3D = {
-    "box": {"xmax": 3.0, "ymax": 2.0, "zmax": 2.0},
-    "cylindrical_domain_with_airfoil_hole": {
-        "outer_radius": 1.8,
-        "chord": 1.25,
-        "camber": 0.06,
-        "camber_position": 0.55,
-        "thickness": 0.2,
-        "length": 3.2,
-    },
-    "stadium_cylinder_with_circular_hole": {
-        "straight_half_length": 1.2,
-        "stadium_radius": 0.9,
-        "hole_radius": 0.4,
-        "length": 3.2,
-    },
+    "cylindrical_domain_with_airfoil_hole": {"thickness": 0.20},
+    "stadium_cylinder_with_circular_hole": {"hole_radius": 0.45},
+    "annular_nozzle_diffuser": {"outer_radius_out": 1.55},
+    "twisted_elliptic_annulus": {"twist_angle_deg": 70.0},
+    "bent_annular_duct": {"bend_angle_deg": 100.0},
+    "lobed_annular_duct": {"amplitude": 0.18},
+    "box": {"xmax": 3.0},
 }
 
 
@@ -244,11 +236,7 @@ def main():
     for name in (
         ()
         if args.names
-        else (
-            "box",
-            "cylindrical_domain_with_airfoil_hole",
-            "stadium_cylinder_with_circular_hole",
-        )
+        else tuple(BOUNDARY_3D)
     ):
         draw_family(
             name,
@@ -276,6 +264,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

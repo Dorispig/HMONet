@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.train.training_common import interpolate_pde_mesh
-from src.data.dataset import ParametricDataset2D
+from src.engine.training import interpolate_pde_mesh
+from src.data.parametric_dataset import ParametricDataset2D
 
 
 def select_sample(dataset, parameter, requested):
@@ -125,7 +125,6 @@ def main(argv=None):
             dataset.grid_shape,
             target_interpolation="curved_boundary_cell",
             boundary_geometry=boundary,
-            idw_neighbors=-1,
             idw_query_chunk_size=256,
             idw_support_chunk_size=2048,
         )[0].cpu().numpy()

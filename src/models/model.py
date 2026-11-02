@@ -45,7 +45,7 @@ from src.data.backend.parametric_torch import (
 # ============================================================
 # from .utils import helper_function
 import src.models.modules as modules
-from src.models.inference_optimizations import blend_current_2d, fuse_coordinates
+from src.models.inference_optimizations import fuse_coordinates
 from src.data.backend.inference_options import ROUTES
 
 # ============================================================
@@ -57,99 +57,90 @@ DEFAULT_THRESHOLD: float = 0.5
 MAX_RETRIES: int = 3
 
 
-def _bounded_projection_coefficients(logits, minimum):
-    """Map unconstrained logits to ``[minimum, 1]``."""
-    return minimum + (1.0 - minimum) * torch.sigmoid(logits)
+def _safe_rational_denominator(value: torch.Tensor) -> torch.Tensor:
+    """Avoid only the removable zero-over-zero values at logical corners."""
+    tiny = torch.finfo(value.dtype).tiny
+    return torch.where(value.abs() > tiny, value, torch.ones_like(value))
 
 
-def _convex_projection_weights(boundary_weights):
-    """Build a smooth convex partition while retaining an interior network term.
+def _rational_affine_weights_2d(xi, eta, coefficients):
+    """Return the original four-boundary rational affine weights."""
+    q_x = xi * (1.0 - xi)
+    q_y = eta * (1.0 - eta)
+    g_l, g_r, g_b, g_t = coefficients.unbind(dim=-1)
+    w_l = g_l * (1.0 - xi) * q_y / _safe_rational_denominator(q_x + g_l * q_y)
+    w_r = g_r * xi * q_y / _safe_rational_denominator(q_x + g_r * q_y)
+    w_b = g_b * q_x * (1.0 - eta) / _safe_rational_denominator(q_y + g_b * q_x)
+    w_t = g_t * q_x * eta / _safe_rational_denominator(q_y + g_t * q_x)
+    boundary = torch.stack((w_l, w_r, w_b, w_t), dim=-1)
+    return 1.0 - boundary.sum(dim=-1), boundary
 
-    Each rational boundary influence is in ``[0, 1]``. Their complementary
-    product is the raw-network weight, and the remaining mass is distributed
-    in proportion to the boundary influences. Thus the center weight stays
-    positive at every strict interior point instead of being clipped to zero
-    whenever the raw boundary weights happen to sum above one.
+
+def _corner_corrected_weights_2d(xi, eta, coefficients):
+    """Smooth, affine four-side/four-corner weights (scheme B).
+
+    Corner weights can be negative; the map is not a convex combination.
+    The fixed raw-field gain 1/2 leaves a substantial learned interior term
+    while making that term vanish on every exact boundary.
     """
-    influence = boundary_weights.clamp(0.0, 1.0)
-    center = torch.prod(1.0 - influence, dim=-1, keepdim=True)
-    total = influence.sum(dim=-1, keepdim=True)
-    boundary = torch.where(
-        total > 0.0,
-        (1.0 - center) * influence / total.clamp_min(torch.finfo(total.dtype).tiny),
-        torch.zeros_like(influence),
-    )
-    return center, boundary
+    sx, sy = xi * (1.0 - xi), eta * (1.0 - eta)
+    rho_l, rho_r, rho_b, rho_t = coefficients.unbind(-1)
+    lam_l, lam_r = 1.0 - 4.0 * sx * rho_l, 1.0 - 4.0 * sx * rho_r
+    lam_b, lam_t = 1.0 - 4.0 * sy * rho_b, 1.0 - 4.0 * sy * rho_t
+    beta = 8.0 * sx * sy  # 16*sx*sy*a0, a0 = 1/2.
+    scale = 1.0 - beta
+    side = torch.stack((
+        scale * (1.0 - xi) * lam_l,
+        scale * xi * lam_r,
+        scale * (1.0 - eta) * lam_b,
+        scale * eta * lam_t,
+    ), dim=-1)
+    corners = torch.stack((
+        scale * (1.0 - xi) * (1.0 - eta) * (1.0 - lam_l - lam_b),
+        scale * xi * (1.0 - eta) * (1.0 - lam_r - lam_b),
+        scale * (1.0 - xi) * eta * (1.0 - lam_l - lam_t),
+        scale * xi * eta * (1.0 - lam_r - lam_t),
+    ), dim=-1)
+    return beta, side, corners
 
 
-def _smooth_normal_coordinate(parameter, smoothing):
-    """Blend the identity coordinate with smoothstep without flattening it fully."""
-    return (1.0 - smoothing) * parameter + smoothing * parameter.square() * (
-        3.0 - 2.0 * parameter
-    )
+def _rational_affine_weights_3d(xi, eta, zeta, coefficients):
+    """Return six-face rational weights with a compatible shared-edge limit.
 
-
-def _lifted_tangential_bubble(parameter, beta):
-    """Lift the interior of ``4t(1-t)`` while preserving zero endpoints."""
-    bubble = 4.0 * parameter * (1.0 - parameter)
-    return bubble / (beta + (1.0 - beta) * bubble)
-
-
-def _rational_projection_weights_2d(
-    xi,
-    eta,
-    coefficients,
-    transition_width=0.2,
-    normal_smoothing=0.5,
-    tangential_lift_beta=0.6,
-):
-    """Return width-controlled rational weights for four 2-D boundaries."""
-    u = _smooth_normal_coordinate(xi, normal_smoothing)
-    v = _smooth_normal_coordinate(eta, normal_smoothing)
-    qu = _lifted_tangential_bubble(xi, tangential_lift_beta)
-    qv = _lifted_tangential_bubble(eta, tangential_lift_beta)
-    tangential = torch.stack((qv, qv, qu, qu), dim=-1)
-    normal = torch.stack((u, u, v, v), dim=-1)
-    face_factor = torch.stack((1.0 - u, u, 1.0 - v, v), dim=-1)
-    influence = coefficients * transition_width * tangential
-    denominator = normal * (1.0 - normal) + influence
-    denominator = denominator.masked_fill(denominator == 0, 1.0)
-    raw = influence * face_factor / denominator
-    return _convex_projection_weights(raw)
-
-
-def _rational_projection_weights_3d(
-    xi,
-    eta,
-    zeta,
-    coefficients,
-    transition_width=0.2,
-    normal_smoothing=0.5,
-    tangential_lift_beta=0.6,
-):
-    """Extend the 2-D rational hard-map weights to six 3-D faces.
-
-    A face uses the bubble in its normal coordinate in the denominator and the
-    product of the other two coordinate bubbles as its tangential influence.
-    The six resulting nonnegative weights are finally converted to a convex
-    partition together with the raw-network center weight.
+    Open face interiors use the direct rational formula.  At a shared logical
+    edge the two incident exact surface evaluations are averaged.  Compatible
+    parameter surfaces agree there, so this is the common exact edge value and
+    avoids the removable zero-over-zero form of the face formula.  The eight
+    logical corners are handled by explicit exact assignment in the caller.
     """
-    u = _smooth_normal_coordinate(xi, normal_smoothing)
-    v = _smooth_normal_coordinate(eta, normal_smoothing)
-    w = _smooth_normal_coordinate(zeta, normal_smoothing)
-    qu = _lifted_tangential_bubble(xi, tangential_lift_beta)
-    qv = _lifted_tangential_bubble(eta, tangential_lift_beta)
-    qw = _lifted_tangential_bubble(zeta, tangential_lift_beta)
-    tangential = torch.stack(
-        (qv * qw, qv * qw, qu * qw, qu * qw, qu * qv, qu * qv), dim=-1
+    q_x = xi * (1.0 - xi)
+    q_y = eta * (1.0 - eta)
+    q_z = zeta * (1.0 - zeta)
+    tangent_x, tangent_y, tangent_z = q_y * q_z, q_x * q_z, q_x * q_y
+    g_x0, g_x1, g_y0, g_y1, g_z0, g_z1 = coefficients.unbind(dim=-1)
+    boundary = torch.stack(
+        (
+            g_x0 * (1.0 - xi) * tangent_x
+            / _safe_rational_denominator(q_x + g_x0 * tangent_x),
+            g_x1 * xi * tangent_x
+            / _safe_rational_denominator(q_x + g_x1 * tangent_x),
+            g_y0 * (1.0 - eta) * tangent_y
+            / _safe_rational_denominator(q_y + g_y0 * tangent_y),
+            g_y1 * eta * tangent_y
+            / _safe_rational_denominator(q_y + g_y1 * tangent_y),
+            g_z0 * (1.0 - zeta) * tangent_z
+            / _safe_rational_denominator(q_z + g_z0 * tangent_z),
+            g_z1 * zeta * tangent_z
+            / _safe_rational_denominator(q_z + g_z1 * tangent_z),
+        ),
+        dim=-1,
     )
-    normal = torch.stack((u, u, v, v, w, w), dim=-1)
-    face_factor = torch.stack((1.0 - u, u, 1.0 - v, v, 1.0 - w, w), dim=-1)
-    influence = coefficients * transition_width * tangential
-    denominator = normal * (1.0 - normal) + influence
-    denominator = denominator.masked_fill(denominator == 0, 1.0)
-    raw = influence * face_factor / denominator
-    return _convex_projection_weights(raw)
+    distances = torch.stack((xi, 1.0 - xi, eta, 1.0 - eta, zeta, 1.0 - zeta), -1)
+    incidence = distances.abs() < 1.0e-7
+    incidence_count = incidence.sum(dim=-1)
+    edge_weights = incidence.to(boundary.dtype) / incidence_count.clamp_min(1)[..., None]
+    boundary = torch.where((incidence_count == 2)[..., None], edge_weights, boundary)
+    return 1.0 - boundary.sum(dim=-1), boundary, incidence_count
 
 
 # ============================================================
@@ -175,6 +166,9 @@ class MeshONet2D(nn.Module):
         output_dim=64,
         branch_mlp_hidden_dim=64,
         branch_mlp_hidden_layer_num=4,
+        shared_branch_fusion_enabled=True,
+        coordinate_lift_mode="legacy",
+        coordinate_lift_max_power=1,
     ):
         super().__init__()
         if branch_mlp_hidden_dim <= 0:
@@ -189,8 +183,18 @@ class MeshONet2D(nn.Module):
             raise ValueError("Nx and Ny must both be at least 2")
         self.adjust_dim = 2 * (self.Nx + self.Ny) - 4
         self.branch_dim = branch_dim
-        self.trunk_dim = trunk_dim
-        self.enhance_dim = trunk_dim
+        self.configured_trunk_dim = int(trunk_dim)
+        self.coordinate_lift_mode = modules.normalize_coordinate_lift_mode(
+            coordinate_lift_mode
+        )
+        self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.trunk_dim = modules.coordinate_lift_input_dim(
+            2,
+            self.configured_trunk_dim,
+            self.coordinate_lift_mode,
+            self.coordinate_lift_max_power,
+        )
+        self.enhance_dim = self.trunk_dim
         self.adjust_hidden_dim = adjust_hidden_dim
         self.branch_hidden_dim = branch_hidden_dim
         self.trunk_hidden_dim = trunk_hidden_dim
@@ -200,6 +204,7 @@ class MeshONet2D(nn.Module):
         self.output_dim = output_dim
         self.branch_mlp_hidden_dim = branch_mlp_hidden_dim
         self.branch_mlp_hidden_layer_num = branch_mlp_hidden_layer_num
+        self.shared_branch_fusion_enabled = bool(shared_branch_fusion_enabled)
         # Learnable scalar biases for the two output coordinates.
         self.b0_x = nn.Parameter(torch.zeros(1))
         self.b0_y = nn.Parameter(torch.zeros(1))
@@ -240,24 +245,39 @@ class MeshONet2D(nn.Module):
             output_dim=output_dim,
         )
         branch_mlp_layers = [branch_mlp_hidden_dim] * branch_mlp_hidden_layer_num
-        self.branch_mlp_x = modules.MLP(
-            input_dim=2 * output_dim,
-            hidden_layer_size=branch_mlp_layers,
-            output_dim=output_dim,
-        )
-        self.branch_mlp_y = modules.MLP(
-            input_dim=2 * output_dim,
-            hidden_layer_size=branch_mlp_layers,
-            output_dim=output_dim,
-        )
+        if self.shared_branch_fusion_enabled:
+            self.branch_fusion = modules.MLP(
+                input_dim=2 * output_dim,
+                hidden_layer_size=branch_mlp_layers,
+                output_dim=branch_mlp_hidden_dim,
+            )
+            self.coefficient_heads = nn.ModuleList(
+                nn.Linear(branch_mlp_hidden_dim, output_dim) for _ in range(2)
+            )
+        else:
+            # Preserve the original graph for loading pre-update checkpoints.
+            self.branch_mlp_x = modules.MLP(
+                input_dim=2 * output_dim,
+                hidden_layer_size=branch_mlp_layers,
+                output_dim=output_dim,
+            )
+            self.branch_mlp_y = modules.MLP(
+                input_dim=2 * output_dim,
+                hidden_layer_size=branch_mlp_layers,
+                output_dim=output_dim,
+            )
         # The trunk network maps computational coordinates to latent vectors.
         self.trunk_net = modules.MLP(
-            input_dim=trunk_dim,
+            input_dim=self.trunk_dim,
             hidden_layer_size=[trunk_hidden_dim] * trunk_hidden_layer_num,
             output_dim=output_dim,
         )
 
     def data_enhance(self, xi_eta):
+        if self.coordinate_lift_mode == "power_fourier":
+            return modules.power_fourier_lift(
+                xi_eta, self.coordinate_lift_max_power
+            )
         # Add sinusoidal, coordinate, and higher-order polynomial features.
         enhance_data = torch.cat(
             [torch.sin(xi_eta), torch.cos(xi_eta), xi_eta], dim=-1
@@ -278,8 +298,14 @@ class MeshONet2D(nn.Module):
         h_x = self.branch_net_x(self.adjust_net_x(p_x))
         h_y = self.branch_net_y(self.adjust_net_y(p_y))
         h = torch.cat((h_x, h_y), dim=-1)
-        b_i_x = self.branch_mlp_x(h).unsqueeze(-2)
-        b_i_y = self.branch_mlp_y(h).unsqueeze(-2)
+        if self.shared_branch_fusion_enabled:
+            fused = self.branch_fusion(h)
+            b_i_x, b_i_y = (
+                head(fused).unsqueeze(-2) for head in self.coefficient_heads
+            )
+        else:
+            b_i_x = self.branch_mlp_x(h).unsqueeze(-2)
+            b_i_y = self.branch_mlp_y(h).unsqueeze(-2)
         if self.trunk_dim == 2:
             trunk_out = self.trunk_net(xi_eta)  # [B, N, output_dim]
         else:
@@ -313,8 +339,7 @@ class HMONet2D(nn.Module):
         branch_mlp_hidden_dim=128,
         branch_mlp_hidden_layer_num=2,
         hmonet_mapping_mode="current",
-        trunk_projection_coefficients_enabled=False,
-        projection_softplus_enabled=False,
+        trunk_projection_coefficients_enabled=True,
         boundary_self_attention_enabled=False,
         projection_mlp_hidden_dim=64,
         attention_dim=64,
@@ -327,6 +352,9 @@ class HMONet2D(nn.Module):
         projection_transition_width=0.2,
         projection_normal_smoothing=0.5,
         projection_tangential_lift_beta=0.6,
+        weight_head_mlp_enabled=True,
+        coordinate_lift_mode="legacy",
+        coordinate_lift_max_power=1,
     ):
         super().__init__()
         if branch_mlp_hidden_dim <= 0:
@@ -334,12 +362,13 @@ class HMONet2D(nn.Module):
         if branch_mlp_hidden_layer_num <= 0:
             raise ValueError("branch_mlp_hidden_layer_num must be positive")
         hmonet_mapping_mode = str(hmonet_mapping_mode).strip().lower().replace("-", "_")
-        if hmonet_mapping_mode not in {"current", "coons_residual"}:
-            raise ValueError("hmonet_mapping_mode must be current or coons_residual")
+        if hmonet_mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
+            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
+        # The trunk flag is retained only to load archived branch-only
+        # checkpoints. All current training entry points force it on.
         self.trunk_projection_coefficients_enabled = bool(
             trunk_projection_coefficients_enabled
         )
-        self.projection_softplus_enabled = bool(projection_softplus_enabled)
         self.boundary_self_attention_enabled = bool(boundary_self_attention_enabled)
         if int(projection_mlp_hidden_dim) <= 0:
             raise ValueError("projection_mlp_hidden_dim must be positive")
@@ -352,8 +381,18 @@ class HMONet2D(nn.Module):
         self.Ny = Ny
         self.adjust_dim = 2 * (Nx + Ny) - 4  # Flattened boundary feature dimension.
         self.branch_dim = branch_dim
-        self.trunk_dim = trunk_dim
-        self.enhance_dim = trunk_dim
+        self.configured_trunk_dim = int(trunk_dim)
+        self.coordinate_lift_mode = modules.normalize_coordinate_lift_mode(
+            coordinate_lift_mode
+        )
+        self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.trunk_dim = modules.coordinate_lift_input_dim(
+            2,
+            self.configured_trunk_dim,
+            self.coordinate_lift_mode,
+            self.coordinate_lift_max_power,
+        )
+        self.enhance_dim = self.trunk_dim
         self.adjust_hidden_dim = adjust_hidden_dim
         self.branch_hidden_dim = branch_hidden_dim
         self.trunk_hidden_dim = trunk_hidden_dim
@@ -364,11 +403,11 @@ class HMONet2D(nn.Module):
         self.branch_mlp_hidden_dim = branch_mlp_hidden_dim
         self.branch_mlp_hidden_layer_num = branch_mlp_hidden_layer_num
         self.hmonet_mapping_mode = hmonet_mapping_mode
-        # Keep legacy attributes only for loading saved configurations.
+        # ``projection_coefficient_min`` remains active in the attention
+        # variant. The three following arguments are accepted only so archived
+        # configuration files still load; their former convex/smoothed-bubble
+        # mapping has been removed.
         self.projection_coefficient_min = float(projection_coefficient_min)
-        self.projection_transition_width = float(projection_transition_width)
-        self.projection_normal_smoothing = float(projection_normal_smoothing)
-        self.projection_tangential_lift_beta = float(projection_tangential_lift_beta)
         self.adjust_net_x = (
             nn.Sequential(
                 modules.MLP(
@@ -418,7 +457,16 @@ class HMONet2D(nn.Module):
         # Reuse the joint boundary feature instead of evaluating four extra
         # deep MLPs on the raw boundary coordinates.
         self.bias_head = nn.Linear(2 * output_dim, 2)
-        self.weight_head = nn.Linear(2 * output_dim, 4)
+        self.weight_head_mlp_enabled = bool(weight_head_mlp_enabled)
+        self.weight_head = (
+            modules.MLP(
+                input_dim=2 * output_dim,
+                hidden_layer_size=[int(projection_mlp_hidden_dim)],
+                output_dim=4,
+            )
+            if self.weight_head_mlp_enabled
+            else nn.Linear(2 * output_dim, 4)
+        )
         self.trunk_projection_head = (
             modules.MLP(
                 input_dim=output_dim,
@@ -442,12 +490,16 @@ class HMONet2D(nn.Module):
         )
         # The trunk network maps computational coordinates to latent vectors.
         self.trunk_net = modules.MLP(
-            input_dim=trunk_dim,
+            input_dim=self.trunk_dim,
             hidden_layer_size=[trunk_hidden_dim] * trunk_hidden_layer_num,
             output_dim=output_dim,
         )
 
     def data_enhance(self, xi_eta):
+        if self.coordinate_lift_mode == "power_fourier":
+            return modules.power_fourier_lift(
+                xi_eta, self.coordinate_lift_max_power
+            )
         enhance_data = torch.cat(
             [torch.sin(xi_eta), torch.cos(xi_eta), xi_eta], dim=-1
         )  # [B, N, 6]
@@ -483,13 +535,13 @@ class HMONet2D(nn.Module):
         return h_x, h_y, torch.cat((h_x, h_y), dim=-1)
 
     def _activate_projection_coefficients(self, logits):
-        """Apply the selected positive geometry-coefficient activation."""
-        return F.softplus(logits) if self.projection_softplus_enabled else torch.sigmoid(logits)
+        """Map all geometry and location coefficients to the open unit interval."""
+        return torch.sigmoid(logits)
 
     def projection_weights(self, joint_geometry, trunk_features):
-        """Return branch coefficients, optionally modulated by trunk coefficients."""
+        """Return branch coefficients modulated by location-dependent trunk coefficients."""
         branch = self._activate_projection_coefficients(self.weight_head(joint_geometry))
-        if self.trunk_projection_head is None:
+        if self.trunk_projection_head is None:  # archived checkpoint compatibility
             return branch.unsqueeze(-2)
         location = self._activate_projection_coefficients(
             self.trunk_projection_head(trunk_features)
@@ -609,7 +661,6 @@ class HMONet2D(nn.Module):
             trunk_out = self.trunk_net(xi_eta)  # [B, N, output_dim]
         else:
             trunk_out = self.trunk_net(self.data_enhance(xi_eta))  # [B, N, output_dim]
-
         bias = self.bias_head(h).unsqueeze(-2)  # [B, 1, 2]
         x_bias = bias[..., 0:1]
         y_bias = bias[..., 1:2]
@@ -639,35 +690,44 @@ class HMONet2D(nn.Module):
             if return_displacement:
                 return result[..., 0:1], result[..., 1:2], displacement
             return result[..., 0:1], result[..., 1:2]
-        if mapping_mode != "current":
-            raise ValueError("hmonet_mapping_mode must be current or coons_residual")
+        if mapping_mode not in {"current", "corner_corrected"}:
+            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
 
         weight = self.projection_weights(h, trunk_out)
         projected = self.project(
             p_x, p_y, xi, eta, boundary_geometry=boundary_geometry
         )
-        w1, w2, w3, w4 = weight.unbind(dim=-1)
-        xi_bubble = xi * (1.0 - xi)
-        eta_bubble = eta * (1.0 - eta)
-        tiny = torch.finfo(raw_prediction.dtype).tiny
-
-        denominator_1 = xi_bubble + w1 * eta_bubble
-        denominator_2 = xi_bubble + w2 * eta_bubble
-        denominator_3 = eta_bubble + w3 * xi_bubble
-        denominator_4 = eta_bubble + w4 * xi_bubble
-        safe = lambda value: torch.where(value.abs() > tiny, value, torch.ones_like(value))
-        wp1 = w1 * (1.0 - xi) * eta_bubble / safe(denominator_1)
-        wp2 = w2 * xi * eta_bubble / safe(denominator_2)
-        wp3 = w3 * xi_bubble * (1.0 - eta) / safe(denominator_3)
-        wp4 = w4 * xi_bubble * eta / safe(denominator_4)
-        center_weight = 1.0 - wp1 - wp2 - wp3 - wp4
-        result = (
-            center_weight[..., None] * raw_prediction
-            + wp1[..., None] * projected[..., 0, :]
-            + wp2[..., None] * projected[..., 1, :]
-            + wp3[..., None] * projected[..., 2, :]
-            + wp4[..., None] * projected[..., 3, :]
+        if mapping_mode == "corner_corrected":
+            beta, boundary_weights, corner_weights = _corner_corrected_weights_2d(
+                xi, eta, weight
+            )
+            # The sampled perimeter includes the four exact common endpoints.
+            # Reuse them instead of evaluating every parameter curve again at
+            # four corners for every query chunk.
+            boundary = torch.stack((p_x, p_y), dim=-1)
+            corners = torch.stack(
+                (
+                    boundary[..., 0, :],
+                    boundary[..., self.Nx - 1, :],
+                    boundary[..., 2 * self.Nx + self.Ny - 3, :],
+                    boundary[..., self.Nx + self.Ny - 2, :],
+                ),
+                dim=-2,
+            )
+            result = beta[..., None] * raw_prediction + (
+                boundary_weights[..., None] * projected
+            ).sum(dim=-2) + (
+                corner_weights[..., None] * corners.unsqueeze(-3)
+            ).sum(dim=-2)
+            if return_displacement:
+                return result[..., 0:1], result[..., 1:2], torch.zeros_like(result)
+            return result[..., 0:1], result[..., 1:2]
+        center_weight, boundary_weights = _rational_affine_weights_2d(
+            xi, eta, weight
         )
+        result = center_weight[..., None] * raw_prediction + (
+            boundary_weights[..., None] * projected
+        ).sum(dim=-2)
         corner_mask = ((xi == 0) | (xi == 1)) & ((eta == 0) | (eta == 1))
         corner_points = torch.where(
             (xi == 0)[..., None], projected[..., 0, :], projected[..., 1, :]
@@ -719,6 +779,8 @@ class AttentionHMONet2D(HMONet2D):
         attention_feedforward_dim=128,
         attention_dropout=0.0,
         boundary_alpha_initial_value=1.01,
+        coordinate_lift_mode="legacy",
+        coordinate_lift_max_power=1,
     ):
         # The parent supplies the operator and hard-mapping layers. Its fixed
         # boundary adjust layers are immediately removed, so a minimal dummy
@@ -738,6 +800,9 @@ class AttentionHMONet2D(HMONet2D):
             branch_mlp_hidden_dim=branch_mlp_hidden_dim,
             branch_mlp_hidden_layer_num=branch_mlp_hidden_layer_num,
             hmonet_mapping_mode=hmonet_mapping_mode,
+            weight_head_mlp_enabled=False,
+            coordinate_lift_mode=coordinate_lift_mode,
+            coordinate_lift_max_power=coordinate_lift_max_power,
         )
         self.boundary_attention = modules.BoundarySelfAttentionEncoder2D(
             model_dim=attention_dim,
@@ -895,30 +960,13 @@ class AttentionHMONet2D(HMONet2D):
         return side - corner
 
     def _apply_current_mapping(self, xi, eta, weight, raw_prediction, projected):
-        fused = blend_current_2d(xi, eta, weight, raw_prediction, projected)
-        if fused is not None:
-            corner_mask = ((xi == 0) | (xi == 1)) & ((eta == 0) | (eta == 1))
-            correction = (self.boundary_alpha - 1) * raw_prediction
-            return fused + torch.where(
-                corner_mask[..., None], torch.zeros_like(correction), correction
-            )
-        _, boundary_weights = _rational_projection_weights_2d(
-            xi,
-            eta,
-            weight,
-            self.projection_transition_width,
-            self.projection_normal_smoothing,
-            self.projection_tangential_lift_beta,
+        center_weight, boundary_weights = _rational_affine_weights_2d(
+            xi, eta, weight
         )
-        wp1, wp2, wp3, wp4 = boundary_weights.unbind(-1)
-        residual_weight = self.boundary_alpha - wp1 - wp2 - wp3 - wp4
-        result = (
-            residual_weight[..., None] * raw_prediction
-            + wp1[..., None] * projected[..., 0, :]
-            + wp2[..., None] * projected[..., 1, :]
-            + wp3[..., None] * projected[..., 2, :]
-            + wp4[..., None] * projected[..., 3, :]
-        )
+        residual_weight = center_weight + (self.boundary_alpha - 1.0)
+        result = residual_weight[..., None] * raw_prediction + (
+            boundary_weights[..., None] * projected
+        ).sum(dim=-2)
         corner_mask = ((xi == 0) | (xi == 1)) & ((eta == 0) | (eta == 1))
         corner_points = torch.where(
             (xi == 0)[..., None], projected[..., 0, :], projected[..., 1, :]
@@ -938,6 +986,10 @@ class AttentionHMONet2D(HMONet2D):
         boundary_masks=None,
     ):
         """Map queries from four variable-length, directed boundary sequences."""
+        if self.hmonet_mapping_mode == "corner_corrected":
+            raise NotImplementedError(
+                "corner_corrected is currently implemented for HMONet2D, not AttentionHMONet2D"
+            )
         if (
             self.training
             and hasattr(boundary_geometry, "project_torch")
@@ -1033,6 +1085,8 @@ class _OperatorNet3D(nn.Module):
         branch_hidden_layer_num=4,
         trunk_hidden_layer_num=4,
         output_dim=128,
+        coordinate_lift_mode="legacy",
+        coordinate_lift_max_power=1,
         **_,
     ):
         super().__init__()
@@ -1076,7 +1130,17 @@ class _OperatorNet3D(nn.Module):
             f"boundary_face_{name}_indices"
             for name in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
         )
-        self.trunk_dim = int(trunk_dim)
+        self.configured_trunk_dim = int(trunk_dim)
+        self.coordinate_lift_mode = modules.normalize_coordinate_lift_mode(
+            coordinate_lift_mode
+        )
+        self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.trunk_dim = modules.coordinate_lift_input_dim(
+            3,
+            self.configured_trunk_dim,
+            self.coordinate_lift_mode,
+            self.coordinate_lift_max_power,
+        )
         self.output_dim = int(output_dim)
         adjust_layers = [adjust_hidden_dim] * adjust_hidden_layer_num
         branch_layers = [branch_hidden_dim] * branch_hidden_layer_num
@@ -1097,6 +1161,10 @@ class _OperatorNet3D(nn.Module):
         self.bias = nn.Parameter(torch.zeros(3))
 
     def data_enhance(self, coordinates):
+        if self.coordinate_lift_mode == "power_fourier":
+            return modules.power_fourier_lift(
+                coordinates, self.coordinate_lift_max_power
+            )
         base = torch.cat(
             (torch.sin(coordinates), torch.cos(coordinates), coordinates), dim=-1
         )
@@ -1216,8 +1284,7 @@ class HMONet3D(_OperatorNet3D):
         self,
         *args,
         hmonet_mapping_mode="current",
-        trunk_projection_coefficients_enabled=False,
-        projection_softplus_enabled=False,
+        trunk_projection_coefficients_enabled=True,
         boundary_self_attention_enabled=False,
         projection_mlp_hidden_dim=64,
         attention_dim=64,
@@ -1225,27 +1292,66 @@ class HMONet3D(_OperatorNet3D):
         attention_layers=2,
         attention_feedforward_dim=128,
         attention_dropout=0.0,
+        branch_mlp_hidden_dim=128,
+        branch_mlp_hidden_layer_num=2,
         # Deprecated compatibility options. The restored original hard map ignores them.
         projection_coefficient_min=0.1,
         projection_transition_width=0.2,
         projection_normal_smoothing=0.5,
         projection_tangential_lift_beta=0.6,
+        weight_head_mlp_enabled=True,
         **kwargs,
     ):
+        if int(branch_mlp_hidden_dim) <= 0:
+            raise ValueError("branch_mlp_hidden_dim must be positive")
+        if int(branch_mlp_hidden_layer_num) <= 0:
+            raise ValueError("branch_mlp_hidden_layer_num must be positive")
         super().__init__(*args, **kwargs)
         self.hmonet_mapping_mode = str(hmonet_mapping_mode).lower().replace("-", "_")
-        if self.hmonet_mapping_mode not in {"current", "coons_residual"}:
-            raise ValueError("hmonet_mapping_mode must be current or coons_residual")
+        if self.hmonet_mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
+            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
+        # The trunk flag is retained only to load archived branch-only
+        # checkpoints. All current training entry points force it on.
         self.trunk_projection_coefficients_enabled = bool(
             trunk_projection_coefficients_enabled
         )
-        self.projection_softplus_enabled = bool(projection_softplus_enabled)
         self.boundary_self_attention_enabled = bool(boundary_self_attention_enabled)
         self.projection_coefficient_min = float(projection_coefficient_min)
-        self.projection_transition_width = float(projection_transition_width)
-        self.projection_normal_smoothing = float(projection_normal_smoothing)
-        self.projection_tangential_lift_beta = float(projection_tangential_lift_beta)
-        self.projection_weight_head = nn.Linear(3 * self.output_dim, 6)
+        self.branch_mlp_hidden_dim = int(branch_mlp_hidden_dim)
+        self.branch_mlp_hidden_layer_num = int(branch_mlp_hidden_layer_num)
+        joint_geometry_dim = 3 * self.output_dim
+        branch_mlp_layers = [
+            self.branch_mlp_hidden_dim
+        ] * self.branch_mlp_hidden_layer_num
+        self.branch_mlp_x = modules.MLP(
+            input_dim=joint_geometry_dim,
+            hidden_layer_size=branch_mlp_layers,
+            output_dim=self.output_dim,
+        )
+        self.branch_mlp_y = modules.MLP(
+            input_dim=joint_geometry_dim,
+            hidden_layer_size=branch_mlp_layers,
+            output_dim=self.output_dim,
+        )
+        self.branch_mlp_z = modules.MLP(
+            input_dim=joint_geometry_dim,
+            hidden_layer_size=branch_mlp_layers,
+            output_dim=self.output_dim,
+        )
+        self.bias_head = nn.Linear(joint_geometry_dim, 3)
+        del self.bias
+        if int(projection_mlp_hidden_dim) <= 0:
+            raise ValueError("projection_mlp_hidden_dim must be positive")
+        self.weight_head_mlp_enabled = bool(weight_head_mlp_enabled)
+        self.projection_weight_head = (
+            modules.MLP(
+                input_dim=joint_geometry_dim,
+                hidden_layer_size=[int(projection_mlp_hidden_dim)],
+                output_dim=6,
+            )
+            if self.weight_head_mlp_enabled
+            else nn.Linear(joint_geometry_dim, 6)
+        )
         self.trunk_projection_head = (
             modules.MLP(
                 input_dim=self.output_dim,
@@ -1277,17 +1383,30 @@ class HMONet3D(_OperatorNet3D):
         self.register_buffer(
             "boundary_flat_indices", ids[mask].reshape(-1), persistent=False
         )
+        corner_ids = torch.stack(
+            (
+                ids[0, 0, 0], ids[0, 0, -1],
+                ids[0, -1, 0], ids[0, -1, -1],
+                ids[-1, 0, 0], ids[-1, 0, -1],
+                ids[-1, -1, 0], ids[-1, -1, -1],
+            )
+        )
+        self.register_buffer(
+            "_corner_boundary_positions",
+            torch.searchsorted(self.boundary_flat_indices, corner_ids),
+            persistent=False,
+        )
         self.register_buffer("_face_priority", torch.arange(1, 7), persistent=False)
 
     def _activate_projection_coefficients(self, logits):
-        return F.softplus(logits) if self.projection_softplus_enabled else torch.sigmoid(logits)
+        return torch.sigmoid(logits)
 
     def projection_coefficients(self, joint_geometry, trunk_features=None):
-        """Return branch coefficients, optionally modulated by trunk coefficients."""
+        """Return branch coefficients modulated by location-dependent trunk coefficients."""
         branch = self._activate_projection_coefficients(
             self.projection_weight_head(joint_geometry)
         )
-        if self.trunk_projection_head is None:
+        if self.trunk_projection_head is None:  # archived checkpoint compatibility
             return branch.unsqueeze(-2)
         location = self._activate_projection_coefficients(
             self.trunk_projection_head(trunk_features)
@@ -1318,13 +1437,19 @@ class HMONet3D(_OperatorNet3D):
             )
             descriptors = self.boundary_attention(*shaped_faces)
         geometry = [branch(descriptor) for branch, descriptor in zip(self.branches, descriptors)]
-        outputs = []
-        for axis, feature in enumerate(geometry):
-            outputs.append(
-                torch.sum(feature.unsqueeze(-2) * trunk, dim=-1, keepdim=True)
-                + self.bias[axis]
-            )
-        return tuple(outputs), torch.cat(geometry, dim=-1), trunk
+        joint_geometry = torch.cat(geometry, dim=-1)
+        coordinate_coefficients = (
+            self.branch_mlp_x(joint_geometry),
+            self.branch_mlp_y(joint_geometry),
+            self.branch_mlp_z(joint_geometry),
+        )
+        bias = self.bias_head(joint_geometry).unsqueeze(-2)
+        outputs = tuple(
+            torch.sum(coefficients.unsqueeze(-2) * trunk, dim=-1, keepdim=True)
+            + bias[..., axis : axis + 1]
+            for axis, coefficients in enumerate(coordinate_coefficients)
+        )
+        return outputs, joint_geometry, trunk
 
     def _load_from_state_dict(
         self,
@@ -1339,9 +1464,9 @@ class HMONet3D(_OperatorNet3D):
         """Load pre-coefficient 3-D checkpoints with their former unit weights."""
         weight_key = prefix + "projection_weight_head.weight"
         bias_key = prefix + "projection_weight_head.bias"
-        if weight_key not in state_dict:
+        if isinstance(self.projection_weight_head, nn.Linear) and weight_key not in state_dict:
             state_dict[weight_key] = torch.zeros_like(self.projection_weight_head.weight)
-        if bias_key not in state_dict:
+        if isinstance(self.projection_weight_head, nn.Linear) and bias_key not in state_dict:
             state_dict[bias_key] = torch.full_like(
                 self.projection_weight_head.bias, 20.0
             )
@@ -1608,6 +1733,121 @@ class HMONet3D(_OperatorNet3D):
         result = surface - edge + corner
         return result.squeeze(0) if unbatched else result
 
+    def evaluate_corner_corrected_points(
+        self, p_x, p_y, p_z, xi, eta, zeta, raw, coefficients,
+        boundary_geometry=None,
+    ):
+        """Six-face, twelve-edge, eight-corner extension of scheme B."""
+        unbatched = xi.dim() == 1
+        if unbatched:
+            p_x, p_y, p_z = p_x[None], p_y[None], p_z[None]
+            xi, eta, zeta = xi[None], eta[None], zeta[None]
+            raw, coefficients = raw[None], coefficients[None]
+        zero, one = torch.zeros_like(xi), torch.ones_like(xi)
+        qx, qy, qz = xi * (1 - xi), eta * (1 - eta), zeta * (1 - zeta)
+        rho = coefficients.unbind(-1)
+        lam = (
+            1 - 4 * qx * rho[0], 1 - 4 * qx * rho[1],
+            1 - 4 * qy * rho[2], 1 - 4 * qy * rho[3],
+            1 - 4 * qz * rho[4], 1 - 4 * qz * rho[5],
+        )
+        ax = ((1 - xi) * lam[0], xi * lam[1])
+        ay = ((1 - eta) * lam[2], eta * lam[3])
+        az = ((1 - zeta) * lam[4], zeta * lam[5])
+        dx, dy, dz = (1 - xi, xi), (1 - eta, eta), (1 - zeta, zeta)
+        beta = 32 * qx * qy * qz  # 64*qx*qy*qz*a0, a0 = 1/2.
+
+        faces = self.project(
+            p_x, p_y, p_z, xi, eta, zeta,
+            boundary_geometry=boundary_geometry,
+        )
+        if xi.device.type == "cpu":
+            # Scalar accumulation avoids large temporary weight tensors on CPU.
+            face_part = sum(
+                a[..., None] * faces[..., i, :]
+                for i, a in enumerate((*ax, *ay, *az))
+            )
+        else:
+            ax_values = torch.stack(ax, -1)
+            ay_values = torch.stack(ay, -1)
+            az_values = torch.stack(az, -1)
+            face_weights = torch.cat((ax_values, ay_values, az_values), -1)
+            face_part = (face_weights[..., None] * faces).sum(-2)
+
+        # Evaluate each shared edge and corner from one incident exact face.
+        # Compatible parameter surfaces must agree on those intersections.
+        edge_queries = (
+            (zero, zero, zeta), (one, zero, zeta),
+            (zero, one, zeta), (one, one, zeta),
+            (zero, eta, zero), (one, eta, zero),
+            (zero, eta, one), (one, eta, one),
+            (xi, zero, zero), (xi, one, zero),
+            (xi, zero, one), (xi, one, one),
+        )
+        queries = torch.cat([torch.stack(q, -1) for q in edge_queries], dim=1)
+        values = self.project(
+            p_x, p_y, p_z, *queries.unbind(-1),
+            boundary_geometry=boundary_geometry,
+        )
+        face_ids = torch.tensor(
+            [0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 2, 3], device=xi.device
+        ).repeat_interleave(xi.shape[1])
+        values = values.gather(
+            2, face_ids[None, :, None, None].expand(xi.shape[0], -1, 1, 3)
+        ).squeeze(2)
+        edges = values.reshape(xi.shape[0], 12, xi.shape[1], 3).transpose(1, 2)
+        if xi.device.type == "cpu":
+            edge_part = sum(
+                (ax[i] * ay[j])[..., None] * edges[..., j * 2 + i, :]
+                for j in range(2) for i in range(2)
+            ) + sum(
+                (ax[i] * az[k])[..., None] * edges[..., 4 + k * 2 + i, :]
+                for k in range(2) for i in range(2)
+            ) + sum(
+                (ay[j] * az[k])[..., None] * edges[..., 8 + k * 2 + j, :]
+                for k in range(2) for j in range(2)
+            )
+        else:
+            edge_weights = torch.cat(
+                (
+                    (ay_values[..., :, None] * ax_values[..., None, :]).flatten(-2),
+                    (az_values[..., :, None] * ax_values[..., None, :]).flatten(-2),
+                    (az_values[..., :, None] * ay_values[..., None, :]).flatten(-2),
+                ),
+                -1,
+            )
+            edge_part = (edge_weights[..., None] * edges).sum(-2)
+        boundary = torch.stack((p_x, p_y, p_z), -1)
+        if boundary.dim() == 4:
+            boundary = boundary[:, 0]
+        corners = boundary.index_select(1, self._corner_boundary_positions)
+        remainder = (1 - ax[0] - ax[1]) * (1 - ay[0] - ay[1]) * (
+            1 - az[0] - az[1]
+        )
+        if xi.device.type == "cpu":
+            corner_part = sum(
+                (
+                    ax[i] * ay[j] * az[k]
+                    + remainder * dx[i] * dy[j] * dz[k]
+                )[..., None] * corners[:, k * 4 + j * 2 + i, None, :]
+                for k in range(2) for j in range(2) for i in range(2)
+            )
+        else:
+            corner_weights = (
+                az_values[..., :, None, None]
+                * ay_values[..., None, :, None]
+                * ax_values[..., None, None, :]
+                + remainder[..., None, None, None]
+                * torch.stack(dz, -1)[..., :, None, None]
+                * torch.stack(dy, -1)[..., None, :, None]
+                * torch.stack(dx, -1)[..., None, None, :]
+            ).flatten(-3)
+            corner_part = (corner_weights[..., None] * corners[:, None]).sum(-2)
+        result = beta[..., None] * raw + (1 - beta)[..., None] * (
+            face_part - edge_part + corner_part
+        )
+        return result.squeeze(0) if unbatched else result
+
     def forward(
         self,
         p_x,
@@ -1647,55 +1887,29 @@ class HMONet3D(_OperatorNet3D):
                 )
                 + displacement
             )
+        elif self.hmonet_mapping_mode == "corner_corrected":
+            coefficients = self.projection_coefficients(joint_geometry, trunk_features)
+            result = self.evaluate_corner_corrected_points(
+                p_x, p_y, p_z, xi, eta, zeta, raw, coefficients,
+                boundary_geometry=boundary_geometry,
+            )
+            displacement = torch.zeros_like(result)
         else:
             # The Coons branch evaluates its own faces; only current needs these.
             f = self.project(
                 p_x, p_y, p_z, xi, eta, zeta, boundary_geometry=boundary_geometry
             )
-            distances = torch.stack((xi, 1 - xi, eta, 1 - eta, zeta, 1 - zeta), -1)
             coefficients = self.projection_coefficients(joint_geometry, trunk_features)
-
-            # Six-face extension of the 2D rational hard-constraint map.  Each
-            # face uses its normal coordinate and the product of the two
-            # tangential bubbles; no convex normalization is applied.
-            q_x = xi * (1.0 - xi)
-            q_y = eta * (1.0 - eta)
-            q_z = zeta * (1.0 - zeta)
-            tangent_x = q_y * q_z
-            tangent_y = q_x * q_z
-            tangent_z = q_x * q_y
-            g_x_min, g_x_max, g_y_min, g_y_max, g_z_min, g_z_max = (
-                coefficients.unbind(dim=-1)
+            center_weight, face_weights, incidence_count = (
+                _rational_affine_weights_3d(xi, eta, zeta, coefficients)
             )
-
-            tiny = torch.finfo(raw.dtype).tiny
-
-            def safe_denominator(value: torch.Tensor) -> torch.Tensor:
-                return torch.where(value.abs() > tiny, value, torch.ones_like(value))
-
-            denominator_x_min = safe_denominator(q_x + g_x_min * tangent_x)
-            denominator_x_max = safe_denominator(q_x + g_x_max * tangent_x)
-            denominator_y_min = safe_denominator(q_y + g_y_min * tangent_y)
-            denominator_y_max = safe_denominator(q_y + g_y_max * tangent_y)
-            denominator_z_min = safe_denominator(q_z + g_z_min * tangent_z)
-            denominator_z_max = safe_denominator(q_z + g_z_max * tangent_z)
-
-            w_x_min = g_x_min * (1.0 - xi) * tangent_x / denominator_x_min
-            w_x_max = g_x_max * xi * tangent_x / denominator_x_max
-            w_y_min = g_y_min * (1.0 - eta) * tangent_y / denominator_y_min
-            w_y_max = g_y_max * eta * tangent_y / denominator_y_max
-            w_z_min = g_z_min * (1.0 - zeta) * tangent_z / denominator_z_min
-            w_z_max = g_z_max * zeta * tangent_z / denominator_z_max
-            face_weights = torch.stack(
-                (w_x_min, w_x_max, w_y_min, w_y_max, w_z_min, w_z_max),
-                dim=-1,
-            )
-            center_weight = 1.0 - face_weights.sum(dim=-1)
             result = center_weight[..., None] * raw + (
                 face_weights[..., None] * f
             ).sum(dim=-2)
             displacement = torch.zeros_like(result)
-            # At edges/corners, preserve the original last-face-wins order.
+            # Shared edges use the compatible two-face limit above. Only the
+            # eight logical corners need direct exact assignment.
+            distances = torch.stack((xi, 1 - xi, eta, 1 - eta, zeta, 1 - zeta), -1)
             priority = ((distances.abs() < 1e-7) * self._face_priority).amax(-1)
             indices = (
                 (priority - 1)
@@ -1703,7 +1917,7 @@ class HMONet3D(_OperatorNet3D):
                 .expand(*priority.shape, 1, 3)
             )
             boundary = f.gather(-2, indices).squeeze(-2)
-            result = torch.where((priority > 0)[..., None], boundary, result)
+            result = torch.where((incidence_count >= 3)[..., None], boundary, result)
         xyz = (result[..., 0:1], result[..., 1:2], result[..., 2:3])
         return (*xyz, displacement) if return_displacement else xyz
 
@@ -1719,6 +1933,9 @@ class AttentionHMONet3D(HMONet3D):
                  output_dim=128, hmonet_mapping_mode="current",
                  attention_dim=64, attention_heads=4, attention_layers=2,
                  attention_feedforward_dim=128, attention_dropout=0.0, **kwargs):
+        # This attention variant owns separate branch/trunk projection heads;
+        # preserve its historical unused parent head for checkpoint stability.
+        kwargs.setdefault("weight_head_mlp_enabled", False)
         super().__init__(
             2, 2, 2, branch_dim=branch_dim, trunk_dim=trunk_dim,
             branch_hidden_dim=branch_hidden_dim, trunk_hidden_dim=trunk_hidden_dim,
@@ -1811,28 +2028,22 @@ class AttentionHMONet3D(HMONet3D):
             faces, xi, eta, zeta, boundary_geometry=boundary_geometry,
             surface_masks=masks,
         )
-        if self.hmonet_mapping_mode == "coons_residual":
+        if self.hmonet_mapping_mode != "current":
             raise NotImplementedError(
                 "AttentionHMONet3D currently supports the requested current mapping only"
             )
-        distances = torch.stack((xi, 1-xi, eta, 1-eta, zeta, 1-zeta), -1)
         coefficients = self.projection_weights(joint, trunk)
-        center_weight, face_weights = _rational_projection_weights_3d(
-            xi,
-            eta,
-            zeta,
-            coefficients,
-            self.projection_transition_width,
-            self.projection_normal_smoothing,
-            self.projection_tangential_lift_beta,
+        center_weight, face_weights, incidence_count = _rational_affine_weights_3d(
+            xi, eta, zeta, coefficients
         )
-        result = center_weight * raw + (
+        result = center_weight[..., None] * raw + (
             face_weights[..., None] * projected
         ).sum(-2)
+        distances = torch.stack((xi, 1-xi, eta, 1-eta, zeta, 1-zeta), -1)
         priority = ((distances.abs() < 1e-7) * self._face_priority).amax(-1)
         indices = (priority - 1).clamp_min(0)[..., None, None].expand(*priority.shape, 1, 3)
         exact = projected.gather(-2, indices).squeeze(-2)
-        result = torch.where((priority > 0)[..., None], exact, result)
+        result = torch.where((incidence_count >= 3)[..., None], exact, result)
         xyz = tuple(result[..., i:i+1] for i in range(3))
         return (*xyz, torch.zeros_like(result)) if return_displacement else xyz
 

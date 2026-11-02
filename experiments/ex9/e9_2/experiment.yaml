@@ -1,0 +1,55 @@
+# e9_2：e9_1混合采样改用自动微分，近边界带宽为[0, 0.0004]。
+schema_version: 1
+experiment: e9_2
+
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+
+variants:
+  - name: e9_2
+    value: normalized_physics_mixed_sampling_autograd
+    overrides:
+      - --lr
+      - "0.0004"
+      - --hmonet-random-mse-loss-weight
+      - "0"
+      - --hmonet-physics-pde-loss-weight
+      - "1"
+      - --hmonet-physics-scale-invariant-pde-enabled
+      - --pde-fd-step
+      - "0.01"
+      - "0.01"
+      - --hmonet-physics-jacobian-loss-weight
+      - "0"
+      - --hmonet-physics-normalized-jacobian-loss-weight
+      - "0.01"
+      - --hmonet-physics-normalized-jacobian-minimum
+      - "0.02"
+      - --hmonet-physics-singular-value-loss-weight
+      - "0.05"
+      - --hmonet-physics-singular-value-minimum
+      - "0.05"
+      - --hmonet-physics-winslow-loss-weight
+      - "0"
+      - --hmonet-physics-winslow-jacobian-barrier-weight
+      - "0"
+      - --hmonet-random-loss-sample-count
+      - "400"
+      - --hmonet-random-loss-sampling-mode
+      - mixed_boundary
+      - --hmonet-random-loss-derivative-backend
+      - autograd
+      - --hmonet-random-loss-global-sample-count
+      - "200"
+      - --hmonet-random-loss-curvature-sample-count
+      - "100"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "100"
+      - --hmonet-random-loss-boundary-band-min-distance
+      - "0"
+      - --hmonet-random-loss-boundary-band-max-distance
+      - "0.0004"
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss

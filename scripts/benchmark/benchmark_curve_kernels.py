@@ -23,7 +23,7 @@ from src.data.backend.curve_kernels import curve_kernel_mode, kernel_status
 from src.data.generation.make_dataset_parametric_2d import to_computational_boundary
 from src.data.mesh.sampling import logical_grid, sample_boundary
 from src.evaluation.inference import load_network, predict
-from src.models.model import HMONet3D, MeshONet3D
+from src.models import HMONet3D, MeshONet3D
 
 
 def stats(values):

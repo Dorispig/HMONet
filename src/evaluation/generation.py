@@ -35,10 +35,10 @@ def implementation_version():
 def tfi(geometry, shape, queries=None):
     queries = logical_grid(shape) if queries is None else queries
     if len(shape) == 2:
-        from scripts.tfi.tfi_2d import tfi_from_curves
+        from src.numerics.traditional.tfi_2d import tfi_from_curves
 
         return tfi_from_curves(geometry, parameter_grid=queries).reshape(-1, 2)
-    from scripts.tfi.tfi_3d import tfi_from_surfaces
+    from src.numerics.traditional.tfi_3d import tfi_from_surfaces
 
     return tfi_from_surfaces(geometry, parameter_grid=queries).reshape(-1, 3)
 
@@ -48,9 +48,9 @@ def solve_pde(geometry, shape, options, initial=None, iterations=None):
     if min(shape) < 3:
         raise ValueError("PDE generation requires at least three nodes per axis")
     if len(shape) == 2:
-        from scripts.pde.pde_2d import solve_winslow_2d as solver
+        from src.numerics.traditional.winslow_2d import solve_winslow_2d as solver
     else:
-        from scripts.pde.pde_3d import solve_winslow_3d as solver
+        from src.numerics.traditional.winslow_3d import solve_winslow_3d as solver
     if initial is None:
         initial = tfi(geometry, shape)
     points, info = solver(

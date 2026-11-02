@@ -3,7 +3,7 @@
 import inspect
 import json
 from pathlib import Path
-from src.data.dataset import (
+from src.data.parametric_dataset import (
     read_dataset_metadata,
     NUMERICAL_DATA_FILENAME,
     BOUNDARY_GEOMETRY_FILENAME,

@@ -42,6 +42,21 @@ def validate_train_config(config: dict) -> None:
         )
     if not isinstance(config["model"].get("common", {}), dict):
         raise ValueError("model.common must be a mapping")
+    common_model = config["model"].get("common", {})
+    lift_mode = (
+        str(common_model.get("coordinate_lift_mode", "legacy"))
+        .strip()
+        .lower()
+        .replace("-", "_")
+    )
+    if lift_mode not in {"legacy", "power_fourier"}:
+        raise ValueError(
+            "model.common.coordinate_lift_mode must be legacy or power_fourier"
+        )
+    if int(common_model.get("coordinate_lift_max_power", 1)) < 1:
+        raise ValueError(
+            "model.common.coordinate_lift_max_power must be at least 1"
+        )
     hmonet = config["model"].get("hmonet", {})
     mapping_mode = (
         str(hmonet.get("hmonet_mapping_mode", "current"))
@@ -49,17 +64,16 @@ def validate_train_config(config: dict) -> None:
         .lower()
         .replace("-", "_")
     )
-    if mapping_mode not in {"current", "coons_residual"}:
+    if mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
         raise ValueError(
-            "model.hmonet.hmonet_mapping_mode must be current or coons_residual"
+            "model.hmonet.hmonet_mapping_mode must be current, coons_residual, or corner_corrected"
         )
     if float(hmonet.get("residual_regularization_weight", 0.0)) < 0:
         raise ValueError(
             "model.hmonet.residual_regularization_weight must be non-negative"
         )
     for option in (
-        "trunk_projection_coefficients_enabled",
-        "projection_softplus_enabled",
+        "weight_head_mlp_enabled",
         "boundary_self_attention_enabled",
     ):
         if not isinstance(hmonet.get(option, False), bool):
@@ -211,25 +225,84 @@ def validate_train_config(config: dict) -> None:
         raise ValueError(
             "hmonet_training.point_loss_weighting must be position or uniform"
         )
-    idw_neighbors = int(hmonet_training.get("idw_neighbors", -1))
-    if idw_neighbors == 0 or idw_neighbors < -1:
-        raise ValueError("hmonet_training.idw_neighbors must be -1 or positive")
     for name, default in (
         ("idw_query_chunk_size", 512),
         ("idw_support_chunk_size", 2048),
     ):
         if int(hmonet_training.get(name, default)) < 1:
             raise ValueError(f"hmonet_training.{name} must be positive")
-    for name in ("jacobian_loss_enabled", "boundary_normal_loss_enabled"):
+    for name in (
+        "jacobian_loss_enabled",
+        "boundary_normal_loss_enabled",
+        "physics_scale_invariant_pde_enabled",
+    ):
         if name in hmonet_training and not isinstance(hmonet_training[name], bool):
             raise ValueError(f"hmonet_training.{name} must be true or false")
     for name in (
         "jacobian_loss_weight",
         "jacobian_minimum",
         "boundary_normal_loss_weight",
+        "physics_normalized_jacobian_loss_weight",
+        "physics_singular_value_loss_weight",
     ):
         if float(hmonet_training.get(name, 0.0)) < 0:
             raise ValueError(f"hmonet_training.{name} must be non-negative")
+    for name, default in (
+        ("physics_normalized_jacobian_minimum", 0.02),
+        ("physics_singular_value_minimum", 0.05),
+    ):
+        if float(hmonet_training.get(name, default)) <= 0:
+            raise ValueError(f"hmonet_training.{name} must be positive")
+    random_backend = str(
+        hmonet_training.get("random_loss_derivative_backend", "finite_difference")
+    ).lower()
+    if random_backend not in {"finite_difference", "autograd"}:
+        raise ValueError(
+            "hmonet_training.random_loss_derivative_backend must be "
+            "finite_difference or autograd"
+        )
+    random_sampling = str(
+        hmonet_training.get("random_loss_sampling_mode", "uniform")
+    ).lower()
+    if random_sampling not in {"uniform", "mixed_boundary"}:
+        raise ValueError(
+            "hmonet_training.random_loss_sampling_mode must be uniform or mixed_boundary"
+        )
+    if random_sampling == "mixed_boundary":
+        total = int(hmonet_training.get("random_loss_sample_count", 400))
+        counts = tuple(
+            int(hmonet_training.get(name, default))
+            for name, default in (
+                ("random_loss_global_sample_count", 200),
+                ("random_loss_curvature_sample_count", 100),
+                ("random_loss_boundary_band_sample_count", 100),
+            )
+        )
+        if min(counts) < 0 or sum(counts) != total:
+            raise ValueError(
+                "mixed random-loss sample counts must be nonnegative and sum "
+                "to random_loss_sample_count"
+            )
+        min_steps = float(
+            hmonet_training.get("random_loss_boundary_band_min_step_multiple", 1.0)
+        )
+        max_steps = float(
+            hmonet_training.get("random_loss_boundary_band_max_step_multiple", 4.0)
+        )
+        if not 1 <= min_steps <= max_steps:
+            raise ValueError(
+                "random-loss boundary step multiples must satisfy 1 <= min <= max"
+            )
+        min_distance = float(
+            hmonet_training.get("random_loss_boundary_band_min_distance", 0.0)
+        )
+        max_distance = float(
+            hmonet_training.get("random_loss_boundary_band_max_distance", 4e-4)
+        )
+        if not 0 <= min_distance <= max_distance < 0.5:
+            raise ValueError(
+                "random-loss boundary distances must satisfy 0 <= min <= max < 0.5"
+            )
     if int(hmonet_training.get("boundary_normal_sample_count", 64)) < 1:
         raise ValueError(
             "hmonet_training.boundary_normal_sample_count must be positive"
@@ -399,10 +472,11 @@ def validate_evaluate_config(config: dict) -> None:
     if evaluation.get("hmonet_mapping_mode", "current") not in {
         "current",
         "coons_residual",
+        "corner_corrected",
         "both",
     }:
         raise ValueError(
-            "evaluation.hmonet_mapping_mode must be current, " "coons_residual, or both"
+            "evaluation.hmonet_mapping_mode must be current, coons_residual, corner_corrected, or both"
         )
     if evaluation.get("attentionpihmonet_mapping_mode", "current") not in {
         "current",

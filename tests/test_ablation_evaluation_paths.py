@@ -87,6 +87,27 @@ class AblationEvaluationPathTests(unittest.TestCase):
             collection = evaluation_collection_root(dataset_root)
             self.assertIn(dataset, collection.parts)
 
+    def test_physics_strategy_uses_readable_experiment_and_run_names(self):
+        experiments = Path(__file__).resolve().parents[1] / "experiments"
+        dataset_root = (
+            experiments
+            / "ex8/physics_training_strategy/run_ext_0_1000_61_21"
+        )
+        result = evaluation_result_root(
+            dataset_root,
+            "e2_nojac_then_mse_pde__phase1",
+            20261030,
+            "physics_v1",
+            "101x101",
+            1.52,
+        )
+        relative = result.relative_to(
+            experiments / "ex8/eval/run_ext_0_1000_61_21"
+        )
+        self.assertEqual(relative.parts[0], "e2_nojac_then_mse_pde__phase1")
+        self.assertEqual(relative.parts[2], "physics_v1")
+        self.assertNotRegex(str(relative), r"[0-9a-f]{6}$")
+
     def test_destination_validation_checks_actual_nested_artifacts(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
@@ -104,7 +125,29 @@ class AblationEvaluationPathTests(unittest.TestCase):
             result = evaluation_result_root(
                 dataset_root, "baseline", 1, "paper", "51x51", 0.5
             )
+            self.assertEqual(collection, dataset_root.resolve() / "evaluation")
             self.assertEqual(result.relative_to(collection).parts[0], "1")
+
+    def test_single_variant_suite_omits_duplicate_family_folder(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
+            experiments = Path(temporary) / "experiments"
+            dataset_root = (
+                experiments
+                / "ex9/e9_norm_pde_jac_svd/run_ext_0_1000_61_21"
+            )
+            collection = evaluation_collection_root(dataset_root)
+            result = evaluation_result_root(
+                dataset_root,
+                "e9_norm_pde_jac_svd",
+                20261030,
+                "physics_v1",
+                "101x101",
+                1.55,
+            )
+            relative = result.relative_to(collection)
+            self.assertEqual(collection.name, "e9")
+            self.assertEqual(relative.parts[0], "20261030")
+            self.assertNotEqual(relative.parts[:2], ("e9", "e9"))
 
 
 if __name__ == "__main__":

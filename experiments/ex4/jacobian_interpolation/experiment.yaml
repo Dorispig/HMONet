@@ -4,12 +4,6 @@ experiment: jacobian_interpolation
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml
 variants:
-- name: baseline
-  value: bilinear_no_jacobian
-  overrides:
-  - --no-jacobian-loss-enabled
-  - --target-interpolation
-  - bilinear
 - name: jacobian_only
   value: bilinear_with_jacobian
   overrides:

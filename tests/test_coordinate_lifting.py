@@ -1,0 +1,139 @@
+"""Regression tests for legacy and power-Fourier coordinate lifting."""
+
+import math
+import unittest
+
+import torch
+
+from src.models.model import HMONet2D, MeshONet2D, MeshONet3D
+from src.models.modules import power_fourier_lift
+from src.models.pi_meshonet import PIMeshONet2D, PIMeshONet3D
+
+
+class CoordinateLiftingTests(unittest.TestCase):
+    def test_two_dimensional_order_for_power_two(self):
+        coordinates = torch.tensor([[[0.25, 0.5]]], dtype=torch.float64)
+        actual = power_fourier_lift(coordinates, 2)
+        powers = torch.tensor(
+            [[[0.25, 0.25**2, 0.5, 0.5**2]]], dtype=torch.float64
+        )
+        expected = torch.cat(
+            (powers, torch.sin(2 * math.pi * powers), torch.cos(2 * math.pi * powers)),
+            dim=-1,
+        )
+        torch.testing.assert_close(actual, expected)
+        self.assertEqual(actual.shape[-1], 12)
+
+    def test_three_dimensional_width_and_axis_order(self):
+        coordinates = torch.tensor([[[0.2, 0.3, 0.4]]])
+        actual = power_fourier_lift(coordinates, 2)
+        expected_powers = torch.tensor(
+            [[[0.2, 0.2**2, 0.3, 0.3**2, 0.4, 0.4**2]]]
+        )
+        torch.testing.assert_close(actual[..., :6], expected_powers)
+        self.assertEqual(actual.shape[-1], 18)
+
+    def test_default_and_explicit_legacy_have_identical_state(self):
+        constructors = (
+            lambda: MeshONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                               adjust_hidden_dim=4, branch_hidden_dim=4,
+                               trunk_hidden_dim=4, output_dim=4,
+                               branch_mlp_hidden_dim=4,
+                               adjust_hidden_layer_num=1,
+                               branch_hidden_layer_num=1,
+                               trunk_hidden_layer_num=1,
+                               branch_mlp_hidden_layer_num=1),
+            lambda: HMONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                             adjust_hidden_dim=4, branch_hidden_dim=4,
+                             trunk_hidden_dim=4, output_dim=4,
+                             branch_mlp_hidden_dim=4,
+                             adjust_hidden_layer_num=1,
+                             branch_hidden_layer_num=1,
+                             trunk_hidden_layer_num=1,
+                             branch_mlp_hidden_layer_num=1),
+            lambda: PIMeshONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                                 adjust_hidden_dim=4, branch_hidden_dim=4,
+                                 trunk_hidden_dim=4, output_dim=4,
+                                 adjust_hidden_layer_num=1,
+                                 branch_hidden_layer_num=1,
+                                 trunk_hidden_layer_num=1),
+        )
+        explicit = (
+            lambda: MeshONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                               adjust_hidden_dim=4, branch_hidden_dim=4,
+                               trunk_hidden_dim=4, output_dim=4,
+                               branch_mlp_hidden_dim=4,
+                               adjust_hidden_layer_num=1,
+                               branch_hidden_layer_num=1,
+                               trunk_hidden_layer_num=1,
+                               branch_mlp_hidden_layer_num=1,
+                               coordinate_lift_mode="legacy",
+                               coordinate_lift_max_power=1),
+            lambda: HMONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                             adjust_hidden_dim=4, branch_hidden_dim=4,
+                             trunk_hidden_dim=4, output_dim=4,
+                             branch_mlp_hidden_dim=4,
+                             adjust_hidden_layer_num=1,
+                             branch_hidden_layer_num=1,
+                             trunk_hidden_layer_num=1,
+                             branch_mlp_hidden_layer_num=1,
+                             coordinate_lift_mode="legacy",
+                             coordinate_lift_max_power=1),
+            lambda: PIMeshONet2D(3, 3, branch_dim=4, trunk_dim=6,
+                                 adjust_hidden_dim=4, branch_hidden_dim=4,
+                                 trunk_hidden_dim=4, output_dim=4,
+                                 adjust_hidden_layer_num=1,
+                                 branch_hidden_layer_num=1,
+                                 trunk_hidden_layer_num=1,
+                                 coordinate_lift_mode="legacy",
+                                 coordinate_lift_max_power=1),
+        )
+        for old_factory, explicit_factory in zip(constructors, explicit):
+            torch.manual_seed(31)
+            old_model = old_factory()
+            torch.manual_seed(31)
+            explicit_model = explicit_factory()
+            self.assertEqual(old_model.state_dict().keys(), explicit_model.state_dict().keys())
+            for name, value in old_model.state_dict().items():
+                torch.testing.assert_close(value, explicit_model.state_dict()[name])
+
+    def test_new_mode_sets_derived_trunk_widths(self):
+        model_2d = HMONet2D(
+            3, 3, branch_dim=4, trunk_dim=16, adjust_hidden_dim=4,
+            branch_hidden_dim=4, trunk_hidden_dim=4, output_dim=4,
+            branch_mlp_hidden_dim=4, adjust_hidden_layer_num=1,
+            branch_hidden_layer_num=1, trunk_hidden_layer_num=1,
+            branch_mlp_hidden_layer_num=1,
+            coordinate_lift_mode="power_fourier",
+            coordinate_lift_max_power=2,
+        )
+        model_3d = MeshONet3D(
+            3, 3, 3, branch_dim=4, trunk_dim=16,
+            adjust_hidden_dim=4, branch_hidden_dim=4, trunk_hidden_dim=4,
+            output_dim=4, adjust_hidden_layer_num=1,
+            branch_hidden_layer_num=1, trunk_hidden_layer_num=1,
+            branch_mlp_hidden_dim=4, branch_mlp_hidden_layer_num=1,
+            coordinate_lift_mode="power_fourier",
+            coordinate_lift_max_power=2,
+        )
+        pi_3d = PIMeshONet3D(
+            3, 3, 3, branch_dim=4, trunk_dim=16,
+            adjust_hidden_dim=4, branch_hidden_dim=4, trunk_hidden_dim=4,
+            output_dim=4, adjust_hidden_layer_num=1,
+            branch_hidden_layer_num=1, trunk_hidden_layer_num=1,
+            coordinate_lift_mode="power_fourier",
+            coordinate_lift_max_power=2,
+        )
+        self.assertEqual(model_2d.trunk_dim, 12)
+        self.assertEqual(model_2d.trunk_net.input_dim, 12)
+        self.assertEqual(model_3d.trunk_dim, 18)
+        self.assertEqual(model_3d.trunk.input_dim, 18)
+        self.assertEqual(pi_3d.trunk_dim, 18)
+
+    def test_invalid_max_power_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "at least 1"):
+            power_fourier_lift(torch.zeros(1, 1, 2), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from scripts.train.attention_pihmonet_common import (
+from src.engine.attention import (
     autograd_physics_losses,
     autograd_normalized_pde_loss,
     build_boundary_inputs,
@@ -22,15 +22,15 @@ from scripts.train.pi_anchor import (
     masked_anchor_mse,
     tfi_anchor_targets,
 )
-from scripts.train.training_common import (
+from src.engine.training import (
     BatchLossTotals,
     make_data_loader,
     safe_optimizer_step,
     seed_everything,
     update_learning_rate,
 )
-from scripts.train.training_state import TrainingState, prepare_training_config
-from src.models.model import AttentionHMONet2D, AttentionHMONet3D
+from src.engine.state import TrainingState, prepare_training_config
+from src.models import AttentionHMONet2D, AttentionHMONet3D
 
 
 def _anchor_weight(initial, epoch, decay_end):
@@ -332,31 +332,35 @@ def train_attentionpihmonet(datasets, config, mode, args, device):
                     training["skip_nonfinite_loss"],
                 ):
                     continue
-                alpha_metrics = (
-                    {
-                        "loss_boundary": boundary_coordinate,
-                        "alpha_penalty": alpha_penalty,
-                        "boundary_alpha": model.boundary_alpha.detach(),
-                    }
-                    if dimension == 2
-                    else {}
-                )
-                totals.add(
-                    size,
-                    loss=loss,
-                    loss_pde=interior["pde_normalized"],
-                    loss_pde_normalized=interior["pde_normalized"],
-                    jacobian=interior["jacobian"],
-                    anchor=anchor,
-                    anchor_weight=anchor_weight,
-                    valid_anchor_ratio=valid_anchor_ratio,
-                    grid_smoothness=interior["smoothness"],
-                    boundary_pde=boundary_pde,
-                    boundary_jacobian=boundary_jacobian,
-                    minimum_sampled_jacobian=interior["minimum_jacobian"],
-                    minimum_boundary_jacobian=boundary_minimum,
-                    **alpha_metrics,
-                )
+                active_losses = {
+                    "loss": loss,
+                    "loss_pde": interior["pde_normalized"],
+                    "loss_pde_normalized": interior["pde_normalized"],
+                }
+                if dimension == 2:
+                    if weights["boundary_coordinate"] > 0:
+                        active_losses["loss_boundary"] = boundary_coordinate
+                    if weights["alpha_penalty"] > 0:
+                        active_losses["alpha_penalty"] = alpha_penalty
+                        active_losses["boundary_alpha"] = model.boundary_alpha.detach()
+                else:
+                    if weights["jacobian"] > 0:
+                        active_losses["jacobian"] = interior["jacobian"]
+                        active_losses["minimum_sampled_jacobian"] = interior["minimum_jacobian"]
+                    if weights["smoothness"] > 0:
+                        active_losses["grid_smoothness"] = interior["smoothness"]
+                    if anchor_weight > 0:
+                        active_losses.update(
+                            anchor=anchor,
+                            anchor_weight=anchor_weight,
+                            valid_anchor_ratio=valid_anchor_ratio,
+                        )
+                    if weights["boundary_pde"] > 0:
+                        active_losses["boundary_pde"] = boundary_pde
+                    if weights["boundary_jacobian"] > 0:
+                        active_losses["boundary_jacobian"] = boundary_jacobian
+                        active_losses["minimum_boundary_jacobian"] = boundary_minimum
+                totals.add(size, **active_losses)
                 if dimension == 2:
                     progress.set_postfix(
                         loss=loss.item(),

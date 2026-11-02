@@ -7,6 +7,7 @@ from scripts.experiments import run_ablation_2d
 from scripts.experiments.run_ablations_2d import (
     ALL_ABLATIONS,
     _forward_common_arguments,
+    _shared_declared_config,
     main,
     resolve_ablations,
 )
@@ -14,25 +15,119 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from scripts.experiments.run_ablation_2d import (
+    _variant_options,
     plot_training_histories,
+    reject_embedded_baseline_variants,
     run_initial_learning_rate_experiment,
     run_point_weighting_experiment,
     run_training_sample_count_experiment,
+    Variant,
 )
 from scripts.experiments.run_ablation_2d import (
     evaluate_one,
+    evaluated_methods,
+    variant_model,
+    variant_training_overrides,
     write_profiled_metric_outputs,
 )
 
 
 class BatchAblationRunnerTests(unittest.TestCase):
+    def test_operator_model_variants_use_their_own_training_and_evaluation(self):
+        for model in ("meshonet", "pimeshonet"):
+            variant = Variant(
+                model,
+                model,
+                ("--model", model, "--plateau-metric", "train_loss"),
+            )
+            self.assertEqual(variant_model(variant), model)
+            self.assertEqual(
+                variant_training_overrides(variant),
+                ["--plateau-metric", "train_loss"],
+            )
+            self.assertEqual(
+                evaluated_methods(
+                    {"methods": ["tfi", "pde", "hmonet"]},
+                    {"model": model},
+                ),
+                ["tfi", "pde", model],
+            )
+
+    def test_experiment_definition_cannot_embed_baseline_variant(self):
+        with self.assertRaisesRegex(ValueError, "never train or evaluate baselines"):
+            reject_embedded_baseline_variants(
+                [Variant("baseline", "baseline", ())],
+                Path("experiments/ex9/e7/experiment.yaml"),
+            )
+
+    def test_regular_experiment_variant_passes_baseline_guard(self):
+        reject_embedded_baseline_variants(
+            [Variant("e7_pde_winslow_jac", "physics", ())],
+            Path("experiments/ex9/e7/experiment.yaml"),
+        )
+
+    def test_phase_transition_optimizer_can_be_retained_by_ablation(self):
+        options = _variant_options(
+            ("--no-hmonet-reset-optimizer-on-phase-transition",)
+        )
+        self.assertIs(
+            options["hmonet_reset_optimizer_on_phase_transition"], False
+        )
+
+    def test_numbered_subsuite_name_is_supported(self):
+        self.assertEqual(
+            run_ablation_2d.validate_experiment_set_name("ex8_1"), "ex8_1"
+        )
+        for invalid in ("ex0_1", "ex8_", "ex8_a", "ex8.1", "experiment8_1"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    run_ablation_2d.validate_experiment_set_name(invalid)
+
+    def test_subsuite_can_declare_an_external_read_only_baseline(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = root / "ex8/baseline/experiment.yaml"
+            baseline.parent.mkdir(parents=True)
+            baseline.write_text("model: {}\n", encoding="utf-8")
+            experiment = root / "ex8_1/physics_training_strategy/experiment.yaml"
+            experiment.parent.mkdir(parents=True)
+            experiment.write_text(
+                "baseline_config: ../../ex8/baseline/experiment.yaml\n",
+                encoding="utf-8",
+            )
+            resolved = _shared_declared_config(
+                root / "ex8_1", ["physics_training_strategy"], "baseline_config"
+            )
+            self.assertEqual(resolved, baseline.resolve())
+
     def test_all_and_selected_experiments(self):
         self.assertEqual(resolve_ablations(["all"]), list(ALL_ABLATIONS))
         selected = ["jacobian_enabled", "training_sample_count"]
         self.assertEqual(resolve_ablations(selected), selected)
 
+    def test_baseline_can_precede_one_experiment_or_all(self):
+        self.assertEqual(
+            resolve_ablations(["baseline", "jacobian_enabled"]),
+            ["baseline", "jacobian_enabled"],
+        )
+        self.assertEqual(
+            resolve_ablations(["all", "baseline"]),
+            ["baseline", *ALL_ABLATIONS],
+        )
+        self.assertEqual(
+            resolve_ablations(
+                ["baseline", "all"], ("e1_mse_pde", "e7_pde_winslow_jac")
+            ),
+            ["baseline", "e1_mse_pde", "e7_pde_winslow_jac"],
+        )
+
     def test_invalid_selections_are_rejected(self):
-        for values in (["all", "normal_loss"], ["unknown"], ["normal_loss"] * 2):
+        for values in (
+            ["all", "normal_loss"],
+            ["baseline", "all", "normal_loss"],
+            ["unknown"],
+            ["normal_loss"] * 2,
+        ):
             with self.subTest(values=values):
                 with self.assertRaises(ValueError):
                     resolve_ablations(values)
@@ -191,6 +286,7 @@ class ProfiledAblationOutputTests(unittest.TestCase):
             with patch("scripts.evaluate.evaluate_2d.main", return_value=None) as main:
                 command = evaluate_one(args, dataset, summary, Path(temporary) / "eval")
             self.assertEqual(main.call_count, 1)
+            self.assertIn("--save-plots", command)
             index = command.index("--grid-shapes")
             self.assertEqual(command[index + 1], "51x51")
 

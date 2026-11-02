@@ -1,12 +1,9 @@
-# HMONet参数量消融。最大模型与ex3基线完全一致，可直接复用复制后的基线。
+# HMONet参数量消融。最大模型使用套件基线的只读结果，不作为实验变体重复运行。
 schema_version: 1
 experiment: model_capacity
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml
 variants:
-- name: full_552k
-  value: 552198
-  overrides: []
 - name: compact_178k
   value: 177770
   overrides:

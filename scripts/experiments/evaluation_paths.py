@@ -12,7 +12,7 @@ EVALUATION_PATH_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
 # Longest current TFI/PDE/HMONet ablation artifact below one parameter folder.
 # Final publication also validates every generated file, so this preflight may
 # use the measured ablation layout instead of the longer four-method layout.
-EVALUATION_RELATIVE_PATH_RESERVE = 120
+EVALUATION_RELATIVE_PATH_RESERVE = 110
 
 ABLATION_ALIASES = {
     "baseline": "base",
@@ -26,7 +26,21 @@ ABLATION_ALIASES = {
     "model_capacity": "cap",
     "normal_loss": "normal",
     "point_weighting": "point_w",
+    "physics_training_strategy": "physics",
     "pde_jacobian": "pj",
+    "e1_mse_pde": "e1",
+    "e2_pde_jac": "e2",
+    "e3_jac_pde": "e3",
+    "e4_mse_pde_jac": "e4",
+    "e5_staged_mse_pde_jac": "e5",
+    "e6_pde_fixed_mse": "e6",
+    "e7_pde_winslow_jac": "e7",
+    "e8_pde_only": "e8",
+    "e9_norm_pde_jac_svd": "e9",
+    "e9_1": "e9_1",
+    "e9_2": "e9_2",
+    "e9_3": "e9_3",
+    "e9_4": "e9_4",
     "projection_activation": "act",
     "sampling_mode": "samp",
     "target_interpolation": "tgt",
@@ -39,6 +53,19 @@ VARIANT_ALIASES = {
     "attention_off": "off",
     "attention_on": "on",
     "baseline": "base",
+    "e1_mse_pde": "e1",
+    "e2_pde_jac": "e2",
+    "e3_jac_pde": "e3",
+    "e4_mse_pde_jac": "e4",
+    "e5_staged_mse_pde_jac": "e5",
+    "e6_pde_fixed_mse": "e6",
+    "e7_pde_winslow_jac": "e7",
+    "e8_pde_only": "e8",
+    "e9_norm_pde_jac_svd": "e9",
+    "e9_1": "e9_1",
+    "e9_2": "e9_2",
+    "e9_3": "e9_3",
+    "e9_4": "e9_4",
     "coons_residual": "coons",
     "curved_boundary_cell": "curved",
     "jac_off": "off",
@@ -57,7 +84,6 @@ VARIANT_ALIASES = {
     "normal_on": "on",
     "position_weighted": "position",
     "sigmoid": "sig",
-    "softplus": "sp",
     "trunk_off": "off",
     "trunk_on": "on",
     "uniform_weight": "uniform",
@@ -81,6 +107,11 @@ def compact_component(value, maximum: int = 24) -> str:
 def compact_variant(ablation: str, variant: str) -> str:
     """Use concise labels without losing the meaning of known experiment variants."""
     value = str(variant)
+    # The physics-training variants are already deliberately short, numbered,
+    # and user-facing (for example ``e3_jac_then_mse_pde``).  Preserve those
+    # names verbatim so the ex8/ex8_1 evaluation tree is self-explanatory.
+    if str(ablation) == "physics_training_strategy":
+        return compact_component(value, 32)
     if value in VARIANT_ALIASES:
         return VARIANT_ALIASES[value]
     prefixes = {
@@ -106,17 +137,26 @@ def experiments_root_from_dataset_root(dataset_root: Path) -> Path:
 def evaluation_collection_root(dataset_root: Path) -> Path:
     """Return the readable shared root for one dataset and ablation."""
     dataset_root = Path(dataset_root).resolve()
-    experiments_root = experiments_root_from_dataset_root(dataset_root)
     ablation = dataset_root.parent.name
-    return (
+    # Canonical baseline artifacts are self-contained. This keeps checkpoints,
+    # manifests, and evaluation results below the suite's baseline directory.
+    if ablation == "baseline":
+        return dataset_root / "evaluation"
+    experiments_root = experiments_root_from_dataset_root(dataset_root)
+    result = (
         experiments_root
         / "eval"
         # Current dataset names are already bounded by the dataset generator.
         # Preserve them verbatim so the evaluation tree remains readable and
         # maps one-to-one to the corresponding ablation dataset directory.
         / compact_component(dataset_root.name, 22)
-        / ABLATION_ALIASES.get(ablation, compact_component(ablation, 8))
     )
+    # ex8/ex8_1 contain a single, explicitly numbered strategy family.  The
+    # variant itself is therefore the experiment name; an extra compressed
+    # family directory only produced opaque names such as ``p-2b3921``.
+    if ablation == "physics_training_strategy":
+        return result
+    return result / ABLATION_ALIASES.get(ablation, compact_component(ablation, 8))
 
 
 def evaluation_result_root(
@@ -131,12 +171,24 @@ def evaluation_result_root(
     dataset_root = Path(dataset_root).resolve()
     ablation = dataset_root.parent.name
     result = evaluation_collection_root(dataset_root)
-    if not (ablation == "baseline" and str(variant) == "baseline"):
-        result /= compact_variant(ablation, variant)
+    variant_component = compact_variant(ablation, variant)
+    ablation_component = ABLATION_ALIASES.get(
+        ablation, compact_component(ablation, 8)
+    )
+    # A single-variant experiment can deliberately use the same public name
+    # for both its experiment family and its only variant (for example ex9:
+    # e9_norm_pde_jac_svd -> ``e9``).  Repeating that component produced the
+    # redundant ``.../e9/e9/...`` evaluation tree.  Keep a variant component
+    # only when it adds information beyond the family name.
+    if (
+        not (ablation == "baseline" and str(variant) == "baseline")
+        and variant_component != ablation_component
+    ):
+        result /= variant_component
     result = (
         result
         / str(int(seed))
-        / compact_component(run_tag, 8)
+        / compact_component(run_tag, 16)
         / compact_component(grid, 12)
         / compact_component(parameter_value, 12)
     )

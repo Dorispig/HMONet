@@ -19,16 +19,6 @@ def naca4_curve(m=0.02, p=0.4, t=0.12, c=1.0, center=(-0.5, 0.0)):
     return NACA4Curve(m=m, p=p, t=t, c=c, center=center)
 
 
-def rectangular_boundary(x_min=-1, x_max=1, y_min=-1, y_max=1):
-    return BoundaryCurveSet2D(
-        LineSegment([x_min, y_min], [x_max, y_min]),
-        LineSegment([x_max, y_min], [x_max, y_max]),
-        LineSegment([x_min, y_max], [x_max, y_max]),
-        LineSegment([x_min, y_min], [x_min, y_max]),
-        closed=True,
-    )
-
-
 def circle_airfoil_boundary(
     radius=1.0, m=0.02, p=0.4, t=0.12, c=1.0, center=(0.0, 0.0)
 ):
@@ -75,29 +65,6 @@ def circle_airfoil_boundary(
     )
 
 
-def GenerateRectangleWithTopSemiEllipseBoundary(
-    length=1.0, height=1.0, semi_minor_axis=0.5
-):
-    """Three straight sides and an upper elliptical arc; lower-left is origin."""
-    if length <= 0 or height <= 0 or semi_minor_axis < 0:
-        raise ValueError(
-            "Require positive rectangle dimensions and nonnegative semi_minor_axis"
-        )
-    top = EllipseArc((length / 2, height), length / 2, semi_minor_axis, np.pi, 0.0)
-    return BoundaryCurveSet2D(
-        LineSegment((0, 0), (length, 0)),
-        LineSegment((length, 0), (length, height)),
-        top,
-        LineSegment((0, 0), (0, height)),
-        metadata={
-            "family": "rect_top_semiellipse",
-            "length": length,
-            "height": height,
-            "semi_minor_axis": semi_minor_axis,
-        },
-    )
-
-
 def EccentricAnnularSectorBoundary(
     outer_radius=0.5, inner_radius=0.1, inner_center_x=0.5
 ):
@@ -129,74 +96,6 @@ def EccentricAnnularSectorBoundary(
             "outer_radius": outer_radius,
             "inner_radius": inner_radius,
             "inner_center_x": inner_center_x,
-        },
-    )
-
-
-def four_convex_semicircle_boundary(chord=1.0, arc_angle_deg=90.0):
-    """Build four outward circular arcs with a common chord and angle."""
-    chord = float(chord)
-    angle = float(arc_angle_deg)
-    if chord <= 0:
-        raise ValueError("chord must be positive")
-    if angle < 90.0 or angle >= 360.0:
-        raise ValueError("arc_angle_deg must satisfy 90 <= angle < 360")
-    theta = np.deg2rad(angle)
-    radius = chord / (2.0 * np.sin(theta / 2.0))
-    offset = radius * np.cos(theta / 2.0)
-
-    def arc(p0, p1, center, direction):
-        a0 = np.arctan2(p0[1] - center[1], p0[0] - center[0])
-        return CircleArc(center, radius, a0, a0 + direction * theta)
-
-    c = chord
-    bottom = arc((0, 0), (c, 0), (c / 2, offset), +1)
-    right = arc((c, 0), (c, c), (c - offset, c / 2), +1)
-    top = arc((0, c), (c, c), (c / 2, c - offset), -1)
-    left = arc((0, 0), (0, c), (offset, c / 2), -1)
-    return BoundaryCurveSet2D(
-        bottom,
-        right,
-        top,
-        left,
-        metadata={
-            "family": "four_convex_arcs",
-            "chord": chord,
-            "arc_angle_deg": angle,
-            "radius": radius,
-        },
-    )
-
-
-def VerticallyAsymmetricConvexTriBoundary(
-    width=1.0, side_length=1.0, protrusion_distance=0.5
-):
-    """Vertical sides and outward/inward isosceles triangular top and bottom."""
-    if (
-        width <= 0
-        or side_length <= 0
-        or side_length + 2 * min(0.0, protrusion_distance) <= 0
-    ):
-        raise ValueError("Triangle boundaries must not overlap")
-    bottom_apex = (width / 2, -protrusion_distance)
-    top_apex = (width / 2, side_length + protrusion_distance)
-    return BoundaryCurveSet2D(
-        PiecewiseCurve(
-            [LineSegment((0, 0), bottom_apex), LineSegment(bottom_apex, (width, 0))]
-        ),
-        LineSegment((width, 0), (width, side_length)),
-        PiecewiseCurve(
-            [
-                LineSegment((0, side_length), top_apex),
-                LineSegment(top_apex, (width, side_length)),
-            ]
-        ),
-        LineSegment((0, 0), (0, side_length)),
-        metadata={
-            "family": "symmetric_convex_tri",
-            "width": width,
-            "side_length": side_length,
-            "protrusion_distance": protrusion_distance,
         },
     )
 
@@ -347,17 +246,118 @@ def gear_spline_boundary(
     )
 
 
+def four_convex_semicircle_boundary(chord=1.0, arc_angle_deg=90.0):
+    """Build four outward circular arcs with a common chord and angle."""
+    chord = float(chord)
+    angle = float(arc_angle_deg)
+    if chord <= 0:
+        raise ValueError("chord must be positive")
+    if angle < 90.0 or angle >= 360.0:
+        raise ValueError("arc_angle_deg must satisfy 90 <= angle < 360")
+    theta = np.deg2rad(angle)
+    radius = chord / (2.0 * np.sin(theta / 2.0))
+    offset = radius * np.cos(theta / 2.0)
+
+    def arc(p0, p1, center, direction):
+        a0 = np.arctan2(p0[1] - center[1], p0[0] - center[0])
+        return CircleArc(center, radius, a0, a0 + direction * theta)
+
+    c = chord
+    bottom = arc((0, 0), (c, 0), (c / 2, offset), +1)
+    right = arc((c, 0), (c, c), (c - offset, c / 2), +1)
+    top = arc((0, c), (c, c), (c / 2, c - offset), -1)
+    left = arc((0, 0), (0, c), (offset, c / 2), -1)
+    return BoundaryCurveSet2D(
+        bottom,
+        right,
+        top,
+        left,
+        metadata={
+            "family": "four_convex_arcs",
+            "chord": chord,
+            "arc_angle_deg": angle,
+            "radius": radius,
+        },
+    )
+
+
+def GenerateRectangleWithTopSemiEllipseBoundary(
+    length=1.0, height=1.0, semi_minor_axis=0.5
+):
+    """Three straight sides and an upper elliptical arc; lower-left is origin."""
+    if length <= 0 or height <= 0 or semi_minor_axis < 0:
+        raise ValueError(
+            "Require positive rectangle dimensions and nonnegative semi_minor_axis"
+        )
+    top = EllipseArc((length / 2, height), length / 2, semi_minor_axis, np.pi, 0.0)
+    return BoundaryCurveSet2D(
+        LineSegment((0, 0), (length, 0)),
+        LineSegment((length, 0), (length, height)),
+        top,
+        LineSegment((0, 0), (0, height)),
+        metadata={
+            "family": "rect_top_semiellipse",
+            "length": length,
+            "height": height,
+            "semi_minor_axis": semi_minor_axis,
+        },
+    )
+
+
+def rectangular_boundary(x_min=-1, x_max=1, y_min=-1, y_max=1):
+    return BoundaryCurveSet2D(
+        LineSegment([x_min, y_min], [x_max, y_min]),
+        LineSegment([x_max, y_min], [x_max, y_max]),
+        LineSegment([x_min, y_max], [x_max, y_max]),
+        LineSegment([x_min, y_min], [x_min, y_max]),
+        closed=True,
+    )
+
+
+def VerticallyAsymmetricConvexTriBoundary(
+    width=1.0, side_length=1.0, protrusion_distance=0.5
+):
+    """Vertical sides and outward/inward isosceles triangular top and bottom."""
+    if (
+        width <= 0
+        or side_length <= 0
+        or side_length + 2 * min(0.0, protrusion_distance) <= 0
+    ):
+        raise ValueError("Triangle boundaries must not overlap")
+    bottom_apex = (width / 2, -protrusion_distance)
+    top_apex = (width / 2, side_length + protrusion_distance)
+    return BoundaryCurveSet2D(
+        PiecewiseCurve(
+            [LineSegment((0, 0), bottom_apex), LineSegment(bottom_apex, (width, 0))]
+        ),
+        LineSegment((width, 0), (width, side_length)),
+        PiecewiseCurve(
+            [
+                LineSegment((0, side_length), top_apex),
+                LineSegment(top_apex, (width, side_length)),
+            ]
+        ),
+        LineSegment((0, 0), (0, side_length)),
+        metadata={
+            "family": "symmetric_convex_tri",
+            "width": width,
+            "side_length": side_length,
+            "protrusion_distance": protrusion_distance,
+        },
+    )
+
+
 BOUNDARY_GENERATORS = {
-    "rectangle": rectangular_boundary,
     "circle_airfoil": circle_airfoil_boundary,
-    "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
     "eccentric_semiannulus": EccentricAnnularSectorBoundary,
-    "four_convex_semicircle": four_convex_semicircle_boundary,
-    "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,
-    "gear_spline": gear_spline_boundary,
     "smooth_constricted_channel": smooth_constricted_channel_boundary,
     "variable_width_s_channel": variable_width_s_channel_boundary,
     "rounded_u_notch": rounded_u_notch_boundary,
+    "gear_spline": gear_spline_boundary,
+    "four_convex_semicircle": four_convex_semicircle_boundary,
+    "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
+    "rectangle": rectangular_boundary,
+    "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,
 }
 
 

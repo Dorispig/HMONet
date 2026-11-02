@@ -1,0 +1,22 @@
+schema_version: 1
+experiment: global200_boundary200
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: global200_boundary200
+    value: 200_uniform_plus_200_boundary_band
+    overrides:
+      - --hmonet-random-loss-sampling-mode
+      - mixed_boundary
+      - --hmonet-random-loss-sample-count
+      - "400"
+      - --hmonet-random-loss-global-sample-count
+      - "200"
+      - --hmonet-random-loss-curvature-sample-count
+      - "0"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "200"
+      - --hmonet-random-loss-boundary-band-min-step-multiple
+      - "1"
+      - --hmonet-random-loss-boundary-band-max-step-multiple
+      - "4"

@@ -8,7 +8,7 @@ import argparse
 import json
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np
-from src.data.dataset import read_dataset_metadata
+from src.data.parametric_dataset import read_dataset_metadata
 from src.data.generation.dataset_quality_2d import audit_grid
 from src.data.generation.dataset_examples import save_dataset_examples
 

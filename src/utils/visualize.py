@@ -22,7 +22,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 # ============================================================
 # Implementation comment.
 # ============================================================
-import src.utils.metrics as metrics
+import src.metrics.quality as metrics
 from src.data.mesh.topology import QuadMeshXY
 
 # ============================================================

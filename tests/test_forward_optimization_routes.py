@@ -13,7 +13,7 @@ from src.data.geometry.parametric_curve_2d import (
     LineSegment,
     NACA4Curve,
 )
-from src.models.inference_optimizations import blend_current_2d, fuse_coordinates
+from src.models.inference_optimizations import fuse_coordinates
 from tests.test_inference_geometry import boundary, small_model
 
 
@@ -40,6 +40,7 @@ class ForwardOptimizationTests(unittest.TestCase):
         for device in (["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]):
             model, shape = small_model(2, "current")
             model = model.to(device=device, dtype=torch.float64).train()
+            weight_parameter = next(model.weight_head.parameters())
             g = boundary(2, 0.3)
             b = torch.as_tensor(
                 sample_boundary(g, shape), device=device, dtype=torch.float64
@@ -58,7 +59,7 @@ class ForwardOptimizationTests(unittest.TestCase):
                     )
                     jac = torch.autograd.grad(out.sum(), q, create_graph=True)[0]
                     loss = out.square().mean() + jac.square().mean()
-                    grad = torch.autograd.grad(loss, model.weight_head.weight)[0]
+                    grad = torch.autograd.grad(loss, weight_parameter)[0]
                 results.append((out, jac, grad))
             for old, new in zip(*results):
                 torch.testing.assert_close(old, new, atol=1e-10, rtol=1e-10)
@@ -128,22 +129,6 @@ class ForwardOptimizationTests(unittest.TestCase):
                     expected = curve(q)
                 actual = curve(q)
             torch.testing.assert_close(actual, expected, atol=2e-14, rtol=2e-14)
-
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
-    def test_corner_override_ignores_nonfinite_raw_values(self):
-        q = torch.tensor(
-            [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], device="cuda"
-        )
-        projected = torch.randn(4, 4, 2, device="cuda")
-        raw = torch.full((4, 2), float("nan"), device="cuda")
-        weight = torch.full((1, 4), 0.6, device="cuda")
-        with torch.inference_mode():
-            actual = blend_current_2d(q[:, 0], q[:, 1], weight, raw, projected)
-        expected = torch.stack(
-            (projected[0, 0], projected[1, 1], projected[2, 0], projected[3, 1])
-        )
-        torch.testing.assert_close(actual, expected, atol=0, rtol=0)
-
 
 if __name__ == "__main__":
     unittest.main()

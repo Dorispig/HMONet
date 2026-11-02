@@ -30,6 +30,7 @@ from src.data.geometry.parametric_geometry_3d import (
     CurveBlendSurface3D,
     ExtrudedCurveSurface3D,
     LineSegment3D,
+    MappedVolumeFace3D,
     ParametricSurface3D,
     PiecewiseSurface3D,
 )
@@ -48,6 +49,8 @@ def _group_key(obj):
         return kind, len(obj.segments)
     if kind is PiecewiseSurface3D:
         return kind, len(obj.surfaces), obj.axis
+    if kind is MappedVolumeFace3D:
+        return kind, obj.mapping, obj.fixed_axis, obj.fixed_value
     return kind
 
 
@@ -492,6 +495,8 @@ def _evaluate_surface_group(surfaces, u, v, prepared=None):
             else _parameters([s.z for s in surfaces], u)
         )[:, None].expand_as(u)
         return torch.cat((xy, z[..., None]), -1)
+    if kind is MappedVolumeFace3D:
+        return MappedVolumeFace3D.evaluate_batch_torch(surfaces, u, v)
     if kind is PiecewiseSurface3D:
         q = u if surfaces[0].axis == "u" else v
         knots = (
@@ -533,5 +538,3 @@ def evaluate_boundary_surfaces_torch(boundaries, xi, eta, zeta):
     v = torch.cat((zeta, zeta, zeta, zeta, eta, eta))
     values = evaluate_surfaces_torch(surfaces, u, v)
     return values.reshape(6, *xi.shape, 3).permute(1, 2, 0, 3)
-
-

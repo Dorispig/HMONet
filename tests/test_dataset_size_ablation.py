@@ -47,8 +47,16 @@ class DatasetSizeAblationTests(unittest.TestCase):
         )
         self.assertEqual(
             [variant["value"] for variant in definition["variants"]],
-            [1000, 800, 500, 250],
+            [800, 500, 250],
         )
+        # The full 1000-sample run is the canonical baseline and must not be
+        # duplicated inside the ablation variants.
+        baseline = yaml.safe_load(
+            (ROOT / "experiments/ex6/baseline/experiment.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(baseline["training"].get("dataset_sample_count", 1000), 1000)
 
     def test_invalid_subset_sizes_are_rejected(self):
         source = _Dataset(10, load_boundary=False)

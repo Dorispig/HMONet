@@ -10,7 +10,7 @@
 # cases.<name>.grid_shape 指定默认网格规模 [nx, ny, nz]；命令行覆盖示例：
 #   --grid-shapes 11x11x11,21x21x21
 # evaluation.methods 可选择 tfi、pde、meshonet、pimeshonet、hmonet 的任意子集。
-# hmonet_mapping_mode 指定内部映射：current、coons_residual 或 both（两者）。
+# hmonet_mapping_mode 指定内部映射：current、coons_residual、corner_corrected；both仍表示前两种。
 # 各模型的 *_boundary_projection 可设为 none、direct 或 inverse_distance。
 # inverse_distance_power 为 IDW 距离权重指数，必须为正数。
 # winslow_* 参数控制 PDE 最大迭代次数和收敛容差。
@@ -77,7 +77,7 @@ evaluation:
   # 网格质量计算总开关；false 时仍保留网格图、网格数据、计时与边界误差。
   # 命令行使用 --no-compute-grid-quality 关闭，使用 --compute-grid-quality 开启。
   compute_grid_quality: true
-  # both 或 all 选择全部已实现指标；none 不选择指标；也可指定列表，如 [min_angle, cell_area]。
+  # both 或 all 选择全部启用指标；none 不选择指标；也可指定列表，如 [min_angle, scaled_jacobian]。
   # 仅对已选中且独立开关为 true 的指标进行计算、数据导出与绘图。
   quality_metrics: both
   # 命令行选择指标示例：--quality-metrics min_angle,scaled_jacobian。
@@ -91,7 +91,6 @@ evaluation:
     skewness: true  # 单元角度偏斜度。
     aspect_ratio: true  # 二维网格或切片的边长纵横比。
     orthogonality: true  # 相邻边的正交性。
-    cell_area: true  # 二维网格或切片的单元面积。
     concave_vertex_count: true  # 四边形单元的凹顶点数量；同时记录含凹顶点的单元比例。
     self_intersection: true  # 单元内部对边自相交指标。
     intersecting_cell: true  # 二维网格计算单元间相交；切片计算单元对边相交。
@@ -105,6 +104,7 @@ evaluation:
     flipped_cell: true  # 体网格翻转单元标记。
   save_plots: true
   save_png: true
+  compact_outputs: true  # 仅保留 results.json 与图片；指纹一致时直接复用汇总结果。
   save_pdf: false
   save_distribution_plots: false
   # 可选局部视图；可通过 cases.<name>.evaluation 为各案例单独设置。

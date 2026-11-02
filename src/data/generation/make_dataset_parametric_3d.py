@@ -11,9 +11,10 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from src.data.geometry.boundary_generator_3d import generate_boundary
-from scripts.tfi.tfi_3d import tfi_from_surfaces
-from scripts.pde.pde_3d import solve_winslow_3d
+from src.numerics.traditional.tfi_3d import tfi_from_surfaces
+from src.numerics.traditional.winslow_3d import solve_winslow_3d
 from src.data.mesh.sampling import sample_boundary
+from src.metrics import evaluate_hexahedral_grid_quality
 from src.data.generation.dataset_naming import (
     build_dataset_name as build_canonical_dataset_name,
     default_version_for_split,
@@ -26,32 +27,70 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = ROOT / "data" / "raw" / "3D"
 
 DATASET_GENERATORS = {
+    "cylindrical_domain_with_airfoil_hole": "cylindrical_domain_with_airfoil_hole",
     "stadium_cylinder_with_circular_hole": "stadium_cylinder_with_circular_hole",
+    "annular_nozzle_diffuser": "annular_nozzle_diffuser",
+    "twisted_elliptic_annulus": "twisted_elliptic_annulus",
+    "bent_annular_duct": "bent_annular_duct",
+    "lobed_annular_duct": "lobed_annular_duct",
 }
 
-# Parameter intervals are identical to the old HMONet project.
+# The first six entries are the paper datasets, in the same order as the
+# boundary generator. Every family has interpolation and extrapolation sets.
 DATASET_FAMILIES = {
+    "cylindrical_domain_with_airfoil_hole": {
+        "output_name": "cah_t", "function": "cylindrical_domain_with_airfoil_hole",
+        "parameter": "thickness",
+        "description": "圆柱外域与贯穿轴向的NACA4翼型孔；变化翼型相对厚度。",
+        "fixed_parameters": {"outer_radius": 1.5, "chord": 1.0, "camber": 0.02, "camber_position": 0.4, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[0.06, 0.15], [0.25, 0.35]], "extrapolation": [[0.08, 0.34]],
+        "evaluation_values": {"interpolation": [0.18, 0.20, 0.22], "extrapolation": [0.06, 0.38]},
+    },
     "stadium_cylinder_with_circular_hole": {
-        "output_name": "sch_r",
-        "function": "stadium_cylinder_with_circular_hole",
+        "output_name": "sch_r", "function": "stadium_cylinder_with_circular_hole",
         "parameter": "hole_radius",
-        "description": (
-            "操场形柱状外域与贯穿轴向的同心圆柱孔；"
-            "变化参数为圆孔半径 hole_radius。"
-        ),
-        "fixed_parameters": {
-            "straight_half_length": 0.8,
-            "stadium_radius": 0.7,
-            "length": 2.5,
-            "z_min": 0.0,
-        },
-        "grid_shape": [11, 11, 11],
-        "interpolation": [[0.12, 0.24], [0.36, 0.48]],
-        "extrapolation": [[0.16, 0.44]],
-        "evaluation_values": {
-            "interpolation": [0.27, 0.30, 0.33],
-            "extrapolation": [0.10, 0.50],
-        },
+        "description": "操场形柱状外域与同心圆柱孔；变化圆孔半径。",
+        "fixed_parameters": {"straight_half_length": 0.8, "stadium_radius": 0.7, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[0.12, 0.24], [0.36, 0.48]], "extrapolation": [[0.16, 0.44]],
+        "evaluation_values": {"interpolation": [0.27, 0.30, 0.33], "extrapolation": [0.10, 0.50]},
+    },
+    "annular_nozzle_diffuser": {
+        "output_name": "and_ro", "function": "annular_nozzle_diffuser",
+        "parameter": "outer_radius_out",
+        "description": "同轴环形喷管/扩压器；变化出口外半径。",
+        "fixed_parameters": {"inner_radius_in": 0.30, "inner_radius_out": 0.35, "outer_radius_in": 1.0, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[1.10, 1.25], [1.40, 1.55]], "extrapolation": [[1.15, 1.50]],
+        "evaluation_values": {"interpolation": [1.30, 1.325, 1.35], "extrapolation": [1.05, 1.60]},
+    },
+    "twisted_elliptic_annulus": {
+        "output_name": "tea_a", "function": "twisted_elliptic_annulus",
+        "parameter": "twist_angle_deg",
+        "description": "同心椭圆环形通道沿轴向共同扭转；变化累计扭转角。",
+        "fixed_parameters": {"inner_a": 0.35, "inner_b": 0.22, "outer_a": 1.10, "outer_b": 0.75, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[10.0, 30.0], [50.0, 70.0]], "extrapolation": [[15.0, 65.0]],
+        "evaluation_values": {"interpolation": [35.0, 40.0, 45.0], "extrapolation": [0.0, 80.0]},
+    },
+    "bent_annular_duct": {
+        "output_name": "bad_a", "function": "bent_annular_duct",
+        "parameter": "bend_angle_deg",
+        "description": "沿圆弧中心线扫掠的环形弯管；变化弯曲角。",
+        "fixed_parameters": {"inner_radius": 0.25, "outer_radius": 0.60, "bend_radius": 3.0, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[20.0, 45.0], [65.0, 90.0]], "extrapolation": [[25.0, 85.0]],
+        "evaluation_values": {"interpolation": [50.0, 55.0, 60.0], "extrapolation": [10.0, 105.0]},
+    },
+    "lobed_annular_duct": {
+        "output_name": "lad_a", "function": "lobed_annular_duct",
+        "parameter": "amplitude",
+        "description": "带轴向相位旋转的星形波瓣环形通道；变化波瓣幅值。",
+        "fixed_parameters": {"inner_radius": 0.35, "outer_radius": 1.0, "lobes": 5, "phase_twist_deg": 45.0, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 31, 11],
+        "interpolation": [[0.02, 0.08], [0.12, 0.18]], "extrapolation": [[0.04, 0.16]],
+        "evaluation_values": {"interpolation": [0.09, 0.10, 0.11], "extrapolation": [0.0, 0.20]},
     },
 }
 
@@ -63,8 +102,18 @@ SPLIT_ALIASES = {
 }
 
 SELECTED_DATASETS = [
+    ("cylindrical_domain_with_airfoil_hole", "interpolation", 0),
+    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 0),
     ("stadium_cylinder_with_circular_hole", "interpolation", 0),
     ("stadium_cylinder_with_circular_hole", "extrapolation", 0),
+    ("annular_nozzle_diffuser", "interpolation", 0),
+    ("annular_nozzle_diffuser", "extrapolation", 0),
+    ("twisted_elliptic_annulus", "interpolation", 0),
+    ("twisted_elliptic_annulus", "extrapolation", 0),
+    ("bent_annular_duct", "interpolation", 0),
+    ("bent_annular_duct", "extrapolation", 0),
+    ("lobed_annular_duct", "interpolation", 0),
+    ("lobed_annular_duct", "extrapolation", 0),
 ]
 
 DEFAULT_GENERATION_OPTIONS = {
@@ -197,6 +246,23 @@ def generate_dataset(
         logical = rng.random((sample_count, 3))
         physical.append(tfi_from_surfaces(g, parameter_grid=logical))
         initial = tfi_from_surfaces(g, xi=nx, eta=ny, zeta=nz)
+        initial_quality = evaluate_hexahedral_grid_quality(
+            initial,
+            metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"],
+        )
+        minimum_tfi_jacobian = float(initial_quality["minimum_scaled_jacobian"].min())
+        invalid_tfi_cells = int(
+            np.logical_or(
+                initial_quality["flipped_cell"] > 0,
+                initial_quality["degenerate_cell"] > 0,
+            ).sum()
+        )
+        if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
+            raise RuntimeError(
+                f"3-D TFI is invalid for sample {sample_index}: "
+                f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, "
+                f"invalid_cells={invalid_tfi_cells}"
+            )
         exact = sample_boundary(g, (nx, ny, nz))
         result, info = solve_winslow_3d(
             g,
@@ -214,6 +280,9 @@ def generate_dataset(
             )
         boundary[-1] = exact
         meshes.append(result.reshape(nz, ny, nx, 3))
+        info = dict(info)
+        info["tfi_minimum_scaled_jacobian"] = minimum_tfi_jacobian
+        info["tfi_invalid_cells"] = invalid_tfi_cells
         diagnostics.append(info)
         elapsed = time.perf_counter() - started
         if sample_index < timing_samples:
@@ -351,11 +420,28 @@ def generate_family_dataset(
     )
 
 
+def generate_cylindrical_domain_with_airfoil_hole_dataset(split, **kwargs):
+    return generate_family_dataset("cylindrical_domain_with_airfoil_hole", split, **kwargs)
+
+
 def generate_stadium_cylinder_with_circular_hole_dataset(split, **kwargs):
-    """Generate the registered sch_r interpolation or extrapolation set."""
-    return generate_family_dataset(
-        "stadium_cylinder_with_circular_hole", split, **kwargs
-    )
+    return generate_family_dataset("stadium_cylinder_with_circular_hole", split, **kwargs)
+
+
+def generate_annular_nozzle_diffuser_dataset(split, **kwargs):
+    return generate_family_dataset("annular_nozzle_diffuser", split, **kwargs)
+
+
+def generate_twisted_elliptic_annulus_dataset(split, **kwargs):
+    return generate_family_dataset("twisted_elliptic_annulus", split, **kwargs)
+
+
+def generate_bent_annular_duct_dataset(split, **kwargs):
+    return generate_family_dataset("bent_annular_duct", split, **kwargs)
+
+
+def generate_lobed_annular_duct_dataset(split, **kwargs):
+    return generate_family_dataset("lobed_annular_duct", split, **kwargs)
 
 
 def generate_selected_datasets(selected=None, **kwargs):

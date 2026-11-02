@@ -135,6 +135,50 @@ class DatasetSelectionTests(unittest.TestCase):
                 dataset.mesh_points[..., 0].max(axis=1), [1.0, 1.2, 1.4, 1.6]
             )
 
+    def test_single_dataset_cli_overrides_name_grid_size_version_and_ranges(self):
+        with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(
+            io.StringIO()
+        ):
+            output = generator.main(
+                [
+                    "--family",
+                    "air_t",
+                    "--split",
+                    "ext",
+                    "--version",
+                    "1",
+                    "--size",
+                    "4",
+                    "--grid-shape",
+                    "9x7",
+                    "--parameter-range",
+                    "0.10",
+                    "0.20",
+                    "--timing-samples",
+                    "0",
+                    "--output-dir",
+                    temporary,
+                ]
+            )
+            self.assertEqual(output.name, "air_t_ext_1_4_9_7")
+            metadata = read_dataset_metadata(output)
+            self.assertEqual(metadata["parameter_intervals"], [[0.1, 0.2]])
+            self.assertEqual(
+                metadata["parameter_intervals_source"], "command_override"
+            )
+            self.assertEqual(
+                [
+                    item["parameter_value"]
+                    for item in metadata["extreme_grid_legality_checks"]
+                ],
+                [0.1, 0.2],
+            )
+            self.assertIn("all_extreme_grids_legal", metadata)
+
+    def test_parameter_range_requires_single_family_mode(self):
+        with self.assertRaises(SystemExit):
+            generator.main(["--parameter-range", "0.1", "0.2"])
+
     def test_cli_generates_both_selected_pde_datasets(self):
         generate = generator.generate_selected_datasets
         with tempfile.TemporaryDirectory() as temporary:

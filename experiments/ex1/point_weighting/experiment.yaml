@@ -4,9 +4,6 @@ experiment: point_weighting
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml
 variants:
-- name: position_weighted
-  value: position
-  overrides: []
 - name: uniform_weight
   value: uniform
   overrides:

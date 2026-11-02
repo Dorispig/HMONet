@@ -3,7 +3,8 @@
 Example:
   python scripts/experiments/run_baseline_2d.py --dataset air_t_int_0_1000_21_20 --dataset air_t_ext_0_1000_21_20 --seeds 20260802 20260917 20261031
 
-The training summaries and checkpoints are written below experiments/<experiment-set>/baseline/.
+Training summaries, checkpoints, and baseline evaluation results are written
+below experiments/<experiment-set>/baseline/.
 Ablation scripts do not require this command first. All parameter variants search
 the complete experiments tree by training and evaluation fingerprints.
 """
@@ -32,6 +33,12 @@ def build_parser():
         metavar="NXxNY",
     )
     parser.add_argument("--evaluation-values", nargs="+", type=float)
+    parser.add_argument(
+        "--evaluation-plots",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate evaluation figures (default: enabled).",
+    )
     parser.add_argument("--experiment-set", default=run_ablation_2d.DEFAULT_EXPERIMENT_SET)
     parser.add_argument("--config", type=Path)
     parser.add_argument(
@@ -61,8 +68,7 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if not __import__("re").fullmatch(r"ex[1-9][0-9]*", args.experiment_set):
-        raise ValueError("--experiment-set must use the form ex1, ex2, ...")
+    run_ablation_2d.validate_experiment_set_name(args.experiment_set)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()
@@ -92,6 +98,8 @@ def main(argv=None):
         ]
     if args.evaluation_values:
         command += ["--evaluation-values", *map(str, args.evaluation_values)]
+    if not args.evaluation_plots:
+        command.append("--no-evaluation-plots")
     if args.device:
         command += ["--device", args.device]
     if args.dry_run:

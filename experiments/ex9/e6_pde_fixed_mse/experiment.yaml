@@ -1,0 +1,38 @@
+# 实验6：第一阶段MSE+Jacobian；第二阶段从最佳模型进行受控PDE微调。
+schema_version: 1
+experiment: e6_pde_fixed_mse
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e6_pde_fixed_mse
+    value: mse_jac_then_pde_fixed_mse
+    overrides:
+      - --hmonet-training-strategy
+      - random_mse_jac_then_pde_fixed_mse
+      - --hmonet-phase1-max-epochs
+      - "5000"
+      - --hmonet-phase2-max-epochs
+      - "45000"
+      - --hmonet-physics-pde-loss-weight
+      - "0"
+      - --hmonet-physics-interior-sample-count
+      - "400"
+      - --hmonet-fixed-mse-sample-count
+      - "400"
+      - --hmonet-fixed-mse-loss-weight
+      - "1"
+      - --hmonet-physics-jacobian-enabled
+      - --hmonet-save-phase-best-checkpoints
+      - --hmonet-finetune-pde-gradient-ratio
+      - "0.1"
+      - --hmonet-finetune-pde-ramp-epochs
+      - "1000"
+      - --hmonet-finetune-lr-scale
+      - "0.1"
+      - --hmonet-finetune-teacher-anchor-weight
+      - "1"
+      - --hmonet-finetune-pde-weight-cap
+      - "0.000001"
+      - --no-hmonet-reset-optimizer-on-phase-transition
+      - --lr
+      - "0.0004"

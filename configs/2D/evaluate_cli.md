@@ -113,7 +113,7 @@ python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.
 - `--hmonet-checkpoint "<HMONet checkpoint文件路径>"`：指定 HMONet 权重，覆盖 evaluation.hmonet_checkpoint。
 - `--meshonet-checkpoint "<MeshONet checkpoint文件路径>"`：指定 MeshONet 权重，覆盖 evaluation.meshonet_checkpoint。
 - `--checkpoint "<checkpoint文件路径>"`：给唯一选中的网络指定权重；可同时选择 TFI/PDE，但不能同时选择两个网络。
-- `--hmonet-mapping-mode current`：覆盖 evaluation.hmonet_mapping_mode；可选 current、coons_residual、coons、both。
+- `--hmonet-mapping-mode current`：覆盖 evaluation.hmonet_mapping_mode；可选 current、coons_residual、corner_corrected、coons、both。
 
 映射说明：coons 是 coons_residual 的别名；both 分别使用匹配的 current/coons_residual checkpoint 评估并输出。
 
@@ -170,8 +170,6 @@ python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.
 - `--no-quality-aspect-ratio`：设置 evaluation.quality_switches.aspect_ratio=false，关闭边长长宽比指标。
 - `--quality-orthogonality`：设置 evaluation.quality_switches.orthogonality=true，开启正交性指标。
 - `--no-quality-orthogonality`：设置 evaluation.quality_switches.orthogonality=false，关闭正交性指标。
-- `--quality-cell-area`：设置 evaluation.quality_switches.cell_area=true，开启单元面积指标。
-- `--no-quality-cell-area`：设置 evaluation.quality_switches.cell_area=false，关闭单元面积指标。
 
 计算说明：未选指标不单独计算/保存/绘图，但其他已选指标定义所必需的共享几何计算仍保留。
 
@@ -184,6 +182,8 @@ python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.
 - `--save-plots`：设置 evaluation.save_plots=true，开启总绘图开关；具体格式仍由 save_png/save_pdf 控制。
 - `--no-save-plots`：设置 evaluation.save_plots=false，不保存图片；所选质量的数值计算和文件输出仍执行。
 - `--no-plots`：与 --no-save-plots 相同，是关闭总绘图开关的简写。
+- `--compact-outputs`：默认开启。每个正式评估案例只保留 `results.json` 和图片，删除逐点/逐单元表格、网格数组与分析缓存；相同评估指纹后续直接复用 `results.json`。
+- `--no-compact-outputs`：保留网格数组、逐单元数据和分析缓存，仅用于调试或需要二次分析的临时运行。
 - `--save-png`：设置 evaluation.save_png=true，输出 PNG 图片。
 - `--no-save-png`：设置 evaluation.save_png=false，不输出 PNG 图片。
 - `--save-pdf`：设置 evaluation.save_pdf=true，输出 PDF 图片。

@@ -45,6 +45,7 @@ class EvaluationPipelineTests(unittest.TestCase):
                 "output_root": str(self.root / "results"),
                 "device": "cpu",
                 "save_plots": False,
+                "compact_outputs": False,
                 "inference_warmup_runs": 0,
                 "inference_timing_repeats": 1,
                 "query_batch_size": 7,
@@ -143,7 +144,7 @@ class EvaluationPipelineTests(unittest.TestCase):
                 first = self.run_evaluation(dim, config)[0]
                 self.assertEqual(first["method_order"], ["TFI", "PDE_Winslow"])
                 group = Path(first["comparison_directory"])
-                self.assertEqual(group.name, "01_tfi_pde")
+                self.assertEqual(group.name, "tfi_pde")
                 with np.load(group / "comparison_mesh_data.npz") as meshes:
                     self.assertEqual(meshes.files, ["TFI", "PDE_Winslow"])
                     np.testing.assert_allclose(
@@ -245,7 +246,7 @@ class EvaluationPipelineTests(unittest.TestCase):
             record = self.run_evaluation(2, config)[0]
         self.assertEqual(record["method_order"], ["TFI"])
         self.assertEqual(record["skipped_methods"][0]["method"], "MeshONet")
-        self.assertEqual(Path(record["comparison_directory"]).name, "01_tfi")
+        self.assertEqual(Path(record["comparison_directory"]).name, "tfi")
 
     def test_pde_failure_never_becomes_a_tfi_mesh(self):
         config = self.configuration(2, ["pde"])
@@ -275,6 +276,22 @@ class EvaluationPipelineTests(unittest.TestCase):
             self.assertEqual(solver.call_count, 1)
             self.run_evaluation(2, config, "--winslow-tolerance", "1e-7", "--force")
             self.assertEqual(solver.call_count, 2)
+
+    def test_compact_outputs_reuse_top_level_summary(self):
+        config = self.configuration(2, ["tfi"], compact_outputs=True)
+        first = self.run_evaluation(2, config)[0]
+        result_file = next((self.root / "results").rglob("results.json"))
+        retained = [path for path in result_file.parent.rglob("*") if path.is_file()]
+        self.assertEqual(retained, [result_file])
+        self.assertIn("evaluation_fingerprint", first)
+        with patch(
+            "scripts.evaluate.evaluation_common.generate",
+            side_effect=AssertionError("matching compact summary must skip generation"),
+        ):
+            second = self.run_evaluation(2, config)[0]
+        self.assertEqual(
+            first["evaluation_fingerprint"], second["evaluation_fingerprint"]
+        )
 
     def test_coons_checkpoint_and_local_worst_without_plots(self):
         for dim in (2, 3):

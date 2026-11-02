@@ -20,20 +20,57 @@ from scripts.experiments import run_ablation_2d
 ALL_ABLATIONS = run_ablation_2d.ABLATIONS
 
 
-def resolve_ablations(values: list[str]) -> list[str]:
-    """Expand ``all`` and reject unknown or duplicate experiment names."""
+def resolve_ablations(
+    values: list[str], available: tuple[str, ...] | list[str] | None = None
+) -> list[str]:
+    """Resolve experiments while allowing one explicit canonical baseline run."""
+    experiments = list(available if available is not None else ALL_ABLATIONS)
     if not values:
-        return list(ALL_ABLATIONS)
-    if "all" in values:
-        if len(values) != 1:
-            raise ValueError("Use 'all' alone or list individual ablations")
-        return list(ALL_ABLATIONS)
-    unknown = [value for value in values if value not in ALL_ABLATIONS]
-    if unknown:
-        raise ValueError(f"Unknown ablations: {', '.join(unknown)}")
+        return experiments
     if len(set(values)) != len(values):
         raise ValueError("Ablation names must not contain duplicates")
-    return values
+    include_baseline = run_ablation_2d.BASELINE_ABLATION in values
+    if "all" in values:
+        allowed = {"all", run_ablation_2d.BASELINE_ABLATION}
+        invalid = [value for value in values if value not in allowed]
+        if invalid:
+            raise ValueError(
+                "Use 'all' alone, 'baseline all', or list individual experiments"
+            )
+        return (
+            [run_ablation_2d.BASELINE_ABLATION] if include_baseline else []
+        ) + experiments
+    unknown = [
+        value
+        for value in values
+        if value != run_ablation_2d.BASELINE_ABLATION and value not in experiments
+    ]
+    if unknown:
+        raise ValueError(f"Unknown ablations: {', '.join(unknown)}")
+    selected_experiments = [
+        value for value in values if value != run_ablation_2d.BASELINE_ABLATION
+    ]
+    return (
+        [run_ablation_2d.BASELINE_ABLATION] if include_baseline else []
+    ) + selected_experiments
+
+
+def _shared_declared_config(
+    experiment_root: Path, ablations: list[str], key: str
+) -> Path | None:
+    """Resolve one shared config declared consistently by selected experiments."""
+    declared = []
+    for ablation in ablations:
+        definition = experiment_root / ablation / "experiment.yaml"
+        value = run_ablation_2d.declared_config_path(definition, key)
+        if value is not None and value not in declared:
+            declared.append(value)
+    if len(declared) > 1:
+        rendered = ", ".join(str(path) for path in declared)
+        raise ValueError(
+            f"Selected ablations declare different {key} files: {rendered}"
+        )
+    return declared[0] if declared else None
 
 
 def build_parser():
@@ -43,7 +80,8 @@ def build_parser():
         nargs="+",
         default=["all"],
         help=(
-            "Experiments to run, or 'all'. Available: "
+            "Experiments to run, 'all', or an explicit 'baseline' followed by "
+            "one or more experiments/'all'. Available experiments: "
             + ", ".join(ALL_ABLATIONS)
         ),
     )
@@ -61,6 +99,12 @@ def build_parser():
         metavar="NXxNY",
     )
     parser.add_argument("--evaluation-values", nargs="+", type=float)
+    parser.add_argument(
+        "--evaluation-plots",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate evaluation figures (default: enabled).",
+    )
     parser.add_argument("--experiment-set", default=run_ablation_2d.DEFAULT_EXPERIMENT_SET)
     parser.add_argument("--config", type=Path)
     parser.add_argument(
@@ -115,6 +159,8 @@ def _forward_common_arguments(args, ablation: str) -> list[str]:
         ]
     if getattr(args, "evaluation_values", None):
         command += ["--evaluation-values", *map(str, args.evaluation_values)]
+    if not getattr(args, "evaluation_plots", True):
+        command.append("--no-evaluation-plots")
     if args.device:
         command += ["--device", args.device]
     for flag in (
@@ -140,29 +186,43 @@ def _write_batch_summary(args, summary):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if not __import__("re").fullmatch(r"ex[1-9][0-9]*", args.experiment_set):
-        raise ValueError("--experiment-set must use the form ex1, ex2, ...")
+    run_ablation_2d.validate_experiment_set_name(args.experiment_set)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()
-    args.baseline_config = (args.baseline_config or suite_root / "baseline/experiment.yaml").resolve()
-    args.evaluate_config = (args.evaluate_config or suite_root / "baseline/evaluate.yaml").resolve()
     if args.train_only and args.evaluate_only:
         raise ValueError("--train-only and --evaluate-only are mutually exclusive")
     available = tuple(
         path.name
         for path in sorted(args.experiment_root.iterdir())
-        if path.is_dir() and (path / "experiment.yaml").is_file()
+        if (
+            path.is_dir()
+            and path.name != run_ablation_2d.BASELINE_ABLATION
+            and (path / "experiment.yaml").is_file()
+        )
     )
-    if args.ablations == ["all"]:
-        selected = list(available)
-    else:
-        unknown = [name for name in args.ablations if name not in available]
-        if unknown:
-            raise ValueError(
-                f"Ablations not defined in {args.experiment_set}: {', '.join(unknown)}"
-            )
-        selected = list(args.ablations)
+    selected = resolve_ablations(args.ablations, available)
+    if (
+        run_ablation_2d.BASELINE_ABLATION in selected
+        and not (suite_root / "baseline/experiment.yaml").is_file()
+    ):
+        raise FileNotFoundError(
+            f"Baseline configuration not found: {suite_root / 'baseline/experiment.yaml'}"
+        )
+    args.baseline_config = (
+        args.baseline_config
+        or _shared_declared_config(
+            args.experiment_root, selected, "baseline_config"
+        )
+        or suite_root / "baseline/experiment.yaml"
+    ).resolve()
+    args.evaluate_config = (
+        args.evaluate_config
+        or _shared_declared_config(
+            args.experiment_root, selected, "evaluation_config"
+        )
+        or suite_root / "baseline/evaluate.yaml"
+    ).resolve()
     started = datetime.now()
     records = []
     failures = []

@@ -1,0 +1,18 @@
+schema_version: 1
+experiment: global200_adaptive200
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: global200_adaptive200
+    value: 200_uniform_plus_200_curvature_adaptive
+    overrides:
+      - --hmonet-random-loss-sampling-mode
+      - mixed_boundary
+      - --hmonet-random-loss-sample-count
+      - "400"
+      - --hmonet-random-loss-global-sample-count
+      - "200"
+      - --hmonet-random-loss-curvature-sample-count
+      - "200"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "0"

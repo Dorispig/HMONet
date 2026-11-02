@@ -69,7 +69,6 @@ QUALITY_SPECS = (
     ("Aspect ratio ↓", "aspect_ratio", "down"),
     ("Orthogonality ↑", "orthogonality", "up"),
     ("边界层正交性 ↑", "boundary_layer_orthogonality", "up"),
-    ("Cell area ↑", "cell_area", "up"),
 )
 COUNT_SPECS = (
     ("单元自身相交", "self_intersection", "affected_cell_fraction"),

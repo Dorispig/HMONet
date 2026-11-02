@@ -18,11 +18,11 @@ import numpy as np
 import torch
 import yaml
 
-from scripts.train.attention_pihmonet_common import build_boundary_inputs, predict_attention
-from src.data.dataset import ParametricDataset2D, ParametricDataset3D
+from src.engine.attention import build_boundary_inputs, predict_attention
+from src.data.parametric_dataset import ParametricDataset2D, ParametricDataset3D
 from src.data.mesh.sampling import boundary_indices, sample_boundary
 from src.evaluation.analysis import save_method
-from src.models.model import AttentionHMONet2D, AttentionHMONet3D
+from src.models import AttentionHMONet2D, AttentionHMONet3D
 
 
 ROOT = Path(__file__).resolve().parents[2]

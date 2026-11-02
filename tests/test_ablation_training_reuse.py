@@ -265,7 +265,7 @@ class AblationTrainingReuseTests(unittest.TestCase):
             )
             target = (
                 root
-                / "eval/dataset/base/7/paper/51x51/0.5"
+                / "baseline/dataset/evaluation/7/paper/51x51/0.5"
             )
             target.mkdir(parents=True)
             sentinel = target / "keep.txt"

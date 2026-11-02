@@ -56,6 +56,7 @@ DEFAULTS = dict(
     save_png=True,
     save_pdf=False,
     save_distribution_plots=False,
+    compact_outputs=True,
     skip_missing_checkpoints=True,
     force_regenerate=False,
     force_reanalyze=False,
@@ -165,7 +166,7 @@ def build_parser(dimension):
     )
     parser.add_argument("--curve-kernel-backend", choices=["auto", "torch"])
     parser.add_argument(
-        "--hmonet-mapping-mode", choices=["current", "coons", "coons_residual", "both"]
+        "--hmonet-mapping-mode", choices=["current", "coons", "coons_residual", "corner_corrected", "both"]
     )
     for model in ("hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"):
         parser.add_argument(
@@ -192,6 +193,7 @@ def build_parser(dimension):
         "save-png",
         "save-pdf",
         "save-distribution-plots",
+        "compact-outputs",
         "skip-missing-checkpoints",
         "require-pde-convergence",
         "reuse-generated-results",
@@ -317,7 +319,8 @@ def evaluation_options(config, case, args):
     ):
         if result[key] == "coons":
             result[key] = "coons_residual"
-        if result[key] not in ("current", "coons_residual", "both"):
+        allowed = ("current", "coons_residual", "corner_corrected", "both") if key == "hmonet_mapping_mode" else ("current", "coons_residual", "both")
+        if result[key] not in allowed:
             raise ValueError(f"Invalid {key}: {result[key]}")
     for key in (
         "hmonet_boundary_projection",
@@ -397,7 +400,7 @@ def create_geometry(dimension, case, value):
 def jobs(dimension, args, config):
     """Yield independently evaluated physical objects, without reading training meshes."""
     if args.dataset:
-        from src.data.dataset import (
+        from src.data.parametric_dataset import (
             read_dataset_metadata,
             read_sample_parameters,
             load_paired_records,

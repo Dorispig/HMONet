@@ -36,7 +36,186 @@ from src.evaluation.analysis import (
     save_point_errors,
 )
 from src.evaluation.local_views import run_local_views
+from src.evaluation.retention import compact_evaluation_directory
 from src.utils.quality_selection import quality_settings
+from src.utils.paths import resolve_project_path
+
+
+EVALUATION_FINGERPRINT_SCHEMA_VERSION = 1
+_CHECKPOINT_DIGEST_CACHE = {}
+_FINGERPRINT_OPTION_EXCLUSIONS = {
+    "output_root",
+    "save_plots",
+    "save_png",
+    "save_pdf",
+    "save_distribution_plots",
+    "compact_outputs",
+    "reuse_generated_results",
+    "reuse_analysis_results",
+    "force_regenerate",
+    "force_reanalyze",
+    "analysis_only",
+    "zoom_views",
+    "local",
+    "xlim",
+    "ylim",
+    "zlim",
+    "metric",
+    "center_on",
+    "cell_padding",
+    "zoom_mode",
+    "slice",
+    "checkpoint",
+    "hmonet_checkpoint",
+    "meshonet_checkpoint",
+    "pimeshonet_checkpoint",
+    "pihmonet_checkpoint",
+    "attentionpihmonet_checkpoint",
+}
+
+
+def _checkpoint_digest(path):
+    """Hash a checkpoint once per path/size/mtime combination."""
+    path = resolve_project_path(path)
+    stat = path.stat()
+    key = (str(path), stat.st_size, stat.st_mtime_ns)
+    if key not in _CHECKPOINT_DIGEST_CACHE:
+        _CHECKPOINT_DIGEST_CACHE[key] = file_digest(path)
+    return _CHECKPOINT_DIGEST_CACHE[key]
+
+
+def _fingerprint_options(options):
+    return {
+        key: value
+        for key, value in options.items()
+        if key not in _FINGERPRINT_OPTION_EXCLUSIONS
+    }
+
+
+def evaluation_identity(
+    name,
+    case,
+    tag,
+    shape,
+    parameters,
+    options,
+    mapping,
+    checkpoints,
+    skipped,
+):
+    """Describe every numerical input needed to reuse a compact summary."""
+    return {
+        "schema_version": EVALUATION_FINGERPRINT_SCHEMA_VERSION,
+        "case": name,
+        "split": case.get("split"),
+        "parameter": case.get("parameter"),
+        "value": parameters.get(case.get("parameter"), tag),
+        "parameters": parameters,
+        "grid_shape": list(shape),
+        "requested_methods": list(options["methods"]),
+        "skipped_methods": skipped,
+        "hmonet_mapping_mode": mapping,
+        "pihmonet_mapping_mode": options["pihmonet_mapping_mode"],
+        "attentionpihmonet_mapping_mode": options[
+            "attentionpihmonet_mapping_mode"
+        ],
+        "checkpoint_sha256": {
+            method: _checkpoint_digest(path) for method, path in checkpoints.items()
+        },
+        "quality_revision": "endpoint-contact-v2",
+        "evaluation": _fingerprint_options(options),
+    }
+
+
+def evaluation_identity_from_record(record, options):
+    """Build the same identity for a pre-compaction legacy result."""
+    checkpoint_sha256 = {}
+    for method, path in (record.get("checkpoints") or {}).items():
+        timing = (record.get("timings") or {}).get(method, {})
+        checksum = timing.get("checkpoint_sha256")
+        if checksum:
+            checkpoint_sha256[method] = checksum
+            continue
+        try:
+            checkpoint_sha256[method] = _checkpoint_digest(path)
+        except (OSError, TypeError):
+            checkpoint_sha256[method] = str(path)
+    return {
+        "schema_version": EVALUATION_FINGERPRINT_SCHEMA_VERSION,
+        "case": record.get("case"),
+        "split": record.get("split"),
+        "parameter": record.get("parameter"),
+        "value": record.get("value"),
+        "parameters": record.get("parameters"),
+        "grid_shape": record.get("grid_shape"),
+        "requested_methods": record.get("requested_methods"),
+        "skipped_methods": record.get("skipped_methods", []),
+        "hmonet_mapping_mode": record.get("hmonet_mapping_mode", "current"),
+        "pihmonet_mapping_mode": record.get("pihmonet_mapping_mode", "current"),
+        "attentionpihmonet_mapping_mode": record.get(
+            "attentionpihmonet_mapping_mode", "current"
+        ),
+        "checkpoint_sha256": checkpoint_sha256,
+        "quality_revision": "endpoint-contact-v2",
+        "evaluation": _fingerprint_options(options),
+    }
+
+
+def _reusable_compact_record(root, fingerprint, options, *, announce=True):
+    """Return a matching top-level summary without requiring deleted caches."""
+    if (
+        not options.get("compact_outputs", True)
+        or not options.get("reuse_generated_results", True)
+        or not options.get("reuse_analysis_results", True)
+        or options.get("force_regenerate")
+        or options.get("force_reanalyze")
+        or options.get("generation_only")
+    ):
+        return None
+    record = read_json(Path(root) / "results.json")
+    if not record or record.get("evaluation_fingerprint") != fingerprint:
+        return None
+    if announce:
+        print(f"  reuse compact evaluation summary {root}", flush=True)
+    return record
+
+
+def _resolve_checkpoints(name, case, mapping, options, dimension):
+    checkpoints = {}
+    skipped = []
+    selected = list(options["methods"])
+    model_methods = {
+        "HMONet",
+        "MeshONet",
+        "PI-MeshONet",
+        "PI-HMONet",
+        "Attention-PI-HMONet",
+    }
+    for method in selected:
+        if method not in model_methods:
+            continue
+        path = find_checkpoint(
+            dimension,
+            name,
+            method,
+            selected_mapping(method, mapping, options),
+            options,
+            case.get("split"),
+        )
+        if path is None:
+            if not options["skip_missing_checkpoints"]:
+                raise FileNotFoundError(
+                    f"No matching {method}/{mapping} checkpoint for {name}"
+                )
+            skipped.append(
+                {"method": method, "reason": "matching checkpoint not found"}
+            )
+        else:
+            checkpoints[method] = path
+    selected = [m for m in selected if not any(s["method"] == m for s in skipped)]
+    if not selected:
+        raise RuntimeError("None of the requested methods is available")
+    return checkpoints, skipped, selected
 
 
 def selected_mapping(method, mapping, options):
@@ -96,15 +275,34 @@ def method_directory(root, method, mapping, projection=None):
 
 
 def comparison_directory(root, mapping, options, names):
+    """Return one flat comparison path for the selected method combination.
+
+    The innermost directory already records every compared method. Therefore
+    default PI-MeshONet postprocessing does not need another directory level.
+    Non-default PI postprocessing is appended to the existing projection
+    directory so distinct configurations still cannot overwrite each other.
+    """
     tags = {"inverse_distance": "idw", "direct": "direct", "none": "none"}
     parent = root / "comparisons"
+    pimeshonet_projection = tags[options["pimeshonet_boundary_projection"]]
     if "HMONet" in names:
         parent /= mapping
-        parent /= f"hmonet_{tags[options['hmonet_boundary_projection']]}__meshonet_{tags[options['meshonet_boundary_projection']]}"
+        projection_group = (
+            f"hmonet_{tags[options['hmonet_boundary_projection']]}"
+            f"__meshonet_{tags[options['meshonet_boundary_projection']]}"
+        )
+        if "PI-MeshONet" in names and pimeshonet_projection != "none":
+            projection_group += f"__pimeshonet_{pimeshonet_projection}"
+        parent /= projection_group
     elif "MeshONet" in names:
-        parent /= f"meshonet_{tags[options['meshonet_boundary_projection']]}"
-    if "PI-MeshONet" in names:
-        parent /= f"pimeshonet_{tags[options['pimeshonet_boundary_projection']]}"
+        projection_group = (
+            f"meshonet_{tags[options['meshonet_boundary_projection']]}"
+        )
+        if "PI-MeshONet" in names and pimeshonet_projection != "none":
+            projection_group += f"__pimeshonet_{pimeshonet_projection}"
+        parent /= projection_group
+    elif "PI-MeshONet" in names:
+        parent /= f"pimeshonet_{pimeshonet_projection}"
     if "PI-HMONet" in names:
         parent /= "pihmonet_" + options["pihmonet_mapping_mode"]
         parent /= f"pihmonet_{tags[options['pihmonet_boundary_projection']]}"
@@ -122,7 +320,7 @@ def comparison_directory(root, mapping, options, names):
         "HMONet": "hmonet",
         "HMONet_PDE_refined": "hmonet_pde_refined",
     }
-    return parent / ("01_" + "_".join(slugs[name] for name in names))
+    return parent / "_".join(slugs[name] for name in names)
 
 
 def analyze_method(
@@ -263,37 +461,31 @@ def evaluate_object(
     root.mkdir(parents=True, exist_ok=True)
     exact = sample_boundary(geometry, shape)
     ids = boundary_indices(shape)
-    selected = list(options["methods"])
-    checkpoints = {}
-    skipped = []
-    for method in selected:
-        if method not in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"):
-            continue
-        path = find_checkpoint(
-            dimension,
-            name,
-            method,
-            selected_mapping(method, mapping, options),
-            options,
-            case.get("split"),
+    checkpoints, skipped, selected = _resolve_checkpoints(
+        name, case, mapping, options, dimension
+    )
+    for item in skipped:
+        print(
+            f"  skip {item['method']}: no matching checkpoint for {name}/{mapping}",
+            flush=True,
         )
-        if path is None:
-            if not options["skip_missing_checkpoints"]:
-                raise FileNotFoundError(
-                    f"No matching {method}/{mapping} checkpoint for {name}"
-                )
-            skipped.append(
-                {"method": method, "reason": "matching checkpoint not found"}
-            )
-            print(
-                f"  skip {method}: no matching checkpoint for {name}/{mapping}",
-                flush=True,
-            )
-        else:
-            checkpoints[method] = path
-    selected = [m for m in selected if not any(s["method"] == m for s in skipped)]
-    if not selected:
-        raise RuntimeError("None of the requested methods is available")
+    identity = evaluation_identity(
+        name,
+        case,
+        tag,
+        shape,
+        parameters,
+        options,
+        mapping,
+        checkpoints,
+        skipped,
+    )
+    evaluation_fingerprint = digest(identity)
+    reused_record = _reusable_compact_record(
+        root, evaluation_fingerprint, options
+    )
+    if reused_record is not None:
+        return reused_record
     meshes, raw_meshes, timings, signatures, directories = {}, {}, {}, {}, {}
     identical_raw_analyses = {}
     error_records = []
@@ -478,6 +670,10 @@ def evaluate_object(
     if dimension == 3:
         metadata["nz"] = shape[2]
     comparison = comparison_directory(root, mapping, options, list(meshes))
+    # Keep the recorded artifact directory valid even when plots are disabled;
+    # compact JSON/CSV summaries and manifests still belong to this group.
+    if not options["generation_only"]:
+        comparison.mkdir(parents=True, exist_ok=True)
     if options["generation_only"]:
         for method, points in meshes.items():
             directories[method].mkdir(parents=True, exist_ok=True)
@@ -575,6 +771,8 @@ def evaluate_object(
         ),
         "generation_only": options["generation_only"],
         "evaluation_seconds": time.perf_counter() - started,
+        "evaluation_identity": identity,
+        "evaluation_fingerprint": evaluation_fingerprint,
     }
     write_json(root / "evaluation_parameters.json", {**metadata, "evaluation": options})
     write_json(
@@ -602,6 +800,8 @@ def evaluate_object(
     write_json(
         root / "generation_metadata.json", {"signatures": signatures, **metadata}
     )
+    if options.get("compact_outputs", True) and not options["generation_only"]:
+        compact_evaluation_directory(root)
     print(f"results={root}", flush=True)
     return record
 
@@ -623,6 +823,29 @@ def run_evaluation(dimension, args, config):
             output /= f"{dimension}D"
         root = output / name / "x".join(map(str, shape)) / tag
         for mapping, options in mappings:
+            if options.get("compact_outputs", True):
+                try:
+                    checkpoints, skipped, _ = _resolve_checkpoints(
+                        name, case, mapping, options, dimension
+                    )
+                    identity = evaluation_identity(
+                        name,
+                        case,
+                        tag,
+                        shape,
+                        parameters,
+                        options,
+                        mapping,
+                        checkpoints,
+                        skipped,
+                    )
+                    if _reusable_compact_record(
+                        root, digest(identity), options, announce=False
+                    ) is not None:
+                        continue
+                except Exception:
+                    # evaluate_object retains the normal diagnostics and error policy.
+                    pass
             for method in options["methods"]:
                 if method not in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"):
                     continue

@@ -10,6 +10,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from . import modules
+
 from .modules import MLP
 
 __all__ = ["ModifiedMLP", "PIMeshONet2D", "PIMeshONet3D"]
@@ -62,6 +64,8 @@ class _PIMeshONet(nn.Module):
         branch_hidden_layer_num=4,
         trunk_hidden_layer_num=4,
         output_dim=64,
+        coordinate_lift_mode="legacy",
+        coordinate_lift_max_power=1,
         **_,
     ):
         super().__init__()
@@ -71,14 +75,28 @@ class _PIMeshONet(nn.Module):
             raise ValueError("PI-MeshONet supports only 2-D and 3-D mappings")
         if min(self.declared_grid_shape) < 2:
             raise ValueError("Every grid axis must contain at least two points")
+        self.coordinate_lift_mode = modules.normalize_coordinate_lift_mode(
+            coordinate_lift_mode
+        )
+        self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.configured_trunk_dim = int(trunk_dim)
         minimum_lift = 3 * self.dimension
-        if int(trunk_dim) != self.dimension and int(trunk_dim) < minimum_lift:
+        if (
+            self.coordinate_lift_mode == "legacy"
+            and self.configured_trunk_dim != self.dimension
+            and self.configured_trunk_dim < minimum_lift
+        ):
             raise ValueError(
                 f"trunk_dim must equal {self.dimension} for raw coordinates or be "
                 f"at least {minimum_lift} for the paper Lift Layer"
             )
 
-        self.trunk_dim = int(trunk_dim)
+        self.trunk_dim = modules.coordinate_lift_input_dim(
+            self.dimension,
+            self.configured_trunk_dim,
+            self.coordinate_lift_mode,
+            self.coordinate_lift_max_power,
+        )
         self.boundary_point_count = self._boundary_point_count()
         adjust_layers = [int(adjust_hidden_dim)] * int(adjust_hidden_layer_num)
         if not adjust_layers:
@@ -117,6 +135,10 @@ class _PIMeshONet(nn.Module):
 
     def lift(self, coordinates):
         """Apply the trigonometric/polynomial Lift Layer in equation (10)."""
+        if self.coordinate_lift_mode == "power_fourier":
+            return modules.power_fourier_lift(
+                coordinates, self.coordinate_lift_max_power
+            )
         if self.trunk_dim == self.dimension:
             return coordinates
         features = []

@@ -15,7 +15,7 @@ import numpy as np
 
 from src.data.mesh.topology import QuadMeshXY
 from .method_order import ordered_methods
-from src.utils.metrics import QuadMeshQualityEvaluator
+from src.metrics import QuadMeshQualityEvaluator
 from src.utils.quality_selection import QUAD_METRICS, metric_names
 from src.utils.visualize import (
     plot_quad_meshXY,
@@ -1016,7 +1016,7 @@ def save_hex_quality(
     quality_fields: dict | None = None,
 ) -> dict:
     """Documentation string."""
-    from src.utils.metrics import evaluate_hexahedral_grid_quality
+    from src.metrics import evaluate_hexahedral_grid_quality
     from src.data.mesh.topology import HexMeshXYZ
 
     grid = np.asarray(grid, dtype=float)

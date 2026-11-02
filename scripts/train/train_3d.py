@@ -18,7 +18,7 @@ import yaml
 from tqdm import tqdm
 
 from scripts.train.model_selection import parse_model_selection
-from scripts.train.training_common import (
+from src.engine.training import (
     BatchLossTotals,
     boundary_normal_loss,
     calculate_fixed_grid_mse_3d,
@@ -37,14 +37,14 @@ from scripts.train.training_common import (
     seed_everything,
     update_learning_rate,
 )
-from scripts.train.training_state import (
+from src.engine.state import (
     TrainingState,
     prepare_training_config,
     print_training_summaries,
 )
 from src.utils.config_validation import remove_deprecated_projection_config
-from src.data.dataset import ParametricDataset3D
-from src.models.model import HMONet3D, MeshONet3D
+from src.data.parametric_dataset import ParametricDataset3D
+from src.models import HMONet3D, MeshONet3D
 from src.data.mesh.topology import GenerateHexMeshBoundaryIndex
 
 
@@ -59,6 +59,8 @@ def train_hmonet(datasets, config, mode, args, device):
     model_options = dict(config["model"].get("common", {}))
     model_options.update(config["model"].get("hmonet", {}))
     residual_weight = float(model_options.pop("residual_regularization_weight", 0.0))
+    model_options.pop("projection_softplus_enabled", None)
+    model_options["trunk_projection_coefficients_enabled"] = True
     if residual_weight < 0:
         raise ValueError("residual_regularization_weight must be nonnegative")
     model = HMONet3D(*shape, **model_options).to(device)
@@ -129,7 +131,6 @@ def train_hmonet(datasets, config, mode, args, device):
                         shape,
                         target_interpolation=target_interpolation,
                         boundary_geometry=geometries,
-                        idw_neighbors=int(geometry_options.get("idw_neighbors", -1)),
                         idw_query_chunk_size=int(
                             geometry_options.get("idw_query_chunk_size", 512)
                         ),
@@ -242,13 +243,14 @@ def train_hmonet(datasets, config, mode, args, device):
                     training["skip_nonfinite_loss"],
                 ):
                     continue
-                totals.add(
-                    len(mesh),
-                    loss=loss,
-                    coordinate_loss=coordinate_loss,
-                    jacobian=jacobian,
-                    boundary_normal=normal,
-                )
+                active_losses = {"loss": loss, "coordinate_loss": coordinate_loss}
+                if use_jacobian:
+                    active_losses["jacobian"] = jacobian
+                if use_normal:
+                    active_losses["boundary_normal"] = normal
+                if residual_weight > 0:
+                    active_losses["displacement_regularization"] = regularization
+                totals.add(len(mesh), **active_losses)
                 postfix = {"loss": loss.item()}
                 postfix.update(
                     {key: value.item() for key, value in branch_losses.items()}
@@ -488,26 +490,28 @@ def main(argv=None):
     parser.add_argument("--nx", type=int)
     parser.add_argument("--ny", type=int)
     parser.add_argument("--nz", type=int)
+    parser.add_argument(
+        "--coordinate-lift-mode",
+        choices=["legacy", "power_fourier"],
+        help="Coordinate encoding: preserve the existing layout or use power-Fourier features.",
+    )
+    parser.add_argument("--coordinate-lift-max-power", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--num-epochs", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device")
     parser.add_argument("--best-model-metric", choices=["dataset_mse", "training_loss"])
-    parser.add_argument("--hmonet-mapping-mode", choices=["current", "coons_residual"])
-    parser.add_argument(
-        "--trunk-projection-coefficients-enabled",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
-    parser.add_argument(
-        "--projection-softplus-enabled",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
+    parser.add_argument("--hmonet-mapping-mode", choices=["current", "coons_residual", "corner_corrected"])
     parser.add_argument(
         "--boundary-self-attention-enabled",
         action=argparse.BooleanOptionalAction,
         default=None,
+    )
+    parser.add_argument(
+        "--weight-head-mlp-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Use a geometry-coefficient MLP matching the Location MLP; default is enabled.",
     )
     parser.add_argument("--projection-mlp-hidden-dim", type=int)
     parser.add_argument("--attention-dim", type=int)
@@ -516,9 +520,6 @@ def main(argv=None):
     parser.add_argument("--attention-feedforward-dim", type=int)
     parser.add_argument("--attention-dropout", type=float)
     parser.add_argument("--projection-coefficient-min", type=float)
-    parser.add_argument("--projection-transition-width", type=float)
-    parser.add_argument("--projection-normal-smoothing", type=float)
-    parser.add_argument("--projection-tangential-lift-beta", type=float)
     parser.add_argument("--residual-regularization-weight", type=float)
     parser.add_argument(
         "--jacobian-loss-enabled", action=argparse.BooleanOptionalAction, default=None
@@ -531,7 +532,6 @@ def main(argv=None):
         "--target-interpolation",
         choices=["bilinear", "curved_boundary_cell"],
     )
-    parser.add_argument("--idw-neighbors", type=int)
     parser.add_argument("--idw-query-chunk-size", type=int)
     parser.add_argument("--idw-support-chunk-size", type=int)
     parser.add_argument(
@@ -664,6 +664,13 @@ def main(argv=None):
     for axis in ("nx", "ny", "nz"):
         if getattr(args, axis) is not None:
             config.setdefault("grid", {})[axis] = getattr(args, axis)
+    common_model = config.setdefault("model", {}).setdefault("common", {})
+    if args.coordinate_lift_mode is not None:
+        common_model["coordinate_lift_mode"] = args.coordinate_lift_mode
+    if args.coordinate_lift_max_power is not None:
+        if args.coordinate_lift_max_power < 1:
+            parser.error("--coordinate-lift-max-power must be at least 1")
+        common_model["coordinate_lift_max_power"] = args.coordinate_lift_max_power
     overrides = {
         "num_epochs": "num_epochs",
         "seed": "seed",
@@ -739,10 +746,9 @@ def main(argv=None):
         ] = args.hmonet_mapping_mode
     hmonet_model = config.setdefault("model", {}).setdefault("hmonet", {})
     for option in (
-        "trunk_projection_coefficients_enabled",
-        "projection_softplus_enabled",
         "boundary_self_attention_enabled",
         "projection_mlp_hidden_dim",
+        "weight_head_mlp_enabled",
         "attention_dim",
         "attention_heads",
         "attention_layers",
@@ -756,18 +762,6 @@ def main(argv=None):
         config.setdefault("model", {}).setdefault("hmonet", {})[
             "projection_coefficient_min"
         ] = args.projection_coefficient_min
-    if args.projection_transition_width is not None:
-        config.setdefault("model", {}).setdefault("hmonet", {})[
-            "projection_transition_width"
-        ] = args.projection_transition_width
-    if args.projection_normal_smoothing is not None:
-        config.setdefault("model", {}).setdefault("hmonet", {})[
-            "projection_normal_smoothing"
-        ] = args.projection_normal_smoothing
-    if args.projection_tangential_lift_beta is not None:
-        config.setdefault("model", {}).setdefault("hmonet", {})[
-            "projection_tangential_lift_beta"
-        ] = args.projection_tangential_lift_beta
     if args.residual_regularization_weight is not None:
         config.setdefault("model", {}).setdefault("hmonet", {})[
             "residual_regularization_weight"
@@ -779,7 +773,6 @@ def main(argv=None):
         "jacobian_method",
         "jacobian_fd_step",
         "target_interpolation",
-        "idw_neighbors",
         "idw_query_chunk_size",
         "idw_support_chunk_size",
         "boundary_normal_loss_weight",

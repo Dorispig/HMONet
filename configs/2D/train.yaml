@@ -8,8 +8,8 @@
 
 datasets:  # 数据集路径配置
   # 分别指定内插集和外推集；训练选择由 training.dataset 控制。
-  interpolation: data/raw/2D/air_t_int_0_1000_21_20  # 内插训练数据集路径
-  extrapolation: data/raw/2D/air_t_ext_0_1000_21_20  # 外推训练数据集路径
+  interpolation: data/raw/2D/run_int_0_1000_61_21  # 圆角深U形凹槽内插训练数据集
+  extrapolation: data/raw/2D/run_ext_0_1000_61_21  # 圆角深U形凹槽外推训练数据集
 
 grid:  # 二维训练网格尺寸
   # 以下值仅作默认展示；正式训练会从每个数据集的 grid_shape 自动读取。
@@ -26,19 +26,21 @@ model:  # 模型与网络结构配置
   # 例如 meshonet,pimeshonet；both = HMONet + MeshONet；pi = 三个 PI 模型；all = 五个模型。
   name: hmonet  # 训练模型名称
 
-  # 五个模型共用的算子网络结构。模型专属段只覆盖差异项。
+  # 正式实验采用与ex7基线一致的精简算子网络；模型专属段只覆盖差异项。
   common:  # 五种模型共用的网络结构
-    branch_dim: 64                 # 边界输入调整后的特征维度。
-    trunk_dim: 16                  # 计算坐标增强后的主干输入维度。
-    adjust_hidden_dim: 128         # 边界输入调整网络隐藏层宽度。
+    branch_dim: 32                 # 边界输入调整后的特征维度；与ex7精简基线一致。
+    trunk_dim: 16                  # legacy坐标增强后的主干输入维度；power_fourier模式下自动推导。
+    coordinate_lift_mode: legacy   # legacy保持当前实验格式；power_fourier启用幂次-周期联合编码。
+    coordinate_lift_max_power: 1   # power_fourier的最高次幂，必须>=1；legacy模式忽略。
+    adjust_hidden_dim: 64          # 边界输入调整网络隐藏层宽度。
     adjust_hidden_layer_num: 4     # 边界输入调整网络隐藏层数。
-    branch_hidden_dim: 128         # 边界分支网络隐藏层宽度。
+    branch_hidden_dim: 64          # 边界分支网络隐藏层宽度。
     branch_hidden_layer_num: 4     # 边界分支网络隐藏层数。
-    trunk_hidden_dim: 128          # 坐标主干网络隐藏层宽度。
+    trunk_hidden_dim: 64           # 坐标主干网络隐藏层宽度。
     trunk_hidden_layer_num: 4      # 坐标主干网络隐藏层数。
-    output_dim: 128                # 分支和主干融合特征维度。
-    branch_mlp_hidden_dim: 128     # x/y 融合 MLP 隐藏层宽度。
-    branch_mlp_hidden_layer_num: 4 # x/y 融合 MLP 隐藏层数。
+    output_dim: 64                 # 分支和主干融合特征维度；与ex7精简基线一致。
+    branch_mlp_hidden_dim: 64      # 坐标融合MLP隐藏层宽度；MeshONet共享、HMONet按坐标独立。
+    branch_mlp_hidden_layer_num: 4 # 坐标融合MLP隐藏层数。
 
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # Adjust + Modified MLP分支 + Lift/Modified MLP共享主干
@@ -63,15 +65,16 @@ model:  # 模型与网络结构配置
     trunk_hidden_dim: 64  # Trunk网络隐藏宽度
     trunk_hidden_layer_num: 4  # Trunk网络隐藏层数
     output_dim: 64  # 分支和主干点积的潜在维度
-    branch_mlp_hidden_dim: 64  # 融合MLP隐藏宽度
-    branch_mlp_hidden_layer_num: 4  # 融合MLP隐藏层数
+    shared_branch_fusion_enabled: true  # 拼接两个Branch特征后使用一个共享Fusion MLP
+    branch_mlp_hidden_dim: 64  # 共享Fusion MLP隐藏宽度
+    branch_mlp_hidden_layer_num: 4  # 共享Fusion MLP隐藏层数
 
   hmonet:  # HMONet模型配置
-    hmonet_mapping_mode: current  # 内部硬边界映射：current或coons_residual
-    trunk_projection_coefficients_enabled: false  # 是否由主干MLP输出位置相关系数并与分支系数逐位相乘；HMONet基线默认关闭
-    projection_softplus_enabled: false  # true使用Softplus，false使用Sigmoid；HMONet基线默认关闭Softplus
-    boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；HMONet基线默认关闭
-    projection_mlp_hidden_dim: 64  # 主干几何系数MLP隐藏层宽度
+    hmonet_mapping_mode: current  # 内部硬边界映射：current、coons_residual或corner_corrected
+    # 几何系数固定为 Branch Sigmoid × Trunk Sigmoid，不再提供关闭位置调制或Softplus选项。
+    boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；正式实验默认关闭
+    weight_head_mlp_enabled: true  # true默认使用与Location MLP相同宽度、Tanh激活的单隐藏层MLP；false兼容原Linear
+    projection_mlp_hidden_dim: 64  # 两侧系数MLP共用的隐藏层宽度（weight_head启用MLP时生效）
     attention_dim: 64  # 边界自注意力特征维度
     attention_heads: 4  # 多头注意力头数
     attention_layers: 2  # 自注意力编码层数
@@ -135,7 +138,7 @@ training:  # 公共训练设置
   fluctuation_absolute_maximum: 1.0e-5  # 绝对波动阈值上限
   plateau_near_best_relative_tolerance: 0.2  # 当前窗口中位数接近历史最佳的相对容差
   plateau_near_best_absolute_tolerance: 1.0e-7  # 当前窗口中位数接近历史最佳的绝对容差
-  best_improvement_relative_tolerance: 0.005  # 判定仍有显著改善所需的最小相对改善
+  best_improvement_relative_tolerance: 0.002  # 判定仍有显著改善所需的最小相对改善（0.2%）
 
   convergence_start_epoch: 3000  # 所有自动收敛和失败判定开始检查并累计耐心的最早epoch
   success_plateau_patience: 1000  # 无显著改善耐心；只在出现显著改善时归零
@@ -182,7 +185,6 @@ hmonet_training:  # HMONet训练参数
   # 随机点监督值插值：bilinear 为普通双线性；curved_boundary_cell 为全局边界位移 IDW。
   # IDW 将每段边界网格参数区间四等分，只取1/4、1/2、3/4三个新增点，不重复原始边界点。
   target_interpolation: curved_boundary_cell  # 训练目标插值方式
-  idw_neighbors: -1  # IDW邻居数：-1使用全部边界支持点；设为32启用局部K近邻IDW
   idw_query_chunk_size: 128  # 二维实测最优查询分块；支持点仍由一个大块完成累计
   idw_support_chunk_size: 2048  # IDW边界支持点分块；增大后减少Python循环和GPU启动次数
   point_loss_weighting: position  # 采样点损失权重：position为边界增强，uniform为全1
@@ -191,14 +193,14 @@ hmonet_training:  # HMONet训练参数
   jacobian_loss_enabled: true  # 是否启用Jacobian损失
   jacobian_method: finite_difference  # Jacobian计算方法
   jacobian_fd_step: 0.0001  # 有限差分步长
-  jacobian_loss_weight: 1.0e-3  # Jacobian损失权重
+  jacobian_loss_weight: 1.0e-4  # Jacobian损失权重
   jacobian_minimum: 1.0e-4  # 最小允许Jacobian
 
   # 非归一化椭圆PDE残差；默认关闭，仅在监督HMONet的相关消融中启用。
   pde_loss_enabled: false  # 是否启用非归一化PDE损失
   pde_loss_weight: 1.0e-4  # 非归一化PDE损失权重
   pde_interior_sample_count: 128  # 每批用于PDE残差的内部采样点数
-  pde_fd_step: null  # null按训练网格间距取值，也可设置为[h_xi, h_eta]
+  pde_fd_step: [0.01, 0.01]  # PDE有限差分步长，分别对应xi和eta方向
 
   # 法向损失默认关闭；开启后以下三个参数生效。
   boundary_normal_loss_enabled: false  # 是否启用边界法向损失
@@ -253,8 +255,8 @@ pimeshonet_training:  # PI-MeshONet训练参数
   pde_loss_weight: 1.0e-4  # 原始PDE损失权重
   boundary_loss_weight: 1.0  # 边界坐标损失权重
   interior_sample_count: 128  # 每批共享内部采样点数
-  # null 表示各轴采用 1/(n-1)；也可写 [h_xi, h_eta]。
-  fd_step: null  # 有限差分步长配置
+  # PI-MeshONet PDE有限差分步长，分别对应xi和eta方向。
+  fd_step: [0.01, 0.01]
 
 
 # =============================================================================

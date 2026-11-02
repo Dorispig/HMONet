@@ -58,7 +58,11 @@ def selected_quality_metrics(options, dimension=2, *, surface=False):
     A shared name (for example min_angle) controls both types of output.
     """
     available = QUAD_METRICS if dimension == 2 else ALL_METRICS
-    selected = metric_names(options.get("quality_metrics", "both"), available)
+    selected = tuple(
+        name
+        for name in metric_names(options.get("quality_metrics", "both"), available)
+        if name != "cell_area"
+    )
     switches = options.get("quality_switches") or {}
     unknown = set(switches) - set(available)
     if unknown:

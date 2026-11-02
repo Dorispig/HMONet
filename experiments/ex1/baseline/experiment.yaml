@@ -23,6 +23,7 @@ model:
     branch_mlp_hidden_layer_num: 4
   hmonet:
     hmonet_mapping_mode: current
+    weight_head_mlp_enabled: false  # 冻结旧基线为Linear，防止项目默认值变化触发重训
     residual_regularization_weight: 0.0
 training:
   dataset: interpolation

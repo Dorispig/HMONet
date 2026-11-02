@@ -11,7 +11,7 @@ def save_dataset_examples(directory, records=None, metadata=None, geometry=None)
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from src.data.dataset import read_dataset_metadata
+    from src.data.parametric_dataset import read_dataset_metadata
     from src.data.mesh.topology import QuadMeshXY
     from src.utils.visualize import plot_quad_meshXY
 

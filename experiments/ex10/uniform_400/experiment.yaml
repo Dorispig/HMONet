@@ -1,0 +1,18 @@
+schema_version: 1
+experiment: uniform_400
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: uniform_400
+    value: 400_uniform_random_points
+    overrides:
+      - --hmonet-random-loss-sampling-mode
+      - uniform
+      - --hmonet-random-loss-sample-count
+      - "400"
+      - --hmonet-random-loss-global-sample-count
+      - "400"
+      - --hmonet-random-loss-curvature-sample-count
+      - "0"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "0"

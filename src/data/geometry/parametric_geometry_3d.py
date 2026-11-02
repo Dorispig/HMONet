@@ -339,6 +339,156 @@ class PiecewiseSurface3D(ParametricSurface3D):
         }
 
 
+
+VOLUME_MAP_PARAMETER_ORDER = {
+    "annular_nozzle_diffuser": (
+        "inner_radius_in", "inner_radius_out", "outer_radius_in",
+        "outer_radius_out", "length", "z_min",
+    ),
+    "twisted_elliptic_annulus": (
+        "inner_a", "inner_b", "outer_a", "outer_b",
+        "twist_angle_deg", "length", "z_min",
+    ),
+    "bent_annular_duct": (
+        "inner_radius", "outer_radius", "bend_radius",
+        "bend_angle_deg", "z_min",
+    ),
+    "lobed_annular_duct": (
+        "inner_radius", "outer_radius", "amplitude", "lobes",
+        "phase_twist_deg", "length", "z_min",
+    ),
+}
+
+
+def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
+    """Evaluate one injective annular reference map with NumPy arrays."""
+    xi, eta, zeta = np.broadcast_arrays(
+        np.asarray(xi, float), np.asarray(eta, float), np.asarray(zeta, float)
+    )
+    xi, eta, zeta = (np.clip(value, 0.0, 1.0) for value in (xi, eta, zeta))
+    theta = 2.0 * np.pi * eta
+    p = parameters
+    if mapping == "annular_nozzle_diffuser":
+        inner = (1.0 - zeta) * p["inner_radius_in"] + zeta * p["inner_radius_out"]
+        outer = (1.0 - zeta) * p["outer_radius_in"] + zeta * p["outer_radius_out"]
+        radius = (1.0 - xi) * inner + xi * outer
+        return np.stack((radius * np.cos(theta), radius * np.sin(theta), p["z_min"] + p["length"] * zeta), -1)
+    if mapping == "twisted_elliptic_annulus":
+        a = (1.0 - xi) * p["inner_a"] + xi * p["outer_a"]
+        b = (1.0 - xi) * p["inner_b"] + xi * p["outer_b"]
+        local_x, local_y = a * np.cos(theta), b * np.sin(theta)
+        angle = np.deg2rad(p["twist_angle_deg"]) * zeta
+        cosine, sine = np.cos(angle), np.sin(angle)
+        return np.stack((cosine * local_x - sine * local_y, sine * local_x + cosine * local_y, p["z_min"] + p["length"] * zeta), -1)
+    if mapping == "bent_annular_duct":
+        radius = (1.0 - xi) * p["inner_radius"] + xi * p["outer_radius"]
+        bend = np.deg2rad(p["bend_angle_deg"]) * zeta
+        cosine, sine = np.cos(bend), np.sin(bend)
+        radial = radius * np.cos(theta)
+        return np.stack((p["bend_radius"] * sine - radial * sine, -radius * np.sin(theta), p["z_min"] + p["bend_radius"] * (1.0 - cosine) + radial * cosine), -1)
+    if mapping == "lobed_annular_duct":
+        phase = np.deg2rad(p["phase_twist_deg"]) * zeta
+        outer = p["outer_radius"] * (1.0 + p["amplitude"] * np.cos(p["lobes"] * theta + phase))
+        radius = (1.0 - xi) * p["inner_radius"] + xi * outer
+        return np.stack((radius * np.cos(theta), radius * np.sin(theta), p["z_min"] + p["length"] * zeta), -1)
+    raise ValueError(f"unknown volume map: {mapping}")
+
+
+class MappedVolumeFace3D(ParametricSurface3D):
+    """One face of a serializable analytic map from the unit cube.
+
+    Every face is restricted from the same volume map. This guarantees exact
+    shared edges and gives the TFI/PDE pipeline six mutually compatible faces.
+    """
+
+    def __init__(self, mapping, fixed_axis, fixed_value, parameters):
+        if mapping not in VOLUME_MAP_PARAMETER_ORDER:
+            raise ValueError(f"unknown volume map: {mapping}")
+        if fixed_axis not in (0, 1, 2) or fixed_value not in (0, 1, 0.0, 1.0):
+            raise ValueError("fixed_axis must be 0, 1 or 2 and fixed_value 0 or 1")
+        required = VOLUME_MAP_PARAMETER_ORDER[mapping]
+        if set(parameters) != set(required):
+            raise ValueError(f"{mapping} requires parameters {required}")
+        self.mapping = str(mapping)
+        self.fixed_axis = int(fixed_axis)
+        self.fixed_value = float(fixed_value)
+        self.parameters = {name: float(parameters[name]) for name in required}
+
+    def _logical(self, u, v):
+        u, v = np.broadcast_arrays(np.asarray(u, float), np.asarray(v, float))
+        fixed = np.full_like(u, self.fixed_value)
+        if self.fixed_axis == 0:
+            return fixed, u, v
+        if self.fixed_axis == 1:
+            return u, fixed, v
+        return u, v, fixed
+
+    def evaluate(self, u, v):
+        if torch.is_tensor(u) or torch.is_tensor(v):
+            reference = u if torch.is_tensor(u) else v
+            u = torch.as_tensor(u, dtype=reference.dtype, device=reference.device)
+            v = torch.as_tensor(v, dtype=reference.dtype, device=reference.device)
+            return self.evaluate_torch(u, v)
+        return _evaluate_volume_map_numpy(self.mapping, *self._logical(u, v), self.parameters)
+
+    def evaluate_torch(self, u, v):
+        u, v = torch.broadcast_tensors(u, v)
+        return self.evaluate_batch_torch([self], u.reshape(1, -1), v.reshape(1, -1)).reshape(*u.shape, 3)
+
+    @classmethod
+    def evaluate_batch_torch(cls, surfaces, u, v):
+        mapping = surfaces[0].mapping
+        axis = surfaces[0].fixed_axis
+        value = surfaces[0].fixed_value
+        if any((s.mapping, s.fixed_axis, s.fixed_value) != (mapping, axis, value) for s in surfaces):
+            raise ValueError("mapped surface batches must share mapping and fixed face")
+        names = VOLUME_MAP_PARAMETER_ORDER[mapping]
+        p = torch.as_tensor(
+            [[surface.parameters[name] for name in names] for surface in surfaces],
+            dtype=u.dtype,
+            device=u.device,
+        )
+        fixed = torch.full_like(u, value)
+        xi, eta, zeta = ((fixed, u, v) if axis == 0 else (u, fixed, v) if axis == 1 else (u, v, fixed))
+        xi, eta, zeta = xi.clamp(0, 1), eta.clamp(0, 1), zeta.clamp(0, 1)
+        theta = 2.0 * torch.pi * eta
+        values = {name: p[:, index:index + 1] for index, name in enumerate(names)}
+        if mapping == "annular_nozzle_diffuser":
+            inner = (1 - zeta) * values["inner_radius_in"] + zeta * values["inner_radius_out"]
+            outer = (1 - zeta) * values["outer_radius_in"] + zeta * values["outer_radius_out"]
+            radius = (1 - xi) * inner + xi * outer
+            return torch.stack((radius * theta.cos(), radius * theta.sin(), values["z_min"] + values["length"] * zeta), -1)
+        if mapping == "twisted_elliptic_annulus":
+            a = (1 - xi) * values["inner_a"] + xi * values["outer_a"]
+            b = (1 - xi) * values["inner_b"] + xi * values["outer_b"]
+            local_x, local_y = a * theta.cos(), b * theta.sin()
+            angle = values["twist_angle_deg"] * (torch.pi / 180.0) * zeta
+            return torch.stack((angle.cos() * local_x - angle.sin() * local_y, angle.sin() * local_x + angle.cos() * local_y, values["z_min"] + values["length"] * zeta), -1)
+        if mapping == "bent_annular_duct":
+            radius = (1 - xi) * values["inner_radius"] + xi * values["outer_radius"]
+            bend = values["bend_angle_deg"] * (torch.pi / 180.0) * zeta
+            radial = radius * theta.cos()
+            return torch.stack((values["bend_radius"] * bend.sin() - radial * bend.sin(), -radius * theta.sin(), values["z_min"] + values["bend_radius"] * (1 - bend.cos()) + radial * bend.cos()), -1)
+        if mapping == "lobed_annular_duct":
+            phase = values["phase_twist_deg"] * (torch.pi / 180.0) * zeta
+            outer = values["outer_radius"] * (1 + values["amplitude"] * (values["lobes"] * theta + phase).cos())
+            radius = (1 - xi) * values["inner_radius"] + xi * outer
+            return torch.stack((radius * theta.cos(), radius * theta.sin(), values["z_min"] + values["length"] * zeta), -1)
+        raise ValueError(f"unknown volume map: {mapping}")
+
+    def to_dict(self):
+        return {
+            "type": "mapped_volume_face_3d",
+            "mapping": self.mapping,
+            "fixed_axis": self.fixed_axis,
+            "fixed_value": self.fixed_value,
+            "parameters": self.parameters,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data["mapping"], data["fixed_axis"], data["fixed_value"], data["parameters"])
+
 class BoundarySurfaceSet3D:
     names = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
 
@@ -409,5 +559,5 @@ SURFACE_REGISTRY = {
     "cylindrical_surface_3d": CylindricalSurface3D,
     "annulus_cap_surface_3d": AnnulusCapSurface3D,
     "curve_blend_surface_3d": CurveBlendSurface3D,
+    "mapped_volume_face_3d": MappedVolumeFace3D,
 }
-

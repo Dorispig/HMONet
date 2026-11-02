@@ -1,0 +1,5 @@
+# ex8_1 与 ex8 使用同一数据集和随机种子；仅边界硬约束改为 coons_residual。
+seeds: [20261030]
+datasets:
+  - run_ext_0_1000_61_21
+grid_shapes: [[51, 51]]

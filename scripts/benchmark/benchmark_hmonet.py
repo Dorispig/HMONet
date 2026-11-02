@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import src.models.model as current_models
-from scripts.train.training_common import (
+from src.engine.training import (
     calculate_fixed_grid_metrics,
     hmonet_main_loss,
     interpolate_pde_mesh,
@@ -42,7 +42,7 @@ from scripts.train.training_common import (
     sample_shared_random_points,
 )
 from src.data.geometry.boundary_generator_3d import box_boundary
-from src.data.dataset import ParametricDataset2D
+from src.data.parametric_dataset import ParametricDataset2D
 
 
 def load_module(name, path):
@@ -286,7 +286,7 @@ def main():
     )
     parser.add_argument("--dimension", choices=["2D", "3D", "both"], default="both")
     parser.add_argument(
-        "--mapping", choices=["current", "coons_residual"], default="current"
+        "--mapping", choices=["current", "coons_residual", "corner_corrected"], default="current"
     )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--points", type=int, default=400)

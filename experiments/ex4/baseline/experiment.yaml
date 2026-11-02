@@ -46,6 +46,7 @@ model:  # 模型与网络结构配置
     trunk_projection_coefficients_enabled: false  # 是否由主干MLP输出位置相关系数并与分支系数逐位相乘；基线默认关闭
     projection_softplus_enabled: false  # true使用Softplus，false使用Sigmoid；基线默认关闭Softplus
     boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；基线默认关闭
+    weight_head_mlp_enabled: false  # 冻结旧基线为Linear，保持既有训练指纹与检查点结构
     projection_mlp_hidden_dim: 64  # 主干几何系数MLP隐藏层宽度
     attention_dim: 64  # 边界自注意力特征维度
     attention_heads: 4  # 多头注意力头数
@@ -222,8 +223,8 @@ pimeshonet_training:  # PI-MeshONet训练参数
   pde_loss_weight: 1.0e-4  # 原始PDE损失权重
   boundary_loss_weight: 1.0  # 边界坐标损失权重
   interior_sample_count: 128  # 每批共享内部采样点数
-  # null 表示各轴采用 1/(n-1)；也可写 [h_xi, h_eta]。
-  fd_step: null  # 有限差分步长配置
+  # PI-MeshONet PDE有限差分步长，分别对应xi和eta方向。
+  fd_step: [0.01, 0.01]
 
 
 # =============================================================================

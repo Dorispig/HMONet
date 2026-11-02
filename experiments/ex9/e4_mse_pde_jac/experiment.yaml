@@ -1,0 +1,11 @@
+# 实验4：随机400点MSE + 1e-4 PDE + 1e-4 Jacobian；最多50,000 epoch。
+schema_version: 1
+experiment: e4_mse_pde_jac
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e4_mse_pde_jac
+    value: mse_plus_1e-4_pde_plus_1e-4_jacobian
+    overrides:
+      - --hmonet-physics-pde-loss-weight
+      - "0.0001"
