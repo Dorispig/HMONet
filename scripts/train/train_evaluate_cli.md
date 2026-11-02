@@ -2,6 +2,20 @@
 
 `train_evaluate.py` 会先完成所选模型和数据集的训练，再使用本次保存的模型进行评估。
 
+## Linux 多 GPU 动态队列
+
+```bash
+python scripts/train/train_evaluate.py \
+  --dimension 2 \
+  --train-config configs/2D/train.yaml \
+  --evaluate-config configs/2D/evaluate.yaml \
+  --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet \
+  --train-args "--model hmonet,meshonet,pimeshonet --dataset-mode both" \
+  --gpus 0 1 2 3
+```
+
+调度器将模型与数据集的笛卡尔积放入一个 FIFO 队列。每张指定 GPU 同时运行一个独立进程；任一进程完成后，该 GPU 立即领取下一项。派发前会通过 `nvidia-smi` 检查指定 GPU 上是否存在其他计算进程，繁忙时等待而不抢占。全部相关模型训练完成后，每个数据集只执行一次联合评估，从而避免多个评估进程同时写同一个结果目录。队列会自动移除子参数中的 `--device` 并按任务写入 `cuda:0`；队列任务的完整输出保存在 `outputs/gpu_queue/formal/<时间>/`。
+
 运行前：
 
 ```powershell

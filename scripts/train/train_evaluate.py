@@ -1,7 +1,9 @@
 """Train selected datasets, then evaluate the exact checkpoints from this run."""
 
 import argparse
+from datetime import datetime
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -13,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.train.model_selection import parse_model_selection
+from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
 
 
 def normalize_evaluate_methods(value):
@@ -85,6 +88,173 @@ def evaluation_commands(
     return commands
 
 
+def _without_value_options(tokens, names):
+    """Remove selected one-value options from a forwarded CLI token list."""
+    names = set(names)
+    result = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        key = token.split("=", 1)[0]
+        if key in names:
+            if "=" not in token:
+                if index + 1 >= len(tokens):
+                    raise ValueError(f"Missing value for {token}")
+                index += 2
+            else:
+                index += 1
+            continue
+        result.append(token)
+        index += 1
+    return result
+
+
+def _json_default(value):
+    if hasattr(value, "item"):
+        return value.item()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Cannot serialize {type(value).__name__}")
+
+
+def _queued_formal_run(
+    args,
+    train_extra,
+    evaluate_extra,
+    models,
+    paths,
+    evaluate_config,
+    cases,
+    selected_methods,
+    resolved_dataset_mode,
+):
+    """Dynamically train model/dataset pairs, then evaluate each dataset once."""
+    import shlex
+
+    gpu_ids = parse_gpu_ids(args.gpus)
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    queue_root = Path(args.queue_log_root or ROOT / "outputs/gpu_queue/formal" / run_id)
+    result_root = queue_root / "results"
+    if not args.dry_run:
+        result_root.mkdir(parents=True, exist_ok=True)
+    stripped = _without_value_options(
+        train_extra, {"--model", "--dataset", "--dataset-mode", "--device"}
+    )
+    requested_mode = next(
+        (
+            train_extra[index + 1]
+            for index, token in enumerate(train_extra[:-1])
+            if token == "--dataset-mode"
+        ),
+        resolved_dataset_mode,
+    )
+    tasks = []
+    result_files = []
+    script = ROOT / "scripts/train/train_evaluate.py"
+    for model in models:
+        for path in paths:
+            dataset_name = path.parent.name if path.is_file() else path.name
+            task_mode = requested_mode
+            if task_mode in (None, "both"):
+                task_mode = (
+                    "interpolation"
+                    if "_int_" in dataset_name
+                    else "extrapolation" if "_ext_" in dataset_name else None
+                )
+            if task_mode not in ("interpolation", "extrapolation"):
+                raise ValueError(
+                    f"Cannot infer interpolation/extrapolation mode for {dataset_name!r}; "
+                    "pass --train-args '--dataset-mode interpolation' (or extrapolation)."
+                )
+            worker_extra = [
+                *stripped,
+                "--model",
+                model,
+                "--dataset",
+                str(path),
+                "--dataset-mode",
+                task_mode,
+                "--device",
+                "cuda:0",
+            ]
+            result_file = result_root / f"{model}__{dataset_name}.json"
+            result_files.append(result_file)
+            command = [
+                sys.executable,
+                str(script),
+                "--dimension",
+                str(args.dimension),
+                "--train-config",
+                str(args.train_config or f"configs/{args.dimension}D/train.yaml"),
+                "--evaluate-config",
+                str(args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"),
+                "--checkpoint",
+                args.checkpoint,
+                "--train-args",
+                shlex.join(worker_extra),
+                "--queue-worker",
+                "--queue-result",
+                str(result_file),
+            ]
+            tasks.append(
+                GpuTask(
+                    name=f"train__{model}__{dataset_name}",
+                    command=command,
+                )
+            )
+    training_records = run_gpu_queue(
+        tasks,
+        gpu_ids,
+        cwd=ROOT,
+        log_root=queue_root / "training",
+        continue_on_error=args.continue_on_error,
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        return []
+    summaries = []
+    for result_file in result_files:
+        if result_file.is_file():
+            summaries.extend(json.loads(result_file.read_text(encoding="utf-8")))
+    failed = [record for record in training_records if record["status"] == "failed"]
+    if failed and not summaries:
+        return []
+
+    evaluation_extra = _without_value_options(evaluate_extra, {"--device"})
+    evaluation_tasks = []
+    evaluate_script = ROOT / f"scripts/evaluate/evaluate_{args.dimension}d.py"
+    for command in evaluation_commands(
+        summaries,
+        evaluate_config,
+        cases,
+        args.checkpoint,
+        selected_methods,
+    ):
+        case = command[command.index("--case") + 1]
+        evaluation_tasks.append(
+            GpuTask(
+                name=f"evaluate__{case}",
+                command=[
+                    sys.executable,
+                    str(evaluate_script),
+                    *command,
+                    *evaluation_extra,
+                    "--device",
+                    "cuda:0",
+                ],
+            )
+        )
+    run_gpu_queue(
+        evaluation_tasks,
+        gpu_ids,
+        cwd=ROOT,
+        log_root=queue_root / "evaluation",
+        continue_on_error=args.continue_on_error,
+        dry_run=False,
+    )
+    return summaries
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dimension", type=int, choices=[2, 3], default=2)
@@ -108,6 +278,16 @@ def main(argv=None):
         default="",
         help="Quoted evaluation CLI overrides, including --model; cases and checkpoints remain automatic",
     )
+    parser.add_argument(
+        "--gpus",
+        nargs="+",
+        help="Dynamic GPU queue, e.g. --gpus 0 1 2 3 or --gpus 0,1,2,3.",
+    )
+    parser.add_argument("--queue-log-root")
+    parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--queue-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--queue-result", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     import shlex
 
@@ -202,9 +382,33 @@ def main(argv=None):
         del data
     if args.check_only:
         return []
+    if args.gpus and args.queue_worker:
+        parser.error("--gpus cannot be combined with the internal queue worker")
+    if args.gpus:
+        return _queued_formal_run(
+            args,
+            train_extra,
+            evaluate_extra,
+            sorted(trained),
+            paths,
+            evaluate_config,
+            cases,
+            selected,
+            mode,
+        )
     train = importlib.import_module(f"scripts.train.train_{args.dimension}d")
     evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
     summaries = train.main(["--config", str(train_config)] + train_extra)
+    if args.queue_worker:
+        if not args.queue_result:
+            parser.error("Internal queue workers require --queue-result")
+        result_path = Path(args.queue_result)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(summaries, ensure_ascii=False, indent=2, default=_json_default),
+            encoding="utf-8",
+        )
+        return summaries
     for command in evaluation_commands(
         summaries, evaluate_config, cases, args.checkpoint, selected
     ):

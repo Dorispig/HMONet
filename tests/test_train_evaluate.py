@@ -3,11 +3,28 @@
 import tempfile
 import unittest
 from pathlib import Path
-from scripts.train.train_evaluate import evaluation_commands
+from scripts.train.train_evaluate import _without_value_options, evaluation_commands
 from src.evaluation.configuration import load_configuration
 
 
 class PipelineTests(unittest.TestCase):
+    def test_queue_worker_overrides_remove_parent_task_selectors(self):
+        self.assertEqual(
+            _without_value_options(
+                [
+                    "--model=all",
+                    "--dataset",
+                    "old",
+                    "--device",
+                    "cuda:3",
+                    "--epochs",
+                    "10",
+                ],
+                {"--model", "--dataset", "--device"},
+            ),
+            ["--epochs", "10"],
+        )
+
     def test_pairing_and_explicit_checkpoints(self):
         with tempfile.TemporaryDirectory() as directory:
             summaries = []

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from datetime import datetime
 import json
 from pathlib import Path
 import sys
 import time
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.experiments import run_ablation_2d
+from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
 
 
 ALL_ABLATIONS = run_ablation_2d.ABLATIONS
@@ -120,6 +124,16 @@ def build_parser():
     parser.add_argument("--experiment-root", type=Path)
     parser.add_argument("--run-tag", default="default")
     parser.add_argument("--device")
+    parser.add_argument(
+        "--gpus",
+        nargs="+",
+        help="Dynamic GPU queue, for example --gpus 0 1 2 3 or --gpus 0,1,2,3.",
+    )
+    parser.add_argument(
+        "--queue-log-root",
+        type=Path,
+        help="Directory for one log per dynamically scheduled task.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--evaluate-only", action="store_true")
@@ -184,6 +198,106 @@ def _write_batch_summary(args, summary):
     path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _configured_variants(args, ablation: str):
+    if ablation == run_ablation_2d.BASELINE_ABLATION:
+        return [run_ablation_2d.Variant("baseline", "baseline", ())]
+    definition_path = args.experiment_root / ablation / "experiment.yaml"
+    definition = run_ablation_2d._load_yaml_mapping(definition_path)
+    variants = run_ablation_2d.variants_from_definition(definition)
+    if variants:
+        return variants
+    config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+    return run_ablation_2d.VARIANT_BUILDERS[ablation](config)
+
+
+def _run_dynamic_gpu_queue(args, selected):
+    """Expand every experiment/dataset/seed/variant into one GPU task."""
+    if args.device:
+        raise ValueError("Use either --device for serial execution or --gpus for the queue")
+    gpu_ids = parse_gpu_ids(args.gpus)
+    config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+    datasets = args.dataset or config.get("datasets", [])
+    seeds = args.seeds or config.get("seeds", [])
+    if not datasets or not seeds:
+        raise ValueError("The GPU queue requires at least one dataset and one seed")
+    tasks = []
+    for ablation in selected:
+        variants = _configured_variants(args, ablation)
+        for dataset in datasets:
+            for variant in variants:
+                for seed in seeds:
+                    worker_args = copy.copy(args)
+                    worker_args.dataset = [str(dataset)]
+                    worker_args.seeds = [int(seed)]
+                    worker_args.device = "cuda:0"
+                    worker_args.gpus = None
+                    command = [
+                        sys.executable,
+                        str(ROOT / "scripts/experiments/run_ablation_2d.py"),
+                        *_forward_common_arguments(worker_args, ablation),
+                        "--variants",
+                        variant.name,
+                        "--defer-finalization",
+                    ]
+                    tasks.append(
+                        GpuTask(
+                            name=(
+                                f"{ablation}__{Path(str(dataset)).name}__"
+                                f"{variant.name}__seed_{seed}"
+                            ),
+                            command=command,
+                        )
+                    )
+    log_root = args.queue_log_root or (
+        args.experiment_root / "queue_logs" / args.run_tag
+    )
+    records = run_gpu_queue(
+        tasks,
+        gpu_ids,
+        cwd=ROOT,
+        log_root=log_root,
+        continue_on_error=args.continue_on_error,
+        dry_run=args.dry_run,
+    )
+    if args.dry_run:
+        return {
+            "run_tag": args.run_tag,
+            "selected_ablations": selected,
+            "status": "dry_run",
+            "tasks": records,
+        }
+
+    failed = [record for record in records if record["status"] == "failed"]
+    # A deferred worker deliberately avoids shared aggregation and baseline
+    # validation. Re-enter each experiment once after the queue drains; every
+    # completed training/evaluation is fingerprint-reused, then summaries are
+    # written without concurrent file races.
+    finalize_records = []
+    if not failed:
+        for ablation in selected:
+            finalize_args = copy.copy(args)
+            finalize_args.force = False
+            finalize_args.dry_run = False
+            finalize_args.device = "cuda:0"
+            finalize_args.gpus = None
+            command = _forward_common_arguments(finalize_args, ablation)
+            print(f"\n=== Finalizing ablation: {ablation} ===", flush=True)
+            completed = run_ablation_2d.main(command)
+            finalize_records.append(
+                {"ablation": ablation, "run_count": len(completed)}
+            )
+    summary = {
+        "run_tag": args.run_tag,
+        "selected_ablations": selected,
+        "status": "completed_with_failures" if failed else "completed",
+        "gpu_ids": gpu_ids,
+        "tasks": records,
+        "finalization": finalize_records,
+    }
+    _write_batch_summary(args, summary)
+    return summary
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     run_ablation_2d.validate_experiment_set_name(args.experiment_set)
@@ -223,6 +337,8 @@ def main(argv=None):
         )
         or suite_root / "baseline/evaluate.yaml"
     ).resolve()
+    if args.gpus:
+        return _run_dynamic_gpu_queue(args, selected)
     started = datetime.now()
     records = []
     failures = []

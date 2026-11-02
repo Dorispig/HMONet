@@ -2499,6 +2499,7 @@ def execute(args, config, variants: list[Variant]):
                 baseline_key = (name, seed)
                 if (
                     args.ablation != BASELINE_ABLATION
+                    and not args.defer_finalization
                     and baseline_key not in checked_baselines
                 ):
                     checked_baselines.add(baseline_key)
@@ -2891,7 +2892,7 @@ def execute(args, config, variants: list[Variant]):
                     failures.append(manifest)
                     if not args.continue_on_error:
                         raise
-    if not args.dry_run:
+    if not args.dry_run and not args.defer_finalization:
         if args.train_only or baseline_compatibility_issues:
             # Training curves remain useful, but a baseline mismatch makes any
             # baseline comparison or aggregate evaluation scientifically invalid.
@@ -2902,7 +2903,7 @@ def execute(args, config, variants: list[Variant]):
                 args.run_tag,
                 save_plots=getattr(args, "evaluation_plots", True),
             )
-    if not args.dry_run:
+    if not args.dry_run and not args.defer_finalization:
         for dataset in map(resolve_dataset, args.dataset or config.get("datasets", [])):
             name = dataset_name(dataset)
             write_json(
@@ -2913,6 +2914,8 @@ def execute(args, config, variants: list[Variant]):
         # requested replacement. Other ablations retain the legacy cleanup behavior.
         if args.ablation != BASELINE_ABLATION or args.force:
             (experiment_root / "failures.json").unlink(missing_ok=True)
+    if args.defer_finalization:
+        return completed
     compatibility_report = experiment_root / "baseline_compatibility_errors.json"
     if baseline_compatibility_issues:
         message = _baseline_error_message(baseline_compatibility_issues)
@@ -3006,6 +3009,11 @@ def build_parser():
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument(
+        "--defer-finalization",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 

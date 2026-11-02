@@ -52,6 +52,12 @@ def build_parser():
     parser.add_argument("--values", nargs="+", type=float)
     parser.add_argument("--tag", default="default")
     parser.add_argument("--device")
+    parser.add_argument(
+        "--gpus",
+        nargs="+",
+        help="Run independent tasks dynamically on the selected GPU IDs.",
+    )
+    parser.add_argument("--queue-log-root")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--force", action="store_true")
@@ -79,6 +85,10 @@ def command_from_args(args):
         command += ["--evaluation-values", *map(str, args.values)]
     if args.device:
         command += ["--device", args.device]
+    if args.gpus:
+        command += ["--gpus", *args.gpus]
+    if args.queue_log_root:
+        command += ["--queue-log-root", args.queue_log_root]
     if not args.plots:
         command.append("--no-evaluation-plots")
     for name in ("train_only", "evaluate_only", "force", "dry_run", "continue_on_error"):
