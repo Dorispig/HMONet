@@ -87,56 +87,6 @@ def _write_summary(path: Path, records):
     )
 
 
-def _busy_compute_gpu_ids() -> set[int] | None:
-    """Return GPUs with active compute processes, or ``None`` if unavailable."""
-    try:
-        gpu_query = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,uuid",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        process_query = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-compute-apps=gpu_uuid",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if gpu_query.returncode != 0 or process_query.returncode != 0:
-        return None
-    uuid_to_index = {}
-    for line in gpu_query.stdout.splitlines():
-        fields = [field.strip() for field in line.split(",", 1)]
-        if len(fields) != 2:
-            continue
-        try:
-            uuid_to_index[fields[1]] = int(fields[0])
-        except ValueError:
-            continue
-    active_uuids = {
-        line.strip()
-        for line in process_query.stdout.splitlines()
-        if line.strip() and "no running" not in line.lower()
-    }
-    return {
-        uuid_to_index[uuid]
-        for uuid in active_uuids
-        if uuid in uuid_to_index
-    }
-
-
 def run_gpu_queue(
     tasks: Iterable[GpuTask],
     gpu_ids: Sequence[int],
@@ -146,14 +96,14 @@ def run_gpu_queue(
     continue_on_error: bool = False,
     dry_run: bool = False,
     validate_devices: bool = True,
-    wait_for_free_gpus: bool = True,
-    gpu_poll_seconds: float = 10.0,
 ):
     """Run a dynamic FIFO queue with one long-lived worker per selected GPU.
 
     Each subprocess sees only its assigned physical GPU through
     ``CUDA_VISIBLE_DEVICES`` and therefore always uses ``cuda:0`` internally.
-    When a subprocess exits, that worker immediately takes the next queued task.
+    A GPU is considered free when this queue has no running task assigned to it;
+    processes outside this queue are deliberately ignored. When a subprocess
+    exits, that worker immediately takes the next queued task.
     """
     tasks = list(tasks)
     gpu_ids = list(gpu_ids)
@@ -191,45 +141,9 @@ def run_gpu_queue(
     records_lock = threading.Lock()
     print_lock = threading.Lock()
     stop_dispatch = threading.Event()
-    probe_available = [bool(wait_for_free_gpus and validate_devices)]
-    probe_lock = threading.Lock()
-
-    def wait_until_free(gpu_id: int):
-        announced = False
-        while probe_available[0]:
-            busy = _busy_compute_gpu_ids()
-            if busy is None:
-                with probe_lock:
-                    if probe_available[0]:
-                        probe_available[0] = False
-                        with print_lock:
-                            print(
-                                "[GPU queue] nvidia-smi process probing is unavailable; "
-                                "continuing with one queue worker per selected GPU.",
-                                flush=True,
-                            )
-                return
-            if gpu_id not in busy:
-                if announced:
-                    with print_lock:
-                        print(f"[GPU queue] GPU {gpu_id} is now free", flush=True)
-                return
-            if not announced:
-                with print_lock:
-                    print(
-                        f"[GPU queue] GPU {gpu_id} is occupied by another compute "
-                        "process; waiting",
-                        flush=True,
-                    )
-                announced = True
-            if stop_dispatch.wait(max(float(gpu_poll_seconds), 0.1)):
-                return
 
     def worker(gpu_id: int):
         while True:
-            if stop_dispatch.is_set() and not continue_on_error:
-                return
-            wait_until_free(gpu_id)
             if stop_dispatch.is_set() and not continue_on_error:
                 return
             try:

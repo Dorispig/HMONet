@@ -126,7 +126,7 @@ python scripts/experiments/run.py ex3 jacobian_interpolation --dataset air_t_ext
 python scripts/experiments/run.py ex10 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1 --gpus 0 1 2 3
 ```
 
-消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`；派发前还会用 `nvidia-smi` 等待指定 GPU 上的外部计算进程结束。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
+消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
 
 不同实验套件及参数见 [experiments/README.md](experiments/README.md)。实验配置与结果位于 `experiments/ex*/`。
 
