@@ -313,7 +313,7 @@ def model_specific_training_config(config, name, dataset_path=None, mode=None):
             selected[f"{name}_training"].setdefault(
                 key, selected["training"].pop(key)
             )
-    if name == "hmonet" and "hmonet_sampling" in source:
+    if name in ("hmonet", "qghmonet") and "hmonet_sampling" in source:
         selected["hmonet_sampling"] = source["hmonet_sampling"]
     if mode is not None:
         selected["training"]["dataset"] = mode
@@ -338,9 +338,10 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
             "pimeshonet": "PI-MeshONet",
             "pihmonet": "PI-HMONet",
             "attentionpihmonet": "Attention-PI-HMONet",
+            "qghmonet": "QG-HMONet",
         }[name]
     )
-    if name in ("hmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
         mapping = (
             config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
         )
@@ -357,9 +358,9 @@ def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
         / "tensorboard"
         / dimension
         / dataset
-        / ({"pimeshonet": "PI-MeshONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
     )
-    if name in ("hmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
         folder = folder / config.get("model", {}).get(name, {}).get(
             "hmonet_mapping_mode", "current"
         )
@@ -380,9 +381,10 @@ def config_archive_directory(args, config, name, run_id):
             "pimeshonet": "PI-MeshONet",
             "pihmonet": "PI-HMONet",
             "attentionpihmonet": "Attention-PI-HMONet",
+            "qghmonet": "QG-HMONet",
         }[name]
     )
-    if name in ("hmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
         directory /= (
             config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
         )
@@ -426,9 +428,9 @@ def create_run_directories(args, config, mode, name, dimension):
 
     output_parent = (
         Path(args.output_root)
-        / ({"pimeshonet": "PI-MeshONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
     )
-    if name in ("hmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
         mapping = (
             config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
         )
@@ -596,7 +598,7 @@ class TrainingState:
             self.shape,
             self.device,
             _geometry_for
-            if self.name in ("hmonet", "pihmonet", "attentionpihmonet")
+            if self.name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet")
             else None,
             int(self.training["batch_size"]),
             bool(
@@ -1346,14 +1348,14 @@ class TrainingState:
 
     def _write_artifacts(self, best_mse, elapsed):
         t = self.training
-        h = self.config.get("hmonet_training", {})
+        h = self.config.get(f"{self.name}_training", {})
         hmodel = self.config.get("model", {}).get(self.name, {})
         mapping = (
             hmodel.get("hmonet_mapping_mode", "current")
-            if self.name in ("hmonet", "pihmonet", "attentionpihmonet")
+            if self.name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet")
             else None
         )
-        title = f"{dict(hmonet='HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet', pihmonet='PI-HMONet', attentionpihmonet='Attention-PI-HMONet')[self.name]}{self.dimension}D {self.mode} training loss"
+        title = f"{dict(hmonet='HMONet', qghmonet='QG-HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet', pihmonet='PI-HMONet', attentionpihmonet='Attention-PI-HMONet')[self.name]}{self.dimension}D {self.mode} training loss"
         write_loss_outputs(self.output, self.history, title)
         write_mse_outputs(
             self.output, self.mse_epochs, self.mses, f"{title}: full-dataset MSE"
@@ -1365,19 +1367,19 @@ class TrainingState:
 
             if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet") and "loss_pde" in item:
                 row["loss_pde"] = item["loss_pde"]
-            elif self.name == "hmonet" and "loss_pde" in item:
+            elif self.name in ("hmonet", "qghmonet") and "loss_pde" in item:
                 row["loss_pde"] = item.get("loss_pde", "")
-            if self.name == "hmonet" and "fixed_mse" in item:
+            if self.name in ("hmonet", "qghmonet") and "fixed_mse" in item:
                 row["fixed_mse"] = item["fixed_mse"]
-            if self.name == "hmonet" and "random_mse" in item:
+            if self.name in ("hmonet", "qghmonet") and "random_mse" in item:
                 row["random_mse"] = item["random_mse"]
-            if self.name == "hmonet" and "winslow" in item:
+            if self.name in ("hmonet", "qghmonet") and "winslow" in item:
                 row["winslow"] = item["winslow"]
-            if self.name == "hmonet" and "jacobian_barrier" in item:
+            if self.name in ("hmonet", "qghmonet") and "jacobian_barrier" in item:
                 row["jacobian_barrier"] = item["jacobian_barrier"]
-            if self.name == "hmonet" and "normalized_jacobian" in item:
+            if self.name in ("hmonet", "qghmonet") and "normalized_jacobian" in item:
                 row["normalized_jacobian"] = item["normalized_jacobian"]
-            if self.name == "hmonet" and "singular_value" in item:
+            if self.name in ("hmonet", "qghmonet") and "singular_value" in item:
                 row["singular_value"] = item["singular_value"]
             if self.name == "hmonet" and "tfi_mse" in item:
                 row["tfi_mse"] = item["tfi_mse"]
@@ -1892,6 +1894,7 @@ def print_training_run_summary(summary):
         "pimeshonet": "PI-MeshONet",
         "pihmonet": "PI-HMONet",
         "attentionpihmonet": "Attention-PI-HMONet",
+        "qghmonet": "QG-HMONet",
     }.get(summary["model"], summary["model"])
 
     def metric(value):

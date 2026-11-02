@@ -1,6 +1,6 @@
 # HMONet 二维训练架构与实现说明
 
-本文档依据当前项目代码与 `41×20` air_t 训练配置整理，可作为 SCI 论文中 Methodology、Training Strategy 与 Implementation Details 部分的基础材料。
+本文档依据当前项目代码与 `configs/2D/train.yaml` 的正式精简配置整理，可作为 SCI 论文中 Methodology、Training Strategy 与 Implementation Details 部分的基础材料。模型类中的构造函数默认值用于兼容旧调用；正式实验参数以 YAML 为准。
 
 主要实现文件：
 
@@ -51,7 +51,7 @@ $$
 \mathbf a_x=A_x(\mathbf p_x),\qquad \mathbf a_y=A_y(\mathbf p_y).
 $$
 
-当前调整网络参数为：输入维数 118，4 个宽度为 128 的隐藏层，输出维数 64，激活函数为 Tanh。
+以 `41×20` 边界输入为例，调整网络输入维数为118；正式配置包含4个宽度为64的隐藏层，输出维数为32，激活函数为 Tanh。其他训练网格的输入维数由边界点数自动决定。
 
 调整特征进一步进入两个独立分支：
 
@@ -59,13 +59,13 @@ $$
 \mathbf h_x=B_x(\mathbf a_x),\qquad\mathbf h_y=B_y(\mathbf a_y),
 $$
 
-每个分支具有4个宽度为128的隐藏层，输出维数为128。拼接后：
+每个分支具有4个宽度为64的隐藏层，输出维数为64。拼接后：
 
 $$
-\mathbf h=[\mathbf h_x,\mathbf h_y]\in\mathbb R^{256}.
+\mathbf h=[\mathbf h_x,\mathbf h_y]\in\mathbb R^{128}.
 $$
 
-两个融合 MLP 分别生成用于预测 $x$ 和 $y$ 的分支向量。融合 MLP 的输入维数为256，包含4个宽度为128的隐藏层，输出维数为128。网络还从联合边界特征生成二维偏置和四个边界投影权重参数。
+两个融合 MLP 分别生成用于预测 $x$ 和 $y$ 的分支向量。融合 MLP 的输入维数为128，包含4个宽度为64的隐藏层，输出维数为64。二维偏置由 `bias_head: \mathbb R^{128}\to\mathbb R^2` 的线性层生成。几何系数由 `weight_head` 生成；正式配置中它是 `128→64→4` 的单隐藏层 MLP，而不是旧版线性头。
 
 ## 4. 计算坐标主干网络
 
@@ -75,7 +75,7 @@ $$
 \Phi(\xi,\eta)=[\sin\xi,\sin\eta,\cos\xi,\cos\eta,\xi,\eta,\xi^2,\eta^2,\ldots,\xi^6,\eta^6].
 $$
 
-主干网络输入维数为16，具有4个宽度为128的隐藏层，输出维数为128，激活函数为 Tanh：
+正式配置使用 `legacy` 增强，因此主干输入维数为16，具有4个宽度为64的隐藏层，输出维数为64，激活函数为 Tanh：
 
 $$
 \mathbf t=T(\Phi(\xi,\eta)).
@@ -86,11 +86,11 @@ $$
 分支特征与主干特征通过内积融合：
 
 $$
-\widehat{x}_{\mathrm{raw}}=\sum_{k=1}^{128}b_{x,k}t_k+c_x,
+\widehat{x}_{\mathrm{raw}}=\sum_{k=1}^{64}b_{x,k}t_k+c_x,
 $$
 
 $$
-\widehat{y}_{\mathrm{raw}}=\sum_{k=1}^{128}b_{y,k}t_k+c_y.
+\widehat{y}_{\mathrm{raw}}=\sum_{k=1}^{64}b_{y,k}t_k+c_y.
 $$
 
 原始预测不单独承担边界拟合任务，最终输出还要经过精确参数边界硬约束。
@@ -104,11 +104,19 @@ $$
 \mathbf P_b=\Gamma_b(\xi),\quad\mathbf P_t=\Gamma_t(\xi).
 $$
 
-投影点由参数曲线的 Torch 向量化公式直接计算，不进行离散曲线拟合。网络从联合边界特征预测：
+投影点由参数曲线的 Torch 向量化公式直接计算，不进行离散曲线拟合。正式结构同时使用边界几何特征与查询位置特征。`weight_head` 和 `trunk_projection_head` 分别输出四个 logits，经 Sigmoid 后逐位相乘：
 
 $$
-\rho_i=\operatorname{sigmoid}(W_i\mathbf h+c_i),\qquad i\in\{l,r,b,t\}.
+\boldsymbol\rho^{(b)}=\operatorname{sigmoid}(W_b(\mathbf h)),\qquad
+\boldsymbol\rho^{(t)}=\operatorname{sigmoid}(W_t(\mathbf t)),
 $$
+
+$$
+\boldsymbol\rho=\boldsymbol\rho^{(b)}\odot\boldsymbol\rho^{(t)}
+=(\rho_l,\rho_r,\rho_b,\rho_t)\in(0,1)^4.
+$$
+
+当前实现只保留上述 Branch×Trunk 位置调制与 Sigmoid 激活；Softplus、凸组合和平滑泡函数辅助分支不属于正式模型。
 
 令 $a=\xi(1-\xi)$，$b=\eta(1-\eta)$，则：
 
@@ -176,7 +184,7 @@ $$
 \boldsymbol{\xi}_j\sim U((0,1)^2).
 $$
 
-同一 batch 中所有几何样本共享同一组随机点，从而将整个 batch 和所有查询点一次性送入网络。DataLoader 设置为随机遍历、`batch_size=64`、`shuffle=True`、不丢弃最后一个 batch，随机种子为 `20260802`。
+同一 batch 中所有几何样本共享同一组随机点，从而将整个 batch 和所有查询点一次性送入网络。DataLoader 设置为随机遍历、`batch_size=64`、`shuffle=True`、不丢弃最后一个 batch，正式配置随机种子为 `20261030`。采样分布均匀不等于损失等权；当前 `point_loss_weighting=position` 会对坐标误差应用位置权重。
 
 代码也支持曲率与边界距离自适应采样，但当前配置为 `uniform`。
 
@@ -232,10 +240,10 @@ $$
 修正后的训练目标为：
 
 $$
-\mathbf x^*=\mathbf x_{\mathrm{bil}}+rac{\sum_{i=1}^{N_s}w_i\mathbf d_i}{\sum_{i=1}^{N_s}w_i}.
+\mathbf x^*=\mathbf x_{\mathrm{bil}}+\frac{\sum_{i=1}^{N_s}w_i\mathbf d_i}{\sum_{i=1}^{N_s}w_i}.
 $$
 
-四条边界的全部支持点共同参与每个内部点的修正。实现按每256个查询点分块计算，以限制显存峰值。
+四条边界的全部支持点共同参与每个内部点的修正。正式配置按每128个查询点、最多2048个支持点分块计算，以限制显存峰值并减少 Python 循环。
 
 该方法显著提高曲边附近监督点的几何一致性，但没有严格的逐单元内部性保证。在 $t=0.6$、$41\times20$ 网格的20,000个边界层随机点测试中，99.585%的修正点位于精确物理域内。
 
@@ -272,13 +280,13 @@ J=\begin{bmatrix}
 \end{bmatrix}.
 $$
 
-内部位置使用中心差分，边界附近使用二阶单侧差分，保证全部查询点位于计算域内。损失为：
+当前随机中心位于计算域内部，有限差分使用两个坐标方向相同的配置步长。模型能够对略超出闭包的逻辑坐标前向，但该域外延拓没有训练保证，因此正式采样仍应避免无意依赖域外值。损失为：
 
 $$
 L_J=\operatorname{mean}[\operatorname{ReLU}(J_{\min}-\det J)^2],
 $$
 
-其中 $J_{\min}=10^{-4}$，有限差分步长为 $h=10^{-3}$。只有低于阈值的 Jacobian 受到惩罚，梯度仍通过预测坐标传播至网络参数。
+其中 $J_{\min}=10^{-4}$，当前有限差分步长为 $h=10^{-4}$。只有低于阈值的 Jacobian 受到惩罚，梯度仍通过预测坐标传播至网络参数。
 
 ## 12. 法向损失
 
@@ -295,7 +303,7 @@ $$
 当前 `current` 映射、均匀随机采样、无法向损失、无残差正则时：
 
 $$
-\boxed{L=L_{\mathrm{coord}}+0.01L_J}.
+\boxed{L=L_{\mathrm{coord}}+10^{-4}L_J}.
 $$
 
 一般形式为：
@@ -304,7 +312,7 @@ $$
 L=L_{\mathrm{coord}}+\lambda_JL_J+\lambda_nL_n+\lambda_rL_r.
 $$
 
-当前 $\lambda_J=0.01$，$\lambda_n=0$，$\lambda_r=0$，不存在边界坐标损失。
+当前 $\lambda_J=10^{-4}$，$\lambda_n=0$，$\lambda_r=0$，不存在边界坐标损失。
 
 ## 14. 优化与学习率
 
@@ -312,20 +320,20 @@ $$
 
 | 参数 | 当前值 |
 |---|---:|
-| 初始学习率 | $4\times10^{-4}$ |
+| 初始学习率 | $2\times10^{-4}$ |
 | 学习率保持轮数 | 1000 |
-| 更新间隔 | 500 epoch |
-| 衰减系数 | 0.8 |
+| 更新间隔 | 1000 epoch |
+| 衰减系数 | 0.9 |
 | 停止继续衰减阈值 | $10^{-5}$ |
-| 最大 epoch | 100000 |
+| 最大 epoch | 50000 |
 | batch size | 64 |
 | 梯度裁剪范数 | 1.0 |
-| 随机种子 | 20260802 |
+| 随机种子 | 20261030 |
 
-这里的 warmup 是前1000个 epoch 保持初始学习率，并非线性升温。之后每500个 epoch 执行：
+这里的 warmup 是前1000个 epoch 保持初始学习率，并非线性升温。之后每1000个 epoch 执行：
 
 $$
-\mathrm{lr}_{k+1}=0.8\,\mathrm{lr}_k.
+\mathrm{lr}_{k+1}=0.9\,\mathrm{lr}_k.
 $$
 
 ## 15. 非有限值处理

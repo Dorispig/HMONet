@@ -9,11 +9,11 @@
 trunk模块改变了模型结构，因此ex7不复用ex4基线。基线只能用下列独立命令显式训练；消融命令不会触发它：
 
 ```powershell
-python scripts/experiments/run_baseline_2d.py --experiment-set ex7 --dataset air_t_ext_0_1000_41_20 --seeds 20260802 20260917 20261031 --run-tag paper_v1
+python scripts/experiments/run.py ex7 baseline --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 --tag paper_v1
 ```
 
 ```powershell
-python scripts/experiments/run_ablations_2d.py --experiment-set ex7 --ablations pde_jacobian --dataset air_t_ext_0_1000_41_20 --seeds 20260802 20260917 20261031 --run-tag paper_v1 --continue-on-error
+python scripts/experiments/run.py ex7 pde_jacobian --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 --tag paper_v1 --continue-on-error
 ```
 
 如需只运行某些变体，请直接调用单实验入口：

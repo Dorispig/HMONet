@@ -1,4 +1,4 @@
-# 二维参数边界评估配置
+﻿# 二维参数边界评估配置
 # 完整命令行说明：configs/2D/evaluate_cli.md
 # 命令行参数会覆盖本文件中的对应值。
 #
@@ -290,9 +290,7 @@ cases:
 # =============================================================================
 
 evaluation:
-  attentionpihmonet_mapping_mode: current
   # 默认评估方法。可选任意组合：
-  # tfi、pde、meshonet、pimeshonet、hmonet、pihmonet。
   methods: [tfi, pde, meshonet, hmonet]
 
   # 不指定 --case 时评估这些案例。
@@ -300,22 +298,17 @@ evaluation:
 
   # HMONet内部映射：current、coons_residual、corner_corrected；both仍表示前两种。
   hmonet_mapping_mode: current
-  pihmonet_mapping_mode: current
 
   # 边界后处理：none、direct、inverse_distance。
   hmonet_boundary_projection: none
   meshonet_boundary_projection: none
   pimeshonet_boundary_projection: none
-  pihmonet_boundary_projection: none
-  attentionpihmonet_boundary_projection: none
   inverse_distance_power: 2.0
 
   # null 自动查找对应数据集和模型设置下最新的兼容 checkpoint。
   hmonet_checkpoint: null
   meshonet_checkpoint: null
   pimeshonet_checkpoint: null
-  pihmonet_checkpoint: null
-  attentionpihmonet_checkpoint: null
   skip_missing_checkpoints: true
 
 

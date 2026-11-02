@@ -5,6 +5,6 @@ The class implementations remain checkpoint-compatible with the historical
 location for new code.
 """
 
-from .model import HMONet2D, HMONet3D, AttentionHMONet2D, AttentionHMONet3D
+from .model import HMONet2D, HMONet3D
 
-__all__ = ["HMONet2D", "HMONet3D", "AttentionHMONet2D", "AttentionHMONet3D"]
+__all__ = ["HMONet2D", "HMONet3D"]

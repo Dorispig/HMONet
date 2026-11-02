@@ -28,17 +28,16 @@ def validate_train_config(config: dict) -> None:
     remove_deprecated_projection_config(config)
     if config["model"].get("name") not in {
         "hmonet",
+        "qghmonet",
         "meshonet",
         "pimeshonet",
-        "pihmonet",
-        "attentionpihmonet",
         "both",
         "pi",
         "all",
     }:
         raise ValueError(
-            "model.name must be hmonet, meshonet, pimeshonet, pihmonet, "
-            "attentionpihmonet, both, pi or all"
+            "model.name must be hmonet, qghmonet, meshonet, pimeshonet, "
+            "both, pi or all"
         )
     if not isinstance(config["model"].get("common", {}), dict):
         raise ValueError("model.common must be a mapping")
@@ -124,8 +123,7 @@ def validate_train_config(config: dict) -> None:
         "hmonet_training",
         "meshonet_training",
         "pimeshonet_training",
-        "pihmonet_training",
-        "attentionpihmonet_training",
+        "qghmonet_training",
     ):
         section = config.get(section_name, {})
         values = {
@@ -426,8 +424,7 @@ def validate_evaluate_config(config: dict) -> None:
         "hmonet",
         "meshonet",
         "pimeshonet",
-        "pihmonet",
-        "attentionpihmonet",
+        "qghmonet",
         "tfi",
         "pde",
     }:
@@ -436,10 +433,9 @@ def validate_evaluate_config(config: dict) -> None:
         )
     for key in (
         "hmonet_boundary_projection",
+        "qghmonet_boundary_projection",
         "meshonet_boundary_projection",
         "pimeshonet_boundary_projection",
-        "pihmonet_boundary_projection",
-        "attentionpihmonet_boundary_projection",
     ):
         if evaluation.get(key, "direct") not in {"none", "direct", "inverse_distance"}:
             raise ValueError(
@@ -447,16 +443,15 @@ def validate_evaluate_config(config: dict) -> None:
             )
     if evaluation.get("model", "hmonet") not in {
         "hmonet",
+        "qghmonet",
         "meshonet",
         "pimeshonet",
-        "pihmonet",
-        "attentionpihmonet",
         "both",
         "pi",
         "all",
     }:
         raise ValueError(
-            "evaluation.model must be hmonet, meshonet, pimeshonet, pihmonet, both or all"
+            "evaluation.model must be hmonet, qghmonet, meshonet, pimeshonet, both or all"
         )
     if evaluation.get("hmonet_sampling_mode", "adaptive") not in {
         "adaptive",

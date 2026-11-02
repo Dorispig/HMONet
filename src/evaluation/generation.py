@@ -92,13 +92,13 @@ def generate(
     """Reuse only the matching method's mesh; an unavailable method is never TFI."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    network = method in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet")
+    network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet")
     signature_data = {
         "implementation": version,
         "method": method,
         "shape": shape,
         "geometry": geometry.to_dict(),
-        "mapping": mapping if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet") else None,
+        "mapping": mapping if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet") else None,
     }
     if network:
         signature_data.update(
@@ -118,7 +118,7 @@ def generate(
                 )
             },
         )
-        if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet"):
+        if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet"):
             signature_data["inference_path"] = "direct-no-setup-v1"
             signature_data["curve_kernel_backend"] = options.get(
                 "curve_kernel_backend", "auto"

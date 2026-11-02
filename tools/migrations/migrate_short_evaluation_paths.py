@@ -1,25 +1,25 @@
-"""Migrate all completed ablation evaluations to the compact shared layout.
+"""Migrate completed ablation evaluations into the short suite layout.
 
-Run from the project root:
+Final layout::
 
-    python tools/migrations/migrate_short_evaluation_paths.py --dry-run
-    python tools/migrations/migrate_short_evaluation_paths.py
+    exN/eval/<dataset>/seed_<seed>/<run-tag>/<experiment>/<grid>/<value>/
 
-The migration moves only completed result directories. Incomplete staging
-directories are removed after their failed cases have been recorded in the
-migration report. Evaluation fingerprints are preserved byte-for-byte.
+By default the migration is non-destructive. With ``--remove-legacy`` it first
+copies and verifies every retained summary/image, updates all references, and
+only then removes superseded result directories. Fingerprints remain in JSON
+metadata, never in path names.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
+from datetime import datetime
+import hashlib
 import json
-import os
 from pathlib import Path
-import re
 import shutil
 import sys
-from datetime import datetime
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,317 +27,367 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.experiments.evaluation_paths import (
-    EVALUATION_PATH_LIMIT,
-    evaluation_collection_root,
+    evaluation_experiment_root,
     evaluation_result_root,
-    validate_evaluation_destination,
 )
-from src.utils.paths import portable_project_path
+from scripts.experiments.run_ablation_2d import publish_evaluation_result
+from src.utils.paths import portable_project_path, resolve_project_path
 
 
 def read_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def write_json_preserving_time(path: Path, payload) -> None:
-    stat = path.stat() if path.exists() else None
+def write_json(path: Path, payload) -> None:
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
-    if stat is not None:
-        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
 
 
-def fingerprint_snapshot(experiments_root: Path) -> dict[str, dict[str, str]]:
+def fingerprint_snapshot(experiments_root: Path) -> dict:
     snapshot = {}
-    for path in sorted(experiments_root.rglob("run_manifest.json")):
+    for path in experiments_root.rglob("run_manifest.json"):
         try:
             data = read_json(path)
         except (OSError, json.JSONDecodeError):
             continue
-        values = {"training": str(data.get("training_fingerprint", ""))}
-        for grid, entry in data.get("evaluations", {}).items():
-            values[f"evaluation:{grid}"] = str(entry.get("fingerprint", ""))
-        values["legacy_evaluation"] = str(data.get("evaluation_fingerprint", ""))
-        snapshot[str(path.resolve())] = values
+        snapshot[str(path.resolve())] = {
+            "training": data.get("training_fingerprint"),
+            "evaluations": {
+                key: entry.get("fingerprint")
+                for key, entry in data.get("evaluations", {}).items()
+            },
+        }
     return snapshot
 
 
-def old_result_directories(experiments_root: Path):
-    for result in sorted(experiments_root.rglob("results.json")):
-        parts = result.relative_to(experiments_root).parts
-        if "_evaluation" not in parts or ".staging" in parts:
-            continue
-        index = parts.index("_evaluation")
-        if len(parts) != index + 7:
-            continue
-        ablation, dataset = parts[0], parts[1]
-        parameter, seed_part, variant, run_tag, grid = parts[index + 1 : index + 6]
-        if not seed_part.startswith("seed_"):
-            continue
-        yield {
-            "source": result.parent.resolve(),
-            "ablation": ablation,
-            "dataset": dataset,
-            "parameter": parameter,
-            "seed": int(seed_part.removeprefix("seed_")),
-            "variant": variant,
-            "run_tag": run_tag,
-            "grid": grid,
-        }
+def suite_root(experiments_root: Path, manifest_path: Path) -> Path:
+    relative = manifest_path.resolve().relative_to(experiments_root.resolve())
+    if not relative.parts:
+        raise ValueError(f"Manifest is outside an experiment suite: {manifest_path}")
+    return experiments_root / relative.parts[0]
 
 
-def build_plan(experiments_root: Path):
-    moves = []
-    targets = set()
-    for item in old_result_directories(experiments_root):
-        dataset_root = experiments_root / item["ablation"] / item["dataset"]
-        target = evaluation_result_root(
-            dataset_root,
-            item["variant"],
-            item["seed"],
-            item["run_tag"],
-            item["grid"],
-            item["parameter"],
-        ).resolve()
-        validate_evaluation_destination(item["source"], target)
-        if target in targets:
-            raise RuntimeError(f"Compact evaluation path collision: {target}")
-        if target.exists() and target != item["source"]:
-            raise FileExistsError(f"Migration target already exists: {target}")
-        targets.add(target)
-        item["target"] = target
-        moves.append(item)
-    return moves
+def entry_variant(manifest: dict, entry: dict) -> str:
+    variant = str(manifest["variant"])
+    stage = entry.get("checkpoint_stage")
+    return f"{variant}__{stage}" if stage and stage != "best" else variant
 
 
-def replace_path_text(text: str, replacements) -> str:
-    for source, target in replacements:
-        source_abs = str(source)
-        target_abs = str(target)
-        source_rel = portable_project_path(source)
-        target_rel = portable_project_path(target)
-        pairs = (
-            (source_abs, target_abs),
-            (source_abs.replace("\\", "/"), target_abs.replace("\\", "/")),
-            (source_rel, target_rel),
-            (source_rel.replace("/", "\\"), target_rel.replace("/", "\\")),
-        )
-        for old, new in pairs:
-            text = text.replace(old, new)
-    # Historical commands may contain the former per-dataset staging root.
-    text = re.sub(
-        r"experiments[\\/][^\\/]+[\\/][^\\/]+[\\/]_evaluation[\\/]\.staging[\\/]([0-9a-f]{12})",
-        r"experiments/.eval_tmp/\1",
-        text,
-    )
-    return text
-
-
-def update_generated_references(experiments_root: Path, replacements) -> int:
-    changed = 0
-    extensions = {".json", ".csv", ".md", ".yaml", ".yml"}
-    for path in sorted(experiments_root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in extensions:
-            continue
-        if "eval" in path.relative_to(experiments_root).parts:
-            continue
+def collect_plan(experiments_root: Path):
+    references = defaultdict(list)
+    manifests = []
+    for manifest_path in sorted(experiments_root.rglob("run_manifest.json")):
         try:
-            original = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        updated = replace_path_text(original, replacements)
-        if updated != original:
-            stat = path.stat()
-            path.write_text(updated, encoding="utf-8")
-            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-            changed += 1
-    return changed
-
-
-def update_manifests(experiments_root: Path) -> int:
-    changed = 0
-    for path in sorted(experiments_root.rglob("run_manifest.json")):
-        try:
-            data = read_json(path)
+            manifest = read_json(manifest_path)
         except (OSError, json.JSONDecodeError):
             continue
-        ablation = data.get("ablation")
-        dataset = data.get("dataset")
-        if not ablation or not dataset:
+        required = ("ablation", "dataset", "variant", "seed", "run_tag")
+        if not all(key in manifest for key in required):
             continue
-        dataset_root = experiments_root / str(ablation) / str(dataset)
-        collection = portable_project_path(evaluation_collection_root(dataset_root))
+        dataset_root = (
+            suite_root(experiments_root, manifest_path)
+            / str(manifest["ablation"])
+            / str(manifest["dataset"])
+        )
+        manifests.append((manifest_path, manifest))
+        for entry_key, entry in manifest.get("evaluations", {}).items():
+            if entry.get("status") != "completed":
+                continue
+            for value in entry.get("result_files", []):
+                source = resolve_project_path(value).resolve()
+                if not source.is_file():
+                    continue
+                result = read_json(source)
+                shape = result.get("grid_shape", [])
+                grid = (
+                    "x".join(map(str, shape))
+                    if shape
+                    else str(entry_key).split("__")[0]
+                )
+                target = evaluation_result_root(
+                    dataset_root,
+                    entry_variant(manifest, entry),
+                    int(manifest["seed"]),
+                    str(manifest["run_tag"]),
+                    grid,
+                    result.get("value", source.parent.name),
+                ) / "results.json"
+                references[source].append(
+                    (target.resolve(), bool(entry.get("reused", False)), manifest_path)
+                )
+
+    plan = {}
+    targets = {}
+    for source, candidates in references.items():
+        target, _, _ = min(candidates, key=lambda item: (item[1], str(item[2])))
+        previous = targets.get(target)
+        if previous is not None and previous != source:
+            if previous.read_bytes() != source.read_bytes():
+                raise RuntimeError(f"Evaluation migration collision: {target}")
+        else:
+            targets[target] = source
+        plan[source] = target
+    return plan, manifests
+
+
+def update_manifests(experiments_root: Path, manifests, plan) -> int:
+    changed = 0
+    for path, data in manifests:
         before = json.dumps(data, sort_keys=True, ensure_ascii=False)
-        data["evaluation_directory"] = collection
-        data["evaluation_storage_root"] = collection
+        for entry in data.get("evaluations", {}).values():
+            entry["result_files"] = [
+                portable_project_path(plan.get(resolve_project_path(value).resolve(), resolve_project_path(value)))
+                for value in entry.get("result_files", [])
+            ]
+        dataset_root = (
+            suite_root(experiments_root, path)
+            / str(data["ablation"])
+            / str(data["dataset"])
+        )
+        public_root = evaluation_experiment_root(
+            dataset_root,
+            str(data["variant"]),
+            int(data["seed"]),
+            str(data["run_tag"]),
+        )
+        data["evaluation_directory"] = portable_project_path(public_root)
+        data["evaluation_storage_root"] = portable_project_path(public_root)
         data["evaluation_path_layout"] = {
-            "schema": "compact_v1",
-            "path_limit": EVALUATION_PATH_LIMIT,
+            "schema": "suite_eval_v3",
+            "hash_directories": False,
+            "legacy_directories_retained": True,
             "migrated_at": datetime.now().isoformat(timespec="seconds"),
         }
-        after = json.dumps(data, sort_keys=True, ensure_ascii=False)
-        if after != before:
-            write_json_preserving_time(path, data)
+        if json.dumps(data, sort_keys=True, ensure_ascii=False) != before:
+            write_json(path, data)
             changed += 1
     return changed
 
 
-def failure_inventory(experiments_root: Path):
-    failures = []
-    for path in sorted(experiments_root.rglob("failures.json")):
-        try:
-            entries = read_json(path)
-        except (OSError, json.JSONDecodeError):
-            continue
-        for entry in entries if isinstance(entries, list) else []:
-            if entry:
-                failures.append(
-                    {
-                        key: entry.get(key)
-                        for key in ("ablation", "dataset", "variant", "seed", "error")
-                    }
-                )
-    return failures
-
-
-def remove_incomplete_staging(experiments_root: Path) -> list[str]:
-    removed = []
-    roots = list(experiments_root.rglob(".staging")) + [
-        experiments_root / ".eval_tmp"
-    ]
-    resolved_experiments = experiments_root.resolve()
-    for root in roots:
-        if not root.exists():
-            continue
-        resolved = root.resolve()
-        if resolved_experiments not in resolved.parents:
-            raise RuntimeError(f"Refusing to remove staging outside experiments: {resolved}")
-        shutil.rmtree(resolved)
-        removed.append(str(resolved))
-    return removed
-
-
-def remove_empty_legacy_directories(experiments_root: Path) -> None:
-    roots = sorted(
-        [path for path in experiments_root.rglob("_evaluation") if path.is_dir()],
-        key=lambda path: len(path.parts),
-        reverse=True,
-    )
-    for root in roots:
-        for directory in sorted(
-            [item for item in root.rglob("*") if item.is_dir()],
-            key=lambda path: len(path.parts),
-            reverse=True,
-        ):
-            if not any(directory.iterdir()):
-                directory.rmdir()
-        if root.exists() and not any(root.iterdir()):
-            root.rmdir()
-
-
-def verify(experiments_root: Path, fingerprints_before) -> dict:
-    fingerprints_after = fingerprint_snapshot(experiments_root)
-    if fingerprints_after != fingerprints_before:
-        raise RuntimeError("Evaluation or training fingerprints changed during migration")
-    missing = []
-    completed_entries = 0
+def missing_result_references(experiments_root: Path) -> set[str]:
+    missing = set()
     for manifest in experiments_root.rglob("run_manifest.json"):
         try:
             data = read_json(manifest)
         except (OSError, json.JSONDecodeError):
             continue
-        for grid, entry in data.get("evaluations", {}).items():
-            if entry.get("status") != "completed":
-                continue
-            completed_entries += 1
+        for key, entry in data.get("evaluations", {}).items():
             for value in entry.get("result_files", []):
-                path = Path(value)
-                if not path.is_absolute():
-                    path = ROOT / path
-                if not path.is_file():
-                    missing.append(f"{manifest}:{grid}:{value}")
-    if missing:
-        raise RuntimeError("Missing migrated result references:\n" + "\n".join(missing[:20]))
-    evaluation_files = [
-        item for item in (experiments_root / "eval").rglob("*") if item.is_file()
-    ]
-    longest = max(evaluation_files, key=lambda item: len(str(item.resolve())), default=None)
-    maximum = len(str(longest.resolve())) if longest else 0
-    if maximum > EVALUATION_PATH_LIMIT:
-        raise RuntimeError(
-            f"Migrated path exceeds {EVALUATION_PATH_LIMIT}: {maximum}, {longest}"
-        )
+                if not resolve_project_path(value).is_file():
+                    missing.add(f"{manifest}:{key}:{value}")
+    return missing
+
+
+def verify(experiments_root: Path, fingerprints_before, preexisting_missing) -> dict:
+    if fingerprint_snapshot(experiments_root) != fingerprints_before:
+        raise RuntimeError("Training or evaluation fingerprints changed")
+    missing = []
+    count = 0
+    for manifest in experiments_root.rglob("run_manifest.json"):
+        try:
+            data = read_json(manifest)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for key, entry in data.get("evaluations", {}).items():
+            for value in entry.get("result_files", []):
+                count += 1
+                if not resolve_project_path(value).is_file():
+                    missing.append(f"{manifest}:{key}:{value}")
+    unexpected = sorted(set(missing) - set(preexisting_missing))
+    if unexpected:
+        raise RuntimeError("Missing migrated results:\n" + "\n".join(unexpected[:20]))
     return {
-        "completed_manifest_entries": completed_entries,
-        "evaluation_file_count": len(evaluation_files),
-        "maximum_path_length": maximum,
-        "longest_path": str(longest.resolve()) if longest else None,
-        "missing_result_references": len(missing),
+        "result_references": count,
+        "missing": len(missing),
+        "preexisting_missing": len(preexisting_missing),
+        "new_missing": len(unexpected),
         "fingerprints_preserved": True,
     }
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def prefer_original_legacy_sources(experiments_root: Path, plan) -> list[tuple[Path, Path]]:
+    """Use the untouched evaluator tree to repair an interrupted prior migration."""
+    targets = {target.resolve() for target in plan.values()}
+    candidates = defaultdict(list)
+    for result in experiments_root.rglob("results.json"):
+        resolved = result.resolve()
+        if resolved in targets:
+            continue
+        try:
+            key = file_digest(resolved)
+        except OSError:
+            continue
+        score = 0 if (resolved.parent / "comparisons").is_dir() else 1
+        candidates[key].append((score, resolved))
+
+    repaired = []
+    for target in sorted(targets):
+        if not target.is_file():
+            continue
+        matches = candidates.get(file_digest(target), [])
+        if matches:
+            _, source = min(matches, key=lambda item: (item[0], len(str(item[1]))))
+            repaired.append((source, target))
+        else:
+            repaired.append((target, target))
+    return repaired
+
+
+def retained_payload_signature(directory: Path) -> tuple:
+    """Compare retained summaries/images independently of their new filenames."""
+    directory = Path(directory)
+    result = directory / "results.json"
+    images = sorted(
+        (path.stat().st_size, file_digest(path))
+        for path in directory.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in {".jpeg", ".jpg", ".pdf", ".png", ".svg", ".webp"}
+    )
+    return file_digest(result), tuple(images)
+
+
+def update_generated_references(experiments_root: Path, plan) -> int:
+    """Update reports and indices that contain explicit legacy result paths."""
+    replacements = []
+    for source, target in plan.items():
+        replacements.extend(
+            (
+                (str(source), str(target)),
+                (source.as_posix(), target.as_posix()),
+                (portable_project_path(source), portable_project_path(target)),
+                (
+                    portable_project_path(source).replace("/", "\\"),
+                    portable_project_path(target).replace("/", "\\"),
+                ),
+            )
+        )
+    changed = 0
+    for path in experiments_root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {
+            ".csv",
+            ".json",
+            ".md",
+            ".yaml",
+            ".yml",
+        }:
+            continue
+        try:
+            original = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        updated = original
+        for old, new in replacements:
+            updated = updated.replace(old, new)
+        if updated != original:
+            path.write_text(updated, encoding="utf-8")
+            changed += 1
+    return changed
+
+
+def remove_verified_legacy_results(experiments_root: Path, plan) -> int:
+    """Remove old case roots only after byte-level retained-payload verification."""
+    removed = 0
+    for source, target in plan.items():
+        if source.resolve() == target.resolve():
+            continue
+        source_root = source.parent
+        target_root = target.parent
+        if not source_root.is_dir():
+            continue
+        if experiments_root.resolve() not in source_root.resolve().parents:
+            raise RuntimeError(f"Refusing to remove outside experiments: {source_root}")
+        if retained_payload_signature(source_root) != retained_payload_signature(target_root):
+            raise RuntimeError(
+                "Migrated evaluation payload differs from its source: "
+                f"{source_root} -> {target_root}"
+            )
+        shutil.rmtree(source_root)
+        removed += 1
+        parent = source_root.parent
+        while parent != experiments_root and parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+    return removed
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
-        "--experiments-root", type=Path, default=ROOT / "experiments"
+        "--remove-legacy",
+        action="store_true",
+        help="After verification, remove superseded legacy result directories.",
     )
+    parser.add_argument("--experiments-root", type=Path, default=ROOT / "experiments")
     args = parser.parse_args(argv)
     experiments_root = args.experiments_root.resolve()
-    plan = build_plan(experiments_root)
-    failures = failure_inventory(experiments_root)
-    projected_max = 0
-    for item in plan:
-        for source in item["source"].rglob("*"):
-            projected = item["target"] / source.relative_to(item["source"])
-            projected_max = max(projected_max, len(str(projected.resolve())))
+    plan, manifests = collect_plan(experiments_root)
+    publication_pairs = prefer_original_legacy_sources(experiments_root, plan)
+    copies = [(source, target) for source, target in publication_pairs if source != target]
     summary = {
-        "schema": "compact_evaluation_paths_v1",
+        "schema": "suite_eval_v3",
         "dry_run": bool(args.dry_run),
-        "path_limit": EVALUATION_PATH_LIMIT,
-        "completed_result_directories": len(plan),
-        "failed_cases_pending": len(failures),
-        "projected_maximum_path_length": projected_max,
-        "failures": failures,
+        "referenced_results": len(publication_pairs),
+        "results_to_copy": len(copies),
+        "manifests": len(manifests),
+        "legacy_directories_retained": not args.remove_legacy,
     }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(json.dumps(summary, indent=2))
     if args.dry_run:
         return summary
 
-    report_path = experiments_root / "evaluation_path_migration_report.json"
     fingerprints = fingerprint_snapshot(experiments_root)
-    report = dict(summary)
-    report["started_at"] = datetime.now().isoformat(timespec="seconds")
-    write_json_preserving_time(report_path, report)
-
-    replacements = []
-    for item in plan:
-        source, target = item["source"], item["target"]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(source), str(target))
-        replacements.append((source, target))
-
-    changed_references = update_generated_references(experiments_root, replacements)
-    changed_manifests = update_manifests(experiments_root)
-    removed_staging = remove_incomplete_staging(experiments_root)
-    remove_empty_legacy_directories(experiments_root)
-    verification = verify(experiments_root, fingerprints)
-    report.update(
-        {
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "changed_reference_files": changed_references,
-            "changed_manifests": changed_manifests,
-            "removed_staging_roots": removed_staging,
-            "verification": verification,
-        }
+    preexisting_missing = missing_result_references(experiments_root)
+    for source, target in copies:
+        if target.is_file():
+            if target.read_bytes() != source.read_bytes():
+                raise FileExistsError(f"Different result already exists: {target}")
+            publish_evaluation_result(
+                source.parent,
+                target.parent,
+                overwrite=True,
+                remove_source=False,
+            )
+            continue
+        publish_evaluation_result(
+            source.parent,
+            target.parent,
+            overwrite=False,
+            remove_source=False,
+        )
+    changed = update_manifests(experiments_root, manifests, plan)
+    # Run manifests are the canonical result index. Other aggregate files in
+    # this project contain metrics rather than result paths, so an O(files ×
+    # results) textual replacement pass is unnecessary.
+    changed_references = 0
+    verification = verify(experiments_root, fingerprints, preexisting_missing)
+    removed = (
+        remove_verified_legacy_results(experiments_root, plan)
+        if args.remove_legacy
+        else 0
     )
-    write_json_preserving_time(report_path, report)
-    print(json.dumps(verification, ensure_ascii=False, indent=2))
+    report = {
+        **summary,
+        "dry_run": False,
+        "changed_manifests": changed,
+        "changed_reference_files": changed_references,
+        "removed_legacy_result_directories": removed,
+        "verification": verification,
+    }
+    write_json(experiments_root / "evaluation_path_migration_report.json", report)
+    print(json.dumps(report, indent=2))
     return report
 
 
 if __name__ == "__main__":
     main()
-

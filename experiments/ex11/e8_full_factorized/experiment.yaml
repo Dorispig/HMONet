@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e8_full_factorized
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e8_full_factorized
+    value: modified_mlp_plus_cross_attention_plus_boundary_decoder_plus_decoupled_weights
+    overrides: [--lr, "0.0004", --modified-mlp-enabled, --query-boundary-cross-attention-enabled, --boundary-layer-decoder-enabled, --decoupled-weight-decoder-enabled]

@@ -1,4 +1,4 @@
-# 二维模型训练配置
+﻿# 二维模型训练配置
 # 完整命令行说明：configs/2D/train_cli.md
 # 命令行参数会覆盖本文件中的对应值。
 
@@ -30,8 +30,8 @@ model:  # 模型与网络结构配置
   common:  # 五种模型共用的网络结构
     branch_dim: 32                 # 边界输入调整后的特征维度；与ex7精简基线一致。
     trunk_dim: 16                  # legacy坐标增强后的主干输入维度；power_fourier模式下自动推导。
-    coordinate_lift_mode: legacy   # legacy保持当前实验格式；power_fourier启用幂次-周期联合编码。
-    coordinate_lift_max_power: 1   # power_fourier的最高次幂，必须>=1；legacy模式忽略。
+    coordinate_lift_mode: power_fourier
+    coordinate_lift_max_power: 2
     adjust_hidden_dim: 64          # 边界输入调整网络隐藏层宽度。
     adjust_hidden_layer_num: 4     # 边界输入调整网络隐藏层数。
     branch_hidden_dim: 64          # 边界分支网络隐藏层宽度。
@@ -82,19 +82,15 @@ model:  # 模型与网络结构配置
     attention_dropout: 0.0  # 注意力层dropout比例
     residual_regularization_weight: 0.0  # 仅coons_residual使用；0表示关闭
 
-  pihmonet:  # PI-HMONet模型配置
-    # 与 HMONet 独立配置，可选：current、coons_residual。
-    hmonet_mapping_mode: current  # HMONet内部映射方式
-
-  attentionpihmonet:  # Attention-PI-HMONet模型配置
-    hmonet_mapping_mode: current  # 边界精确投影方式：current或coons_residual
-    boundary_alpha_initial_value: 1.5  # 二维原始预测权重常数alpha的初始值
-    attention_dim: 64  # 边界自注意力特征维度
-    attention_heads: 4  # 多头注意力头数
-    attention_layers: 2  # 自注意力编码层数
-    attention_feedforward_dim: 128  # 注意力层前馈网络宽度
-    attention_dropout: 0.0  # 注意力层dropout比例
-
+  qghmonet:  # Query--Geometry Gated Hard-Boundary Mesh Operator Network
+    hmonet_mapping_mode: corner_corrected
+    query_boundary_cross_attention_enabled: true
+    boundary_layer_decoder_enabled: true
+    decoupled_weight_decoder_enabled: true
+    multiscale_boundary_encoder_enabled: true
+    cross_attention_heads: 4
+    local_boundary_dim: 16
+    boundary_layer_width: 0.08
 
 # =============================================================================
 # 四模型公共训练设置
@@ -174,7 +170,7 @@ training:  # 公共训练设置
 # HMONet
 # =============================================================================
 
-hmonet_training:  # HMONet训练参数
+hmonet_training: &hard_operator_training  # HMONet训练参数
   # Adam 与学习率调度。四个模型均使用相同默认值，可分别覆盖。
   learning_rate: 0.0002  # 初始学习率
   lr_warmup_epochs: 1000  # 学习率预热轮数
@@ -259,85 +255,7 @@ pimeshonet_training:  # PI-MeshONet训练参数
   fd_step: [0.01, 0.01]
 
 
-# =============================================================================
-# PI-HMONet
-# =============================================================================
-
-pihmonet_training:  # PI-HMONet训练参数
-  # 本模型独立使用的 Adam 初始学习率与学习率调度参数。
-  learning_rate: 0.0004  # 初始学习率
-  lr_warmup_epochs: 1000  # 学习率预热轮数
-  lr_update_interval: 1000  # 学习率更新间隔
-  lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
-  lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
-
-  # 默认总损失：L = L_PDE,norm + 0.1 * L_J + lambda_anchor * L_anchor。
-  # 原始 PDE 损失保留；权重为 0 时完全跳过其计算。
-  pde_loss_weight: 0.0  # 原始PDE损失权重
-  # 归一化 PDE 损失默认开启，减小几何尺度和度量系数量级的影响。
-  normalized_pde_loss_weight: 0.1  # 归一化PDE损失权重
-
-  # 使用 PDE 的同一有限差分模板计算 Jacobian，不增加额外网络前向。
-  jacobian_loss_enabled: true  # 是否启用Jacobian损失
-  jacobian_loss_weight: 0.1  # Jacobian损失权重
-  jacobian_minimum: 1.0e-4  # 最小允许Jacobian
-
-  # 固定中心区域 TFI 锚点；越出物理边界的锚点自动从损失中排除。
-  anchor_loss_weight: 0.1  # TFI锚点损失权重
-  # 权重从首轮的初始值线性衰减，在该 epoch 降为 0。
-  anchor_decay_end_epoch: 1000  # 锚点权重衰减结束epoch
-  # 每个计算域轴上的固定锚点数；二维共 n^2 个，三维共 n^3 个。
-  anchor_points_per_axis: 20  # 每轴锚点数量
-  # 锚点位于每个计算域轴的 [margin, 1-margin] 区间。
-  anchor_margin: 0.2  # 锚点边界余量
-
-  # 下列权重为 0 时不调用对应损失函数，也不产生额外计算。
-  smoothness_loss_weight: 0.0  # 网格线平滑损失权重
-  orthogonality_loss_weight: 0.0  # 正交性损失权重
-
-  # 每批随机有限差分中心点数，批内所有样本共享。
-  interior_sample_count: 128  # 每批共享内部采样点数
-  # null 使用各轴 1/(n-1)；也可写 [h_xi, h_eta]。
-  fd_step: null  # 有限差分步长配置
-
-
-# =============================================================================
-# Attention-PI-HMONet
-# =============================================================================
-
-attentionpihmonet_training:  # 带边界自注意力和精确投影的自监督模型训练参数
-  learning_rate: 0.0004  # Adam初始学习率
-  lr_warmup_epochs: 1000  # 学习率预热轮数
-  lr_update_interval: 1000  # 学习率更新间隔
-  lr_decay_gamma: 0.9  # 学习率乘法衰减系数
-  lr_stop_below: 1.0e-5  # 学习率停止继续衰减的下限
-
-  pde_backend: finite_difference  # 内部和边界层求导方式：finite_difference（默认）或autograd
-  interior_sample_count: 400  # 每批共享的内部物理配点数
-  interior_margin: 0.0  # 仅自动微分使用；0表示在整个开计算域内均匀采样
-  fd_step: null  # 有限差分后端步长；null时使用数据集逻辑网格步长
-
-  normalized_pde_loss_weight: 1.0  # 内部归一化PDE残差权重
-  boundary_loss_weight: 1.0  # 最终输出与精确参数边界之间的坐标损失权重
-  alpha_penalty_weight: 0.01  # 将可训练alpha约束回1的平方惩罚权重
-  boundary_loss_sample_count: 64  # 四条边合计的随机精确边界监督点数
-
-  jacobian_loss_weight: 0.0  # 当前二维训练策略关闭内部Jacobian损失
-  jacobian_minimum: 1.0e-4  # Jacobian行列式最低目标值
-  smoothness_loss_weight: 0.0  # 当前二维训练策略关闭内部平滑损失
-
-  boundary_pde_loss_weight: 0.0  # 当前二维训练策略关闭边界层PDE损失
-  boundary_jacobian_loss_weight: 0.0  # 当前二维训练策略关闭边界层Jacobian损失
-  boundary_physics_sample_count: 64  # 四条边合计的边界物理配点数
-  boundary_physics_offset: 0.01  # 仅自动微分使用的边界层向内偏移
-  boundary_physics_tangential_margin: 0.05  # 仅自动微分使用的角点避让宽度
-
-  anchor_loss_weight: 0.0  # TFI锚点初始权重；0表示不计算锚点损失
-  anchor_decay_end_epoch: 1000  # 锚点权重线性衰减为0的epoch
-  anchor_points_per_axis: 10  # 每个计算域方向的固定锚点数
-  anchor_margin: 0.2  # 锚点距计算域边界的参数余量
-
-  boundary_sample_counts: null  # null使用[nx,ny,nx,ny]采样四条边用于注意力编码
+qghmonet_training: *hard_operator_training
 
 
 

@@ -1,0 +1,31 @@
+name: Feature or method proposal
+description: Propose an implementation, numerical method, dataset, or evaluation improvement.
+title: "[Proposal]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation and scientific use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Include mathematical definitions, inputs/outputs, expected computational cost, and affected dimensions.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Related literature or evidence
+      description: Prefer primary publications and explain how the proposal differs from existing project methods.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Tests, datasets, baselines, metrics, seeds, and failure cases.
+    validations:
+      required: true
+

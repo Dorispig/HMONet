@@ -30,8 +30,10 @@ class GridIsolationTests(unittest.TestCase):
 
             self.assertEqual(result, root / "results.json")
             self.assertTrue(result.is_file())
-            self.assertTrue((root / "mesh_comparison.png").is_file())
-            self.assertTrue((quality / "quality_scaled_jacobian.pdf").is_file())
+            self.assertTrue((root / "plots/mesh_comparison.png").is_file())
+            self.assertTrue(
+                (root / "plots/quality/quality_scaled_jacobian.pdf").is_file()
+            )
             self.assertFalse((root / "per_cell.csv").exists())
             self.assertFalse((quality / "quality_data.npz").exists())
 

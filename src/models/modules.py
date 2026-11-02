@@ -15,6 +15,9 @@ __all__ = [
     "coordinate_lift_input_dim",
     "normalize_coordinate_lift_mode",
     "power_fourier_lift",
+    "ModifiedGatedMLP",
+    "QueryBoundaryCrossAttention",
+    "MultiScaleBoundaryEncoder",
 ]
 
 
@@ -131,6 +134,139 @@ class MLP(nn.Module):
         for layer in self.hidden_layers:
             m = self.activation(layer(m))
         return self.output_layer(m)
+
+
+class ModifiedGatedMLP(nn.Module):
+    """PI-MeshONet-style gated MLP with an unchanged input/output contract."""
+
+    def __init__(self, input_dim, hidden_dim, hidden_layer_num, output_dim):
+        super().__init__()
+        if min(int(input_dim), int(hidden_dim), int(output_dim)) < 1:
+            raise ValueError("ModifiedGatedMLP dimensions must be positive")
+        if int(hidden_layer_num) < 1:
+            raise ValueError("ModifiedGatedMLP requires at least one gated layer")
+        self.feature_u = nn.Linear(input_dim, hidden_dim)
+        self.feature_v = nn.Linear(input_dim, hidden_dim)
+        self.initial_hidden = nn.Linear(input_dim, hidden_dim)
+        self.gates = nn.ModuleList(
+            nn.Linear(hidden_dim, hidden_dim)
+            for _ in range(int(hidden_layer_num))
+        )
+        self.output = nn.Linear(hidden_dim, output_dim)
+        self.activation = nn.Tanh()
+
+    def forward(self, inputs):
+        u = self.activation(self.feature_u(inputs))
+        v = self.activation(self.feature_v(inputs))
+        hidden = self.activation(self.initial_hidden(inputs))
+        for layer in self.gates:
+            gate = self.activation(layer(hidden))
+            hidden = (1.0 - gate) * u + gate * v
+        return self.output(hidden)
+
+
+class QueryBoundaryCrossAttention(nn.Module):
+    """Fuse query features with boundary tokens by gated residual attention.
+
+    This block deliberately consumes learned boundary tokens only.  Curvature,
+    normals, signed-distance fields, and other hand-crafted geometric features
+    are neither required nor computed.
+    """
+
+    def __init__(self, query_dim, token_dim=None, num_heads=4, dropout=0.0):
+        super().__init__()
+        query_dim = int(query_dim)
+        token_dim = query_dim if token_dim is None else int(token_dim)
+        if query_dim % int(num_heads) != 0:
+            raise ValueError("query_dim must be divisible by num_heads")
+        self.token_projection = (
+            nn.Identity() if token_dim == query_dim else nn.Linear(token_dim, query_dim)
+        )
+        self.query_norm = nn.LayerNorm(query_dim)
+        self.token_norm = nn.LayerNorm(query_dim)
+        self.attention = nn.MultiheadAttention(
+            query_dim, int(num_heads), dropout=float(dropout), batch_first=True
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(2 * query_dim, query_dim), nn.Sigmoid()
+        )
+        self.output_norm = nn.LayerNorm(query_dim)
+
+    def forward(self, queries, boundary_tokens, key_padding_mask=None):
+        tokens = self.token_norm(self.token_projection(boundary_tokens))
+        attended, _ = self.attention(
+            self.query_norm(queries), tokens, tokens,
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )
+        gate = self.gate(torch.cat((queries, attended), dim=-1))
+        return self.output_norm(queries + gate * attended)
+
+
+class MultiScaleBoundaryEncoder(nn.Module):
+    """Shared 1-D multiscale encoder for directed boundary entities.
+
+    Each entity contains physical coordinates, its local parameter and a
+    learned entity identity.  Shared kernels 3/5/9 capture local geometry at
+    three receptive-field sizes; self-attention then models long-range and
+    cross-entity interactions.  No explicit curvature or normal is used.
+    """
+
+    def __init__(
+        self,
+        coordinate_dim,
+        entity_count,
+        model_dim=32,
+        output_dim=64,
+        num_heads=4,
+        dropout=0.0,
+    ):
+        super().__init__()
+        model_dim = int(model_dim)
+        if model_dim % int(num_heads) != 0:
+            raise ValueError("model_dim must be divisible by num_heads")
+        self.coordinate_dim = int(coordinate_dim)
+        self.entity_count = int(entity_count)
+        self.entity_embedding = nn.Embedding(self.entity_count, model_dim)
+        input_dim = self.coordinate_dim + 1
+        self.convolutions = nn.ModuleList(
+            nn.Conv1d(input_dim, model_dim, kernel, padding=kernel // 2)
+            for kernel in (3, 5, 9)
+        )
+        self.fusion = nn.Conv1d(3 * model_dim, model_dim, 1)
+        layer = nn.TransformerEncoderLayer(
+            d_model=model_dim,
+            nhead=int(num_heads),
+            dim_feedforward=2 * model_dim,
+            dropout=float(dropout),
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.self_attention = nn.TransformerEncoder(
+            layer, num_layers=1, norm=nn.LayerNorm(model_dim)
+        )
+        self.output = nn.Linear(model_dim, int(output_dim))
+
+    def forward(self, entities):
+        if len(entities) != self.entity_count:
+            raise ValueError(
+                f"expected {self.entity_count} boundary entities, got {len(entities)}"
+            )
+        encoded = []
+        for entity_id, points in enumerate(entities):
+            if points.dim() != 3 or points.shape[-1] != self.coordinate_dim:
+                raise ValueError("each boundary entity must be [batch, points, dimension]")
+            parameter = torch.linspace(
+                0.0, 1.0, points.shape[1], device=points.device, dtype=points.dtype
+            ).view(1, -1, 1).expand(points.shape[0], -1, -1)
+            values = torch.cat((points, parameter), dim=-1).transpose(1, 2)
+            scales = [torch.nn.functional.gelu(conv(values)) for conv in self.convolutions]
+            features = self.fusion(torch.cat(scales, dim=1)).transpose(1, 2)
+            identity = self.entity_embedding.weight[entity_id].view(1, 1, -1)
+            encoded.append(features + identity)
+        tokens = self.self_attention(torch.cat(encoded, dim=1))
+        return self.output(tokens)
 
 
 class BoundaryTokenBuilder2D(nn.Module):

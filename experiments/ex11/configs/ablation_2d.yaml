@@ -1,0 +1,6 @@
+# ex10: sampling-strategy and operator-model comparison on version-1 datasets.
+seeds: [20261030]
+datasets:
+  - air_t_ext_1_500_21_21
+  - run_ext_1_500_41_41
+grid_shapes: [[101, 101], [201, 201], [401, 401]]

@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e2_cross_attention
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e2_cross_attention
+    value: query_to_boundary_cross_attention
+    overrides: [--lr, "0.0004", --query-boundary-cross-attention-enabled]

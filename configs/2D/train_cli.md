@@ -276,7 +276,7 @@ python scripts/train/train_2d.py --help
 
 二维使用 `scripts/train/train_2d.py`，三维使用 `scripts/train/train_3d.py` 和 `configs/3D/train.yaml`。
 
-网络层数、隐藏层宽度、特征维度等结构参数在 YAML 的 `model.common` 和各模型段中修改，没有逐项命令行覆盖。两个数据集的默认路径在 YAML 的 `datasets` 修改。不要把评估入口的 `--grid-shapes`、`--methods`、`--checkpoint`、`--hmonet-geometry-mode`、`--curve-kernel-backend` 等选项追加到训练命令中；当前训练解析器不支持这些选项。
+网络层数、隐藏层宽度、特征维度等结构参数在 YAML 的 `model.common` 和各模型段中修改，没有逐项命令行覆盖。两个数据集的默认路径在 YAML 的 `datasets` 修改。不要把评估入口的 `--grid-shapes`、`--methods`、`--checkpoint`、`--curve-kernel-backend` 等选项追加到训练命令中；当前训练解析器不支持这些选项。
 
 训练映射模式不接受评估入口中的 `both` 或 `coons` 别名。若要训练两种 HMONet 映射，应分别执行 `--hmonet-mapping-mode current` 和 `--hmonet-mapping-mode coons_residual`。
 

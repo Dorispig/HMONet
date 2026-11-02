@@ -1,5 +1,12 @@
 # 二维消融实验使用说明
 
+> 历史套件：保留迁移前配置和结果。当前推荐使用统一短入口；本文后面的旧长命令仅用于解释历史运行。
+
+```bash
+python scripts/experiments/run.py ex1 all --dataset air_t_int_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 --tag paper_v1
+python scripts/experiments/run.py ex1 baseline all --dataset air_t_int_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 --tag paper_v1
+```
+
 本目录保存二维消融实验的冻结配置、训练、评估和汇总结果。消融实验调用正式的 HMONet 训练与评估代码，但所有运行产物均写入 `experiments/ex1/`，不会与 `outputs/` 中的正式实验混合。
 
 ## 1. 配置文件
@@ -211,5 +218,5 @@ python tools/migrations/migrate_short_evaluation_paths.py --dry-run
 python tools/migrations/migrate_short_evaluation_paths.py
 ```
 
-迁移会移动原始评估目录并更新清单引用，但不会修改 checkpoint、训练指纹、评估指纹或 `results.json` 内容。
+迁移会把历史评估结果复制并整理到新的运行内短路径，再更新清单引用；旧目录会保留，不会修改 checkpoint、训练指纹、评估指纹或 `results.json` 内容。
 

@@ -20,7 +20,11 @@ if str(ROOT) not in sys.path:
 
 from scripts.evaluate.evaluation_common import evaluation_identity_from_record
 from src.evaluation.artifacts import digest, read_json, write_json
-from src.evaluation.retention import IMAGE_SUFFIXES, compact_evaluation_directory
+from src.evaluation.retention import (
+    IMAGE_SUFFIXES,
+    compact_evaluation_directory,
+    reorganize_evaluation_images,
+)
 
 
 def file_size(path: Path) -> int:
@@ -30,7 +34,7 @@ def file_size(path: Path) -> int:
         return 0
 
 
-def compact_result(result_file: Path, dry_run: bool) -> dict:
+def compact_result(result_file: Path, dry_run: bool, images_only: bool = False) -> dict:
     root = result_file.parent
     record = read_json(result_file, {})
     parameters = read_json(root / "evaluation_parameters.json", {})
@@ -49,11 +53,18 @@ def compact_result(result_file: Path, dry_run: bool) -> dict:
             record["evaluation_identity"] = identity
             record["evaluation_fingerprint"] = digest(identity)
             write_json(result_file, record)
-        compact_evaluation_directory(root)
+        if images_only:
+            reorganize_evaluation_images(root)
+        else:
+            compact_evaluation_directory(root)
     return {
         "result": str(result_file),
-        "removed_files": len(removable),
-        "removed_bytes": sum(file_size(path) for path in removable),
+        "removed_files": 0 if images_only else len(removable),
+        "removed_bytes": 0 if images_only else sum(file_size(path) for path in removable),
+        "preserved_detail_files": len(removable) if images_only else 0,
+        "preserved_detail_bytes": (
+            sum(file_size(path) for path in removable) if images_only else 0
+        ),
         "retained_images": sum(
             1
             for path in root.rglob("*")
@@ -72,6 +83,11 @@ def parse_args(argv=None):
         default=("2D", "3D"),
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--images-only",
+        action="store_true",
+        help="Reorganize images without removing numeric caches or detail tables.",
+    )
     return parser.parse_args(argv)
 
 
@@ -85,7 +101,7 @@ def main(argv=None):
         root = output_root / dimension
         if root.is_dir():
             results.extend(
-                compact_result(path, args.dry_run)
+                compact_result(path, args.dry_run, args.images_only)
                 for path in sorted(root.rglob("results.json"))
             )
     total = {
@@ -94,8 +110,19 @@ def main(argv=None):
         "removed_bytes": sum(item["removed_bytes"] for item in results),
         "retained_images": sum(item["retained_images"] for item in results),
         "fingerprints_added": sum(item["fingerprint_added"] for item in results),
+        "preserved_detail_files": sum(
+            item["preserved_detail_files"] for item in results
+        ),
+        "preserved_detail_bytes": sum(
+            item["preserved_detail_bytes"] for item in results
+        ),
     }
-    print(json.dumps({"dry_run": args.dry_run, "total": total}, indent=2))
+    print(
+        json.dumps(
+            {"dry_run": args.dry_run, "images_only": args.images_only, "total": total},
+            indent=2,
+        )
+    )
     return total
 
 

@@ -21,7 +21,9 @@ class FormalEvaluationRetentionTests(unittest.TestCase):
             compact_evaluation_directory(root)
 
             self.assertTrue((root / "results.json").is_file())
-            self.assertTrue((detail / "quality_scaled_jacobian.png").is_file())
+            self.assertTrue(
+                (root / "plots/TFI/quality/quality_scaled_jacobian.png").is_file()
+            )
             self.assertFalse((root / "generated_meshes.npz").exists())
             self.assertFalse((detail / "quality_summary.csv").exists())
 

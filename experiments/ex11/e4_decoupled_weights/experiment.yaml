@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e4_decoupled_weights
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e4_decoupled_weights
+    value: decoupled_weight_and_coordinate_decoders
+    overrides: [--lr, "0.0004", --decoupled-weight-decoder-enabled]

@@ -20,13 +20,13 @@
 如确实缺少参照基线，可用独立命令显式创建；后续消融命令只读检查基线指纹，不会训练或评估基线：
 
 ```powershell
-python scripts/experiments/run_baseline_2d.py --experiment-set ex8 --dataset air_t_ext_0_1000_41_20 --seeds 20261030 --run-tag physics_v1 --evaluate
+python scripts/experiments/run.py ex8 baseline --dataset air_t_ext_0_1000_41_20 --seed 20261030 --grids 101 201 401 --tag physics_v1
 ```
 
 再运行五个阶段训练变体及其汇总评估：
 
 ```powershell
-python scripts/experiments/run_ablations_2d.py --experiment-set ex8 --ablations physics_training_strategy --dataset air_t_ext_0_1000_41_20 --seeds 20261030 --run-tag physics_v1 --continue-on-error
+python scripts/experiments/run.py ex8 physics_training_strategy --dataset air_t_ext_0_1000_41_20 --seed 20261030 --grids 101 201 401 --tag physics_v1 --continue-on-error
 ```
 
 只运行五个实验时使用精简名称：

@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e1_modified_mlp
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e1_modified_mlp
+    value: pi_modified_mlp_for_branch_and_trunk
+    overrides: [--lr, "0.0004", --modified-mlp-enabled]

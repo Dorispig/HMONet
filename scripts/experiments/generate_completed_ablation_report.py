@@ -253,7 +253,7 @@ def averaged_table(data, baseline):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-tag", default="paper_v1")
-    parser.add_argument("--output", default="docs/completed_ablation_report.md")
+    parser.add_argument("--output", default="reports/ablations/completed_ablation_report.md")
     args = parser.parse_args(argv)
     output = Path(args.output)
     if not output.is_absolute():

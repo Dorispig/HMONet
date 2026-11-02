@@ -27,7 +27,7 @@ if str(ROOT) not in sys.path:
 
 from src.utils.paths import portable_project_path, resolve_project_path
 from scripts.experiments.evaluation_paths import (
-    evaluation_collection_root,
+    evaluation_experiment_root,
     evaluation_result_root,
     evaluation_staging_root,
     validate_evaluation_destination,
@@ -68,6 +68,14 @@ ABLATIONS = (
     "global200_boundary200",
     "pimeshonet",
     "meshonet",
+    "e1_modified_mlp",
+    "e2_cross_attention",
+    "e3_boundary_decoder",
+    "e4_decoupled_weights",
+    "e5_qg_hmonet",
+    "e6_modified_cross",
+    "e7_modified_cross_boundary",
+    "e8_full_factorized",
 )
 BASELINE_ABLATION = "baseline"
 DEFAULT_LEARNING_RATES = (0.0001, 0.0002, 0.0004, 0.0008, 0.001)
@@ -736,6 +744,16 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
             "--hmonet-save-phase-best-checkpoints",
             "--hmonet-reset-optimizer-on-phase-transition",
             "--hmonet-physics-scale-invariant-pde-enabled",
+            "--modified-mlp-enabled",
+            "--query-boundary-cross-attention-enabled",
+            "--boundary-layer-decoder-enabled",
+            "--decoupled-weight-decoder-enabled",
+            "--multiscale-boundary-encoder-enabled",
+            "--modified-mlp-enabled",
+            "--query-boundary-cross-attention-enabled",
+            "--boundary-layer-decoder-enabled",
+            "--decoupled-weight-decoder-enabled",
+            "--multiscale-boundary-encoder-enabled",
         }:
             result[flag[2:].replace("-", "_")] = True
             index += 1
@@ -750,7 +768,7 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
 def variant_model(variant: Variant) -> str:
     """Return the one network trained by a variant (HMONet by default)."""
     model = str(_variant_options(variant.overrides).get("model", "hmonet")).lower()
-    if model not in {"hmonet", "meshonet", "pimeshonet"}:
+    if model not in {"hmonet", "qghmonet", "meshonet", "pimeshonet"}:
         raise ValueError(f"Unsupported ablation model: {model!r}")
     return model
 
@@ -893,6 +911,14 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "residual_regularization_weight",
         "weight_head_mlp_enabled",
         "boundary_self_attention_enabled",
+        "modified_mlp_enabled",
+        "query_boundary_cross_attention_enabled",
+        "boundary_layer_decoder_enabled",
+        "decoupled_weight_decoder_enabled",
+        "multiscale_boundary_encoder_enabled",
+        "cross_attention_heads",
+        "boundary_layer_width",
+        "local_boundary_dim",
     }
     common_model_keys = {
         "branch_dim",
@@ -995,6 +1021,11 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "boundary_normal_loss_enabled",
         "weight_head_mlp_enabled",
         "boundary_self_attention_enabled",
+        "modified_mlp_enabled",
+        "query_boundary_cross_attention_enabled",
+        "boundary_layer_decoder_enabled",
+        "decoupled_weight_decoder_enabled",
+        "multiscale_boundary_encoder_enabled",
         "pde_loss_enabled",
         "physics_jacobian_enabled",
         "save_phase_best_checkpoints",
@@ -1146,6 +1177,9 @@ def ablation_evaluation_settings(args) -> dict:
         "hmonet_boundary_projection": values.get(
             "hmonet_boundary_projection", "none"
         ),
+        "qghmonet_boundary_projection": values.get(
+            "qghmonet_boundary_projection", "none"
+        ),
         "meshonet_boundary_projection": values.get(
             "meshonet_boundary_projection", "none"
         ),
@@ -1157,7 +1191,10 @@ def ablation_evaluation_settings(args) -> dict:
 
 def evaluated_model(summary: dict) -> str:
     model = str(summary.get("model", "hmonet")).lower().replace("-", "")
-    aliases = {"pimeshonet": "pimeshonet", "meshonet": "meshonet", "hmonet": "hmonet"}
+    aliases = {
+        "pimeshonet": "pimeshonet", "meshonet": "meshonet",
+        "hmonet": "hmonet", "qghmonet": "qghmonet",
+    }
     if model not in aliases:
         raise ValueError(f"Unsupported evaluated model: {summary.get('model')!r}")
     return aliases[model]
@@ -1603,6 +1640,7 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
     model = evaluated_model(summary)
     checkpoint_flags = {
         "hmonet": "--hmonet-checkpoint",
+        "qghmonet": "--qghmonet-checkpoint",
         "meshonet": "--meshonet-checkpoint",
         "pimeshonet": "--pimeshonet-checkpoint",
     }
@@ -1626,7 +1664,7 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
         str(settings["quality_metrics"]),
         "--force",
     ]
-    if model == "hmonet":
+    if model in {"hmonet", "qghmonet"}:
         command += [
             "--hmonet-mapping-mode",
             summary.get("hmonet_mapping_mode", "current"),
@@ -1643,13 +1681,32 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
 
 
 def compact_evaluation_result_directory(directory: Path) -> Path:
-    """Keep the reusable summary and every generated evaluation image."""
+    """Keep the reusable summary and publish images under short readable paths."""
     directory = Path(directory)
     result_file = directory / "results.json"
     if not result_file.is_file():
         raise FileNotFoundError(
             f"Cannot compact evaluation without its summary: {result_file}"
         )
+    image_files = [
+        child
+        for child in directory.rglob("*")
+        if child.is_file() and child.suffix.lower() in EVALUATION_IMAGE_SUFFIXES
+    ]
+    for child in image_files:
+        relative = child.relative_to(directory)
+        if relative.parts and relative.parts[0] == "plots":
+            continue
+        destination = _compact_evaluation_image_path(directory, relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            stem, suffix = destination.stem, destination.suffix
+            index = 2
+            while destination.exists():
+                destination = destination.with_name(f"{stem}_{index}{suffix}")
+                index += 1
+        shutil.move(str(child), str(destination))
+
     for child in list(directory.rglob("*")):
         if not child.is_file():
             continue
@@ -1666,6 +1723,197 @@ def compact_evaluation_result_directory(directory: Path) -> Path:
         except OSError:
             pass
     return result_file
+
+
+def _compact_evaluation_image_path(root: Path, relative: Path) -> Path:
+    """Map evaluator-internal folders to the public compact plot hierarchy."""
+    parts = list(relative.parts)
+    filename = parts[-1]
+    lowered = [part.lower() for part in parts]
+    if len(parts) == 1:
+        return root / "plots" / filename
+    if parts[0].lower() == "grid_quality":
+        return root / "plots" / "quality" / filename
+    if parts[0].lower() == "comparisons":
+        category = ["comparison", _comparison_method_group(parts[1:-1])]
+        if "grid_quality" in lowered:
+            category.append("quality")
+        return root / "plots" / Path(*category) / filename
+
+    method_aliases = {
+        "pde_winslow": "PDE",
+        "tfi": "TFI",
+        "hmonet": "HMONet",
+        "qg-hmonet": "QG-HMONet",
+        "meshonet": "MeshONet",
+        "pi-meshonet": "PI-MeshONet",
+    }
+    method = method_aliases.get(parts[0].lower(), _safe_plot_component(parts[0]))
+    category = [method]
+    if "raw" in lowered:
+        category.append("raw")
+    elif method in {"HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"}:
+        category.append("processed")
+    if "grid_quality" in lowered:
+        category.append("quality")
+    return root / "plots" / Path(*category) / filename
+
+
+def _comparison_method_group(parts) -> str:
+    """Extract a readable method combination from evaluator-internal folders."""
+    aliases = {
+        "tfi": "TFI",
+        "pde": "PDE",
+        "meshonet": "MeshONet",
+        "pimeshonet": "PI-MeshONet",
+        "hmonet": "HMONet",
+        "qghmonet": "QG-HMONet",
+        "pihmonet": "PI-HMONet",
+        "attention": "Attention-PI-HMONet",
+    }
+    ignored = {
+        "grid",
+        "quality",
+        "none",
+        "raw",
+        "direct",
+        "idw",
+        "current",
+        "corner",
+        "corrected",
+        "coons",
+        "residual",
+    }
+    for part in reversed(tuple(parts)):
+        tokens = [token for token in re.split(r"[_+]+", part.lower()) if token]
+        methods = []
+        for token in tokens:
+            if token.isdigit() or token in ignored:
+                continue
+            method = aliases.get(token)
+            if method and method not in methods:
+                methods.append(method)
+        if len(methods) >= 2:
+            return "_".join(methods)
+    return "methods"
+
+
+def _safe_plot_component(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._+-]+", "_", str(value)).strip("._")
+    return value or "misc"
+
+
+def publish_evaluation_result(
+    source: Path,
+    target: Path,
+    *,
+    overwrite: bool,
+    remove_source: bool = True,
+) -> Path:
+    """Publish one evaluator case without recreating its deep internal tree."""
+    source = Path(source)
+    target = Path(target)
+    source_result = source / "results.json"
+    if not source_result.is_file():
+        raise FileNotFoundError(f"Missing evaluation summary: {source_result}")
+    if target.exists():
+        if not overwrite:
+            raise FileExistsError(
+                "Evaluation output already exists and is protected: "
+                f"{target}. Use --force to replace it or choose another --run-tag."
+            )
+        shutil.rmtree(target)
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_result, target / "results.json")
+    result_metadata = json.loads(source_result.read_text(encoding="utf-8"))
+    comparison_group = _comparison_group_from_methods(
+        result_metadata.get("method_order", result_metadata.get("requested_methods", []))
+    )
+    for image in source.rglob("*"):
+        if not image.is_file() or image.suffix.lower() not in EVALUATION_IMAGE_SUFFIXES:
+            continue
+        relative = image.relative_to(source)
+        if relative.parts and relative.parts[0] == "plots":
+            parts = list(relative.parts)
+            if (
+                len(parts) >= 3
+                and parts[1] == "comparison"
+                and (parts[2] == "quality" or len(parts) == 3)
+            ):
+                parts.insert(2, comparison_group)
+            destination = target / Path(*parts)
+        else:
+            destination = _compact_evaluation_image_path(target, relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            stem, suffix = destination.stem, destination.suffix
+            index = 2
+            while destination.exists():
+                destination = destination.with_name(f"{stem}_{index}{suffix}")
+                index += 1
+        shutil.copy2(image, destination)
+    if remove_source:
+        shutil.rmtree(source)
+    return target / "results.json"
+
+
+def _comparison_group_from_methods(methods) -> str:
+    aliases = {
+        "PDE_Winslow": "PDE",
+        "PI-MeshONet": "PI-MeshONet",
+        "QG-HMONet": "QG-HMONet",
+    }
+    names = [aliases.get(str(method), str(method)) for method in methods]
+    return "_".join(_safe_plot_component(name) for name in names) or "methods"
+
+
+def materialize_reused_evaluation_results(
+    result_files: list[Path],
+    dataset_root: Path,
+    variant: str,
+    seed: int,
+    run_tag: str,
+) -> list[Path]:
+    """Copy a fingerprint-matched legacy result into the current short layout."""
+    materialized = []
+    for result_file in result_files:
+        result_file = Path(result_file)
+        result = json.loads(result_file.read_text(encoding="utf-8"))
+        grid_shape = result.get("grid_shape", [])
+        grid = (
+            "x".join(map(str, grid_shape))
+            if grid_shape
+            else result_file.parent.parent.name
+        )
+        target = evaluation_result_root(
+            dataset_root,
+            variant,
+            seed,
+            run_tag,
+            grid,
+            result.get("value", result_file.parent.name),
+        )
+        target_result = target / "results.json"
+        if result_file.resolve() == target_result.resolve():
+            materialized.append(result_file)
+            continue
+        if target_result.is_file():
+            if target_result.read_bytes() != result_file.read_bytes():
+                raise FileExistsError(
+                    "A different evaluation summary already occupies the current "
+                    f"short result path: {target_result}. Use --force to replace it."
+                )
+            materialized.append(target_result)
+            continue
+        materialized.append(
+            publish_evaluation_result(
+                result_file.parent,
+                target,
+                overwrite=False,
+                remove_source=False,
+            )
+        )
+    return sorted(materialized)
 
 
 def evaluation_directory(experiment_root, dataset, variant, seed, run_tag, grid=None):
@@ -1702,17 +1950,11 @@ def organize_evaluation_results(
             grid_name,
             parameter_value,
         )
-        validate_evaluation_destination(result_file.parent, target)
-        if target.exists():
-            if not overwrite:
-                raise FileExistsError(
-                    "Evaluation output already exists and is protected: "
-                    f"{target}. Use --force to replace it or choose another --run-tag."
-                )
-            shutil.rmtree(target)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(result_file.parent), str(target))
-        organized.append(compact_evaluation_result_directory(target))
+        published = publish_evaluation_result(
+            result_file.parent, target, overwrite=overwrite
+        )
+        validate_evaluation_destination(target, target)
+        organized.append(published)
     shutil.rmtree(staging_root, ignore_errors=True)
     staging_parent = staging_root.parent
     if staging_parent.exists() and not any(staging_parent.iterdir()):
@@ -2499,7 +2741,7 @@ def execute(args, config, variants: list[Variant]):
                 baseline_key = (name, seed)
                 if (
                     args.ablation != BASELINE_ABLATION
-                    and not args.defer_finalization
+                    and not getattr(args, "defer_finalization", False)
                     and baseline_key not in checked_baselines
                 ):
                     checked_baselines.add(baseline_key)
@@ -2613,7 +2855,12 @@ def execute(args, config, variants: list[Variant]):
                                 )
                         action = "reuse-training+evaluation[" + ", ".join(grid_actions) + "]"
                     storage = portable_project_path(
-                        evaluation_collection_root(evaluation_dataset_root)
+                        evaluation_experiment_root(
+                            evaluation_dataset_root,
+                            evaluation_variant,
+                            seed,
+                            args.run_tag,
+                        )
                     )
                     print(
                         f"{name} | {variant.name} | seed={seed} | {action} "
@@ -2671,7 +2918,12 @@ def execute(args, config, variants: list[Variant]):
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                     "status": "running",
                     "evaluation_directory": portable_project_path(
-                        evaluation_collection_root(dataset_root)
+                        evaluation_experiment_root(
+                            evaluation_dataset_root,
+                            evaluation_variant,
+                            seed,
+                            args.run_tag,
+                        )
                     ),
                     "training_fingerprint": fingerprint,
                     "training_identity_file": portable_project_path(destination / "training_identity.json"),
@@ -2688,7 +2940,12 @@ def execute(args, config, variants: list[Variant]):
                     "resume_policy": "restart_incomplete",
                     "is_baseline_configuration": is_baseline_configuration,
                     "evaluation_storage_root": portable_project_path(
-                        evaluation_collection_root(evaluation_dataset_root)
+                        evaluation_experiment_root(
+                            evaluation_dataset_root,
+                            evaluation_variant,
+                            seed,
+                            args.run_tag,
+                        )
                     ),
                     "evaluations": evaluations,
                 }
@@ -2776,6 +3033,13 @@ def execute(args, config, variants: list[Variant]):
                                     source_manifest = portable_project_path(
                                         reusable_evaluation["manifest_path"]
                                     )
+                                    result_files = materialize_reused_evaluation_results(
+                                        result_files,
+                                        evaluation_dataset_root,
+                                        storage_variant,
+                                        seed,
+                                        args.run_tag,
+                                    )
                                     evaluate_command = None
                                     print(
                                         f"Reuse evaluation [{entry_key}]: "
@@ -2844,7 +3108,12 @@ def execute(args, config, variants: list[Variant]):
                                 evaluation_reused_by_grid[entry_key] = reused
                                 evaluate_commands[entry_key] = evaluate_command
                         manifest["evaluation_directory"] = portable_project_path(
-                            evaluation_collection_root(evaluation_dataset_root)
+                            evaluation_experiment_root(
+                                evaluation_dataset_root,
+                                evaluation_variant,
+                                seed,
+                                args.run_tag,
+                            )
                         )
                         manifest["evaluations"] = evaluations
                         manifest["evaluation_reused_by_grid"] = evaluation_reused_by_grid
@@ -2892,7 +3161,7 @@ def execute(args, config, variants: list[Variant]):
                     failures.append(manifest)
                     if not args.continue_on_error:
                         raise
-    if not args.dry_run and not args.defer_finalization:
+    if not args.dry_run and not getattr(args, "defer_finalization", False):
         if args.train_only or baseline_compatibility_issues:
             # Training curves remain useful, but a baseline mismatch makes any
             # baseline comparison or aggregate evaluation scientifically invalid.
@@ -2903,7 +3172,7 @@ def execute(args, config, variants: list[Variant]):
                 args.run_tag,
                 save_plots=getattr(args, "evaluation_plots", True),
             )
-    if not args.dry_run and not args.defer_finalization:
+    if not args.dry_run and not getattr(args, "defer_finalization", False):
         for dataset in map(resolve_dataset, args.dataset or config.get("datasets", [])):
             name = dataset_name(dataset)
             write_json(
@@ -2914,7 +3183,7 @@ def execute(args, config, variants: list[Variant]):
         # requested replacement. Other ablations retain the legacy cleanup behavior.
         if args.ablation != BASELINE_ABLATION or args.force:
             (experiment_root / "failures.json").unlink(missing_ok=True)
-    if args.defer_finalization:
+    if getattr(args, "defer_finalization", False):
         return completed
     compatibility_report = experiment_root / "baseline_compatibility_errors.json"
     if baseline_compatibility_issues:

@@ -72,8 +72,10 @@ def compact_suite(suite: Path, dry_run: bool = False) -> dict:
     retained_results = 0
     retained_images = 0
 
-    evaluation_root = suite / "eval"
-    if evaluation_root.is_dir():
+    evaluation_roots = sorted(
+        path for path in suite.rglob("eval") if path.is_dir()
+    )
+    for evaluation_root in evaluation_roots:
         for path in list(evaluation_root.rglob("*")):
             if not path.is_file():
                 continue

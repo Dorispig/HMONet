@@ -19,11 +19,8 @@ METHODS = {
     "pimeshonet": "PI-MeshONet",
     "pi-meshonet": "PI-MeshONet",
     "hmonet": "HMONet",
-    "pihmonet": "PI-HMONet",
-    "pi-hmonet": "PI-HMONet",
-    "attentionpihmonet": "Attention-PI-HMONet",
-    "attention-pi-hmonet": "Attention-PI-HMONet",
-    "attention_pihmonet": "Attention-PI-HMONet",
+    "qghmonet": "QG-HMONet",
+    "qg-hmonet": "QG-HMONet",
 }
 DEFAULTS = dict(
     methods=["tfi", "pde", "meshonet", "hmonet"],
@@ -34,6 +31,7 @@ DEFAULTS = dict(
     pihmonet_boundary_projection="none",
     attentionpihmonet_boundary_projection="none",
     hmonet_boundary_projection="none",
+    qghmonet_boundary_projection="none",
     curve_kernel_backend="auto",
     inference_batch_size=1,
     meshonet_boundary_projection="none",
@@ -94,7 +92,7 @@ def selected_methods(values):
         key = str(value).strip().lower()
         if key not in METHODS:
             raise ValueError(
-                f"Unknown method {value!r}; choose tfi,pde,meshonet,pimeshonet,hmonet,pihmonet,attentionpihmonet"
+                f"Unknown method {value!r}; choose tfi,pde,meshonet,pimeshonet,hmonet,qghmonet"
             )
         if METHODS[key] not in result:
             result.append(METHODS[key])
@@ -132,7 +130,7 @@ def build_parser(dimension):
     )
     parser.add_argument(
         "--model",
-        choices=["hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet", "both", "pi", "all"],
+        choices=["hmonet", "qghmonet", "meshonet", "pimeshonet", "both", "pi", "all"],
     )
     parser.set_defaults(dimension=dimension)
     parser.add_argument(
@@ -152,23 +150,14 @@ def build_parser(dimension):
         help="Explicit checkpoint when exactly one network is selected.",
     )
     parser.add_argument("--hmonet-checkpoint", type=Path)
+    parser.add_argument("--qghmonet-checkpoint", type=Path)
     parser.add_argument("--meshonet-checkpoint", type=Path)
     parser.add_argument("--pimeshonet-checkpoint", type=Path)
-    parser.add_argument("--pihmonet-checkpoint", type=Path)
-    parser.add_argument("--attentionpihmonet-checkpoint", type=Path)
-    parser.add_argument(
-        "--pihmonet-mapping-mode",
-        choices=["current", "coons", "coons_residual", "both"],
-    )
-    parser.add_argument(
-        "--attentionpihmonet-mapping-mode",
-        choices=["current", "coons", "coons_residual", "both"],
-    )
     parser.add_argument("--curve-kernel-backend", choices=["auto", "torch"])
     parser.add_argument(
         "--hmonet-mapping-mode", choices=["current", "coons", "coons_residual", "corner_corrected", "both"]
     )
-    for model in ("hmonet", "meshonet", "pimeshonet", "pihmonet", "attentionpihmonet"):
+    for model in ("hmonet", "qghmonet", "meshonet", "pimeshonet"):
         parser.add_argument(
             f"--{model}-boundary-projection",
             choices=["none", "direct", "inverse_distance", "idw"],
@@ -250,6 +239,7 @@ def evaluation_options(config, case, args):
         *DEFAULTS,
         "model",
         "hmonet_checkpoint",
+        "qghmonet_checkpoint",
         "meshonet_checkpoint",
         "pimeshonet_checkpoint",
         "pihmonet_checkpoint",
@@ -273,16 +263,16 @@ def evaluation_options(config, case, args):
         result["methods"] = [
             m
             for m in result["methods"]
-            if m not in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet")
+            if m not in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
         ]
         result["methods"] += (
-            ["MeshONet", "PI-MeshONet", "HMONet", "PI-HMONet", "Attention-PI-HMONet"]
+            ["MeshONet", "PI-MeshONet", "HMONet", "QG-HMONet"]
             if args.model == "all"
             else (
                 ["MeshONet", "HMONet"]
                 if args.model == "both"
                 else (
-                    ["PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"]
+                    ["PI-MeshONet"]
                     if args.model == "pi"
                     else [METHODS[args.model]]
                 )
@@ -304,7 +294,7 @@ def evaluation_options(config, case, args):
     if (
         args.checkpoint
         and sum(
-            m in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet")
+            m in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
             for m in result["methods"]
         )
         != 1
@@ -324,6 +314,7 @@ def evaluation_options(config, case, args):
             raise ValueError(f"Invalid {key}: {result[key]}")
     for key in (
         "hmonet_boundary_projection",
+        "qghmonet_boundary_projection",
         "meshonet_boundary_projection",
         "pimeshonet_boundary_projection",
         "pihmonet_boundary_projection",

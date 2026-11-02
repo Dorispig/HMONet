@@ -76,10 +76,10 @@ python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.
 含义：要求复用完全匹配的已生成网格，重用/更新质量分析，并画指定物理坐标矩形的局部图。
 
 ```powershell
-python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.3 --grid-shapes 51x50 --curve-kernel-backend torch --hmonet-geometry-mode direct --no-inference-cuda-graph --inference-warmup-runs 3 --inference-timing-repeats 10 --force-regenerate
+python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.3 --grid-shapes 51x50 --curve-kernel-backend torch --inference-warmup-runs 3 --inference-timing-repeats 10 --force-regenerate
 ```
 
-含义：用普通 Torch 曲线求值重新生成并计时，避免融合内核初始化；预热 3 次、测量 10 次。
+含义：用普通 Torch 曲线求值重新生成并计时；预热 3 次、测量 10 次。旧参数 `--hmonet-geometry-mode` 和 `--inference-cuda-graph` 已删除，当前入口会拒绝配置文件中的同名设置。
 
 <a id="cases"></a>
 

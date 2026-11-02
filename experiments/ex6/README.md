@@ -9,13 +9,13 @@
 实验的1000条基线复用。运行下列命令只会训练三个子集实验：
 
 ```powershell
-python scripts/experiments/run_ablations_2d.py --experiment-set ex6 --ablations dataset_size --dataset air_t_ext_0_1000_41_20 --seeds 20260802 20260917 20261031 --run-tag paper_v1
+python scripts/experiments/run.py ex6 dataset_size --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 51 101 201 401 --tag paper_v1
 ```
 
 若改用其他数据集或随机种子，应先建立对应的 `ex6` 基线：
 
 ```powershell
-python scripts/experiments/run_baseline_2d.py --experiment-set ex6 --dataset <数据集名称> --seeds 20260802 20260917 20261031 --run-tag paper_v1 --evaluate
+python scripts/experiments/run.py ex6 baseline --dataset <数据集名称> --seed 20260802 20260917 20261031 --grids 51 101 201 401 --tag paper_v1
 ```
 
 

@@ -1,0 +1,46 @@
+# Downstream Q1 steady-heat benchmark. It consumes the standard evaluator's
+# generated_meshes.npz archives and never retrains a network.
+
+evaluation_config: configs/2D/evaluate.yaml
+evaluation_root: outputs/results
+output_root: outputs/downstream/poisson_2d
+
+datasets:
+  - air_t_ext_1_500_21_21
+  - run_ext_1_500_41_41
+
+methods: [tfi, pde, meshonet, pimeshonet, hmonet]
+protocols: [raw, exact_boundary_control]
+save_plots: true
+
+problem:
+  equation: steady_heat
+  conductivity: 1.0
+  source: 0.0
+  hot_edges: [top]
+  cold_edges: [bottom, right, left]
+  hot_value: 1.0
+  cold_value: 0.0
+  corner_policy: max
+
+reference:
+  method: pde
+  grid_shape: [401, 401]
+
+solver:
+  solver: direct
+  tolerance: 1.0e-10
+  max_iterations: null
+  estimate_condition: false
+  determinant_tolerance: 1.0e-12
+
+case_overrides:
+  air_t_ext_1_500_21_21:
+    values: [0.52, 0.55]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    # Optional [xmin, xmax, ymin, ymax] for the high-curvature error zoom.
+    zoom_bounds: null
+  run_ext_1_500_41_41:
+    values: [1.22, 1.25]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    zoom_bounds: [0.8, 2.2, 0.2, 1.2]

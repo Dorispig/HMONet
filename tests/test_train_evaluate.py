@@ -91,7 +91,7 @@ class EvaluationSubsetTests(unittest.TestCase):
                     best_checkpoint=str(path),
                     hmonet_mapping_mode="current",
                 )
-                for model in ("hmonet", "meshonet", "pimeshonet", "pihmonet")
+                for model in ("hmonet", "meshonet", "pimeshonet", "qghmonet")
             ]
             command = evaluation_commands(
                 summaries, "eval.yaml", {"air": {}}, "best", "tfi,pde,meshonet,hmonet"
@@ -102,12 +102,12 @@ class EvaluationSubsetTests(unittest.TestCase):
             self.assertIn("--hmonet-checkpoint", command)
             self.assertIn("--meshonet-checkpoint", command)
             self.assertNotIn("--pimeshonet-checkpoint", command)
-            self.assertNotIn("--pihmonet-checkpoint", command)
+            self.assertNotIn("--qghmonet-checkpoint", command)
             unresolved = evaluation_commands(
-                summaries[:1], "eval.yaml", {"air": {}}, "best", "pihmonet"
+                summaries[:1], "eval.yaml", {"air": {}}, "best", "qghmonet"
             )[0]
-            self.assertEqual(unresolved[unresolved.index("--methods") + 1], "pihmonet")
-            self.assertNotIn("--pihmonet-checkpoint", unresolved)
+            self.assertEqual(unresolved[unresolved.index("--methods") + 1], "qghmonet")
+            self.assertNotIn("--qghmonet-checkpoint", unresolved)
 
 
 class EvaluationModelSelectorTests(unittest.TestCase):
@@ -119,6 +119,6 @@ class EvaluationModelSelectorTests(unittest.TestCase):
         )
         self.assertEqual(methods, ["tfi", "pde", "meshonet", "hmonet"])
         self.assertEqual(remaining, ["--device", "cpu"])
-        self.assertEqual(len(extract_evaluation_model(["--model=all"])[0]), 7)
+        self.assertEqual(len(extract_evaluation_model(["--model=all"])[0]), 6)
         with self.assertRaises(ValueError):
             extract_evaluation_model(["--model", "both"], "tfi,pde")

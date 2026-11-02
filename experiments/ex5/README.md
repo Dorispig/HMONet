@@ -6,8 +6,7 @@
 最小档约为同网格二维 MeshONet参数量的80%。最大档由套件基线提供，只作只读对照，不作为模型容量实验重复运行。
 
 ```powershell
-python scripts/experiments/run_ablations_2d.py --experiment-set ex5 --ablations model_capacity --dataset air_t_ext_0_1000_41_20 --seeds 20260802 20260917 20261031 --run-tag paper_v1
+python scripts/experiments/run.py ex5 model_capacity --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 401 --tag paper_v1
 ```
 
-上述数据集和三个随机种子的完整基线已从 `ex3` 复制。若改用其他数据集或随机种子，可单独用 `run_baseline_2d.py` 和
-`--experiment-set ex5` 建立对应的规范基线。
+上述数据集和三个随机种子的完整基线已从 `ex3` 复制。若改用其他数据集或随机种子，使用 `python scripts/experiments/run.py ex5 baseline ...` 建立对应的规范基线。

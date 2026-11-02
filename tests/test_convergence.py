@@ -102,7 +102,7 @@ class SimplifiedPlateauTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            for model in ("hmonet", "meshonet", "pimeshonet", "pihmonet"):
+            for model in ("hmonet", "meshonet", "pimeshonet", "qghmonet"):
                 training = prepare_training_config(config, model, SimpleNamespace())[
                     "training"
                 ]
@@ -211,7 +211,7 @@ class SimplifiedPlateauTests(unittest.TestCase):
 
     def test_plateau_switch_applies_to_all_models(self):
         for dimension in ("2D", "3D"):
-            for model in ("hmonet", "meshonet", "pimeshonet", "pihmonet"):
+            for model in ("hmonet", "meshonet", "pimeshonet", "qghmonet"):
                 training = self._training(model, dimension)
                 training.update(
                     plateau_window=3,

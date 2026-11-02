@@ -1,4 +1,4 @@
-#!/usr/bin/env MGNet
+﻿#!/usr/bin/env MGNet
 # -*- coding: utf-8 -*-
 "Neural operator models for structured-grid geometry mapping."
 
@@ -8,8 +8,6 @@ __all__ = [
     "MeshONet2D",
     "PIMeshONet2D",
     "HMONet2D",
-    "AttentionHMONet2D",
-    "AttentionHMONet3D",
     "MeshONet3D",
     "PIMeshONet3D",
     "HMONet3D",
@@ -355,6 +353,16 @@ class HMONet2D(nn.Module):
         weight_head_mlp_enabled=True,
         coordinate_lift_mode="legacy",
         coordinate_lift_max_power=1,
+        modified_mlp_enabled=False,
+        query_boundary_cross_attention_enabled=False,
+        boundary_layer_decoder_enabled=False,
+        decoupled_weight_decoder_enabled=False,
+        multiscale_boundary_encoder_enabled=False,
+        cross_attention_heads=4,
+        boundary_layer_width=0.08,
+        local_boundary_dim=32,
+        boundary_decoder_hidden_dim=32,
+        weight_adapter_hidden_dim=32,
     ):
         super().__init__()
         if branch_mlp_hidden_dim <= 0:
@@ -403,6 +411,20 @@ class HMONet2D(nn.Module):
         self.branch_mlp_hidden_dim = branch_mlp_hidden_dim
         self.branch_mlp_hidden_layer_num = branch_mlp_hidden_layer_num
         self.hmonet_mapping_mode = hmonet_mapping_mode
+        self.modified_mlp_enabled = bool(modified_mlp_enabled)
+        self.query_boundary_cross_attention_enabled = bool(
+            query_boundary_cross_attention_enabled
+        )
+        self.boundary_layer_decoder_enabled = bool(boundary_layer_decoder_enabled)
+        self.decoupled_weight_decoder_enabled = bool(
+            decoupled_weight_decoder_enabled
+        )
+        self.multiscale_boundary_encoder_enabled = bool(
+            multiscale_boundary_encoder_enabled
+        )
+        self.boundary_layer_width = float(boundary_layer_width)
+        if self.boundary_layer_width <= 0:
+            raise ValueError("boundary_layer_width must be positive")
         # ``projection_coefficient_min`` remains active in the attention
         # variant. The three following arguments are accepted only so archived
         # configuration files still load; their former convex/smoothed-bubble
@@ -494,6 +516,47 @@ class HMONet2D(nn.Module):
             hidden_layer_size=[trunk_hidden_dim] * trunk_hidden_layer_num,
             output_dim=output_dim,
         )
+        if self.modified_mlp_enabled:
+            self.branch_net_x = modules.ModifiedGatedMLP(
+                branch_dim, branch_hidden_dim, branch_hidden_layer_num, output_dim
+            )
+            self.branch_net_y = modules.ModifiedGatedMLP(
+                branch_dim, branch_hidden_dim, branch_hidden_layer_num, output_dim
+            )
+            self.trunk_net = modules.ModifiedGatedMLP(
+                self.trunk_dim, trunk_hidden_dim, trunk_hidden_layer_num, output_dim
+            )
+        self.boundary_token_projection = (
+            nn.Sequential(nn.Linear(2, output_dim), nn.Tanh())
+            if self.query_boundary_cross_attention_enabled
+            and not self.multiscale_boundary_encoder_enabled
+            else None
+        )
+        self.multiscale_boundary_encoder = (
+            modules.MultiScaleBoundaryEncoder(
+                2, 4, model_dim=int(local_boundary_dim), output_dim=output_dim,
+                num_heads=int(cross_attention_heads), dropout=float(attention_dropout),
+            )
+            if self.multiscale_boundary_encoder_enabled else None
+        )
+        self.query_boundary_attention = (
+            modules.QueryBoundaryCrossAttention(
+                output_dim, output_dim, int(cross_attention_heads), float(attention_dropout)
+            )
+            if self.query_boundary_cross_attention_enabled else None
+        )
+        self.boundary_layer_decoder = (
+            modules.MLP(3 * output_dim, [int(boundary_decoder_hidden_dim)] * 2, 2)
+            if self.boundary_layer_decoder_enabled else None
+        )
+        self.weight_geometry_adapter = (
+            modules.MLP(2 * output_dim, [int(weight_adapter_hidden_dim)], 2 * output_dim)
+            if self.decoupled_weight_decoder_enabled else nn.Identity()
+        )
+        self.weight_location_adapter = (
+            modules.MLP(output_dim, [int(weight_adapter_hidden_dim)], output_dim)
+            if self.decoupled_weight_decoder_enabled else nn.Identity()
+        )
 
     def data_enhance(self, xi_eta):
         if self.coordinate_lift_mode == "power_fourier":
@@ -540,13 +603,37 @@ class HMONet2D(nn.Module):
 
     def projection_weights(self, joint_geometry, trunk_features):
         """Return branch coefficients modulated by location-dependent trunk coefficients."""
-        branch = self._activate_projection_coefficients(self.weight_head(joint_geometry))
+        branch_geometry = self.weight_geometry_adapter(joint_geometry)
+        location_features = self.weight_location_adapter(trunk_features)
+        branch = self._activate_projection_coefficients(self.weight_head(branch_geometry))
         if self.trunk_projection_head is None:  # archived checkpoint compatibility
             return branch.unsqueeze(-2)
         location = self._activate_projection_coefficients(
-            self.trunk_projection_head(trunk_features)
+            self.trunk_projection_head(location_features)
         )
         return branch.unsqueeze(-2) * location
+
+    def _enhance_query_features(self, p_x, p_y, trunk_features):
+        if self.query_boundary_attention is None:
+            return trunk_features
+        if self.multiscale_boundary_encoder is not None:
+            tokens = self.multiscale_boundary_encoder(
+                self._directed_boundary_edges(p_x, p_y)
+            )
+        else:
+            tokens = self.boundary_token_projection(torch.stack((p_x, p_y), dim=-1))
+        return self.query_boundary_attention(trunk_features, tokens)
+
+    def _add_boundary_layer_residual(self, raw, joint_geometry, trunk_features, xi_eta):
+        if self.boundary_layer_decoder is None:
+            return raw
+        geometry = joint_geometry.unsqueeze(-2).expand(-1, trunk_features.shape[-2], -1)
+        residual = self.boundary_layer_decoder(
+            torch.cat((geometry, trunk_features), dim=-1)
+        )
+        distance = torch.minimum(xi_eta, 1.0 - xi_eta).amin(dim=-1, keepdim=True)
+        gate = torch.exp(-distance / self.boundary_layer_width)
+        return raw + gate * residual
 
     def project_linear(self, p_x, p_y, xi, eta, boundary_geometry=None):
         """Project onto exact curves or linearly interpolated sampled edges."""
@@ -661,6 +748,7 @@ class HMONet2D(nn.Module):
             trunk_out = self.trunk_net(xi_eta)  # [B, N, output_dim]
         else:
             trunk_out = self.trunk_net(self.data_enhance(xi_eta))  # [B, N, output_dim]
+        trunk_out = self._enhance_query_features(p_x, p_y, trunk_out)
         bias = self.bias_head(h).unsqueeze(-2)  # [B, 1, 2]
         x_bias = bias[..., 0:1]
         y_bias = bias[..., 1:2]
@@ -675,6 +763,9 @@ class HMONet2D(nn.Module):
             x = torch.sum(b_i_x * trunk_out, dim=-1, keepdim=True) + x_bias
             y = torch.sum(b_i_y * trunk_out, dim=-1, keepdim=True) + y_bias
             raw_prediction = torch.cat((x, y), dim=-1)
+        raw_prediction = self._add_boundary_layer_residual(
+            raw_prediction, h, trunk_out, xi_eta
+        )
         mapping_mode = getattr(self, "hmonet_mapping_mode", "current")
         if mapping_mode == "coons_residual":
             coons = self.evaluate_coons_points(
@@ -738,330 +829,6 @@ class HMONet2D(nn.Module):
             displacement = torch.zeros_like(result)
             return result[..., 0:1], result[..., 1:2], displacement
         return result[..., 0:1], result[..., 1:2]
-
-
-class AttentionHMONet2D(HMONet2D):
-    """HMONet with joint boundary attention and trainable relaxed projection.
-
-    The boundary encoder builds directed tokens for the bottom, right, top and
-    left curves, applies shared multi-head self-attention, and uses separate
-    learned pooling queries for the x and y branches.  In ``current`` mapping
-    mode, four positive geometry coefficients from the branch are multiplied
-    elementwise by four positive coordinate coefficients from the trunk.  The
-    resulting local coefficients modulate the same exact parametric-boundary
-    projection used by :class:`HMONet2D`. ``boundary_alpha`` replaces the
-    partition-of-unity constant during two-dimensional physics training;
-    alpha equal to one recovers the original exact-boundary mapping.
-
-    This class only defines the network architecture. It does not add a loss,
-    optimizer, scheduler, data loader or training entry point.
-    """
-
-    def __init__(
-        self,
-        Nx=None,
-        Ny=None,
-        branch_dim=64,
-        trunk_dim=18,
-        adjust_hidden_dim=128,
-        branch_hidden_dim=128,
-        trunk_hidden_dim=128,
-        adjust_hidden_layer_num=4,
-        branch_hidden_layer_num=4,
-        trunk_hidden_layer_num=4,
-        output_dim=64,
-        branch_mlp_hidden_dim=128,
-        branch_mlp_hidden_layer_num=2,
-        hmonet_mapping_mode="current",
-        attention_dim=64,
-        attention_heads=4,
-        attention_layers=2,
-        attention_feedforward_dim=128,
-        attention_dropout=0.0,
-        boundary_alpha_initial_value=1.01,
-        coordinate_lift_mode="legacy",
-        coordinate_lift_max_power=1,
-    ):
-        # The parent supplies the operator and hard-mapping layers. Its fixed
-        # boundary adjust layers are immediately removed, so a minimal dummy
-        # grid avoids tying this architecture to a boundary sampling length.
-        super().__init__(
-            Nx=2,
-            Ny=2,
-            branch_dim=branch_dim,
-            trunk_dim=trunk_dim,
-            adjust_hidden_dim=adjust_hidden_dim,
-            branch_hidden_dim=branch_hidden_dim,
-            trunk_hidden_dim=trunk_hidden_dim,
-            adjust_hidden_layer_num=adjust_hidden_layer_num,
-            branch_hidden_layer_num=branch_hidden_layer_num,
-            trunk_hidden_layer_num=trunk_hidden_layer_num,
-            output_dim=output_dim,
-            branch_mlp_hidden_dim=branch_mlp_hidden_dim,
-            branch_mlp_hidden_layer_num=branch_mlp_hidden_layer_num,
-            hmonet_mapping_mode=hmonet_mapping_mode,
-            weight_head_mlp_enabled=False,
-            coordinate_lift_mode=coordinate_lift_mode,
-            coordinate_lift_max_power=coordinate_lift_max_power,
-        )
-        self.boundary_attention = modules.BoundarySelfAttentionEncoder2D(
-            model_dim=attention_dim,
-            num_heads=attention_heads,
-            num_layers=attention_layers,
-            feedforward_dim=attention_feedforward_dim,
-            dropout=attention_dropout,
-            output_dim=branch_dim,
-        )
-
-        # The attention encoder replaces the flattened-boundary adjust layers.
-        del self.adjust_net_x
-        del self.adjust_net_y
-        del self.weight_head
-        self.Nx = None
-        self.Ny = None
-        self.declared_grid_shape = (
-            None if Nx is None else int(Nx),
-            None if Ny is None else int(Ny),
-        )
-        self.branch_projection_head = nn.Linear(2 * output_dim, 4)
-        self.trunk_projection_head = nn.Linear(output_dim, 4)
-        alpha_initial = float(boundary_alpha_initial_value)
-        if not np.isfinite(alpha_initial):
-            raise ValueError("boundary_alpha_initial_value must be finite")
-        self.boundary_alpha = nn.Parameter(torch.tensor(alpha_initial))
-
-    def _load_from_state_dict(
-        self, state_dict, prefix, local_metadata, strict, missing_keys,
-        unexpected_keys, error_msgs,
-    ):
-        """Load pre-alpha checkpoints as the original exact-boundary model."""
-        alpha_key = prefix + "boundary_alpha"
-        if alpha_key not in state_dict:
-            state_dict[alpha_key] = torch.ones_like(self.boundary_alpha)
-        super()._load_from_state_dict(
-            state_dict,
-            prefix,
-            local_metadata,
-            strict,
-            missing_keys,
-            unexpected_keys,
-            error_msgs,
-        )
-
-    @staticmethod
-    def _edge_masks(edges, boundary_masks):
-        return modules.BoundaryTokenBuilder2D._normalize_masks(edges, boundary_masks)
-
-    @staticmethod
-    def _interpolate_edge(edge, mask, parameter):
-        """Piecewise-linearly evaluate padded edge samples at normalized parameters."""
-        lengths = (~mask).sum(dim=1)
-        scaled = parameter.clamp(0.0, 1.0) * (lengths[:, None] - 1).to(parameter.dtype)
-        lower = scaled.floor().long()
-        upper = torch.minimum(lower + 1, lengths[:, None] - 1)
-        fraction = (scaled - lower.to(scaled.dtype))[..., None]
-        gather_shape = (*lower.shape, 2)
-        p0 = edge.gather(1, lower[..., None].expand(gather_shape))
-        p1 = edge.gather(1, upper[..., None].expand(gather_shape))
-        return p0 + fraction * (p1 - p0)
-
-    def encode_boundary(self, bottom, right, top, left, boundary_masks=None):
-        """Encode all boundary edges jointly, then form axis-specific branches."""
-        descriptor_x, descriptor_y = self.boundary_attention(
-            bottom,
-            right,
-            top,
-            left,
-            boundary_masks=boundary_masks,
-        )
-        h_x = self.branch_net_x(descriptor_x)
-        h_y = self.branch_net_y(descriptor_y)
-        return h_x, h_y, torch.cat((h_x, h_y), dim=-1)
-
-    def projection_weights(self, joint_geometry, trunk_features):
-        """Factorize every projection coefficient into geometry and location terms."""
-        geometry = torch.sigmoid(self.branch_projection_head(joint_geometry))
-        location = torch.sigmoid(self.trunk_projection_head(trunk_features))
-        return self.projection_coefficient_min + (
-            1.0 - self.projection_coefficient_min
-        ) * geometry.unsqueeze(-2) * location
-
-    def project_edges(
-        self,
-        bottom,
-        right,
-        top,
-        left,
-        xi,
-        eta,
-        boundary_geometry=None,
-        boundary_masks=None,
-    ):
-        """Evaluate four exact curves or interpolate the four sampled edges."""
-        if boundary_geometry is not None:
-            return (
-                boundary_geometry.project_torch(xi, eta)
-                if hasattr(boundary_geometry, "project_torch")
-                else evaluate_boundary_curves_torch(boundary_geometry, xi, eta)
-            )
-        edges = (bottom, right, top, left)
-        masks = self._edge_masks(edges, boundary_masks)
-        modules.BoundaryTokenBuilder2D._validate(edges, masks)
-        return torch.stack(
-            (
-                self._interpolate_edge(left, masks[3], eta),
-                self._interpolate_edge(right, masks[1], eta),
-                self._interpolate_edge(bottom, masks[0], xi),
-                self._interpolate_edge(top, masks[2], xi),
-            ),
-            dim=-2,
-        )
-
-    def evaluate_coons_points_from_edges(
-        self,
-        bottom,
-        right,
-        top,
-        left,
-        xi,
-        eta,
-        boundary_geometry=None,
-        boundary_masks=None,
-    ):
-        """Evaluate a Coons map from variable-length directed boundaries."""
-        edges = (bottom, right, top, left)
-        masks = self._edge_masks(edges, boundary_masks)
-        projected = self.project_edges(
-            *edges,
-            xi,
-            eta,
-            boundary_geometry=boundary_geometry,
-            boundary_masks=masks,
-        )
-        left_p, right_p, bottom_p, top_p = projected.unbind(dim=-2)
-        lengths = tuple((~mask).sum(dim=1) for mask in masks)
-
-        def endpoint(edge, length, last):
-            index = length - 1 if last else torch.zeros_like(length)
-            return edge.gather(1, index[:, None, None].expand(-1, 1, 2))
-
-        p00 = endpoint(bottom, lengths[0], False)
-        p10 = endpoint(bottom, lengths[0], True)
-        p01 = endpoint(top, lengths[2], False)
-        p11 = endpoint(top, lengths[2], True)
-        u, v = xi[..., None], eta[..., None]
-        side = (1 - u) * left_p + u * right_p + (1 - v) * bottom_p + v * top_p
-        corner = (
-            (1 - u) * (1 - v) * p00
-            + u * (1 - v) * p10
-            + (1 - u) * v * p01
-            + u * v * p11
-        )
-        return side - corner
-
-    def _apply_current_mapping(self, xi, eta, weight, raw_prediction, projected):
-        center_weight, boundary_weights = _rational_affine_weights_2d(
-            xi, eta, weight
-        )
-        residual_weight = center_weight + (self.boundary_alpha - 1.0)
-        result = residual_weight[..., None] * raw_prediction + (
-            boundary_weights[..., None] * projected
-        ).sum(dim=-2)
-        corner_mask = ((xi == 0) | (xi == 1)) & ((eta == 0) | (eta == 1))
-        corner_points = torch.where(
-            (xi == 0)[..., None], projected[..., 0, :], projected[..., 1, :]
-        )
-        return torch.where(corner_mask[..., None], corner_points, result)
-
-    def forward(
-        self,
-        bottom,
-        right,
-        top,
-        left,
-        xi,
-        eta,
-        return_displacement=False,
-        boundary_geometry=None,
-        boundary_masks=None,
-    ):
-        """Map queries from four variable-length, directed boundary sequences."""
-        if self.hmonet_mapping_mode == "corner_corrected":
-            raise NotImplementedError(
-                "corner_corrected is currently implemented for HMONet2D, not AttentionHMONet2D"
-            )
-        if (
-            self.training
-            and hasattr(boundary_geometry, "project_torch")
-            and not getattr(boundary_geometry, "supports_coordinate_gradients", False)
-        ):
-            raise ValueError("Prepared geometry adapters are for evaluation only")
-        if xi.dim() != 2 or eta.shape != xi.shape:
-            raise ValueError("xi and eta must have matching [batch, query] shapes")
-        edges = (bottom, right, top, left)
-        masks = self._edge_masks(edges, boundary_masks)
-        h_x, h_y, h = self.encode_boundary(*edges, boundary_masks=masks)
-        b_i_x = self.branch_mlp_x(h).unsqueeze(-2)
-        b_i_y = self.branch_mlp_y(h).unsqueeze(-2)
-        xi_eta = torch.stack((xi, eta), dim=-1)
-        trunk_out = (
-            self.trunk_net(xi_eta)
-            if self.trunk_dim == 2
-            else self.trunk_net(self.data_enhance(xi_eta))
-        )
-        bias = self.bias_head(h).unsqueeze(-2)
-        x = torch.sum(b_i_x * trunk_out, dim=-1, keepdim=True) + bias[..., 0:1]
-        y = torch.sum(b_i_y * trunk_out, dim=-1, keepdim=True) + bias[..., 1:2]
-        raw_prediction = torch.cat((x, y), dim=-1)
-
-        if self.hmonet_mapping_mode == "coons_residual":
-            coons = self.evaluate_coons_points_from_edges(
-                *edges,
-                xi,
-                eta,
-                boundary_geometry=boundary_geometry,
-                boundary_masks=masks,
-            )
-            displacement = self.coons_residual_envelope(xi, eta)[..., None] * raw_prediction
-            result = coons + displacement
-        else:
-            projected = self.project_edges(
-                *edges,
-                xi,
-                eta,
-                boundary_geometry=boundary_geometry,
-                boundary_masks=masks,
-            )
-            weight = self.projection_weights(h, trunk_out)
-            result = self._apply_current_mapping(
-                xi,
-                eta,
-                weight,
-                raw_prediction,
-                projected,
-            )
-            displacement = torch.zeros_like(result)
-        outputs = (result[..., 0:1], result[..., 1:2])
-        return (*outputs, displacement) if return_displacement else outputs
-
-    def boundary_attention_weights(
-        self,
-        bottom,
-        right,
-        top,
-        left,
-        boundary_masks=None,
-    ):
-        """Expose directional pooling weights for analysis and visualization."""
-        _, _, attention = self.boundary_attention(
-            bottom,
-            right,
-            top,
-            left,
-            boundary_masks=boundary_masks,
-            return_attention=True,
-        )
-        return attention
 
 
 # ============================================================
@@ -1142,6 +909,10 @@ class _OperatorNet3D(nn.Module):
             self.coordinate_lift_max_power,
         )
         self.output_dim = int(output_dim)
+        self.branch_hidden_dim = int(branch_hidden_dim)
+        self.branch_hidden_layer_num = int(branch_hidden_layer_num)
+        self.trunk_hidden_dim = int(trunk_hidden_dim)
+        self.trunk_hidden_layer_num = int(trunk_hidden_layer_num)
         adjust_layers = [adjust_hidden_dim] * adjust_hidden_layer_num
         branch_layers = [branch_hidden_dim] * branch_hidden_layer_num
         trunk_layers = [trunk_hidden_dim] * trunk_hidden_layer_num
@@ -1300,6 +1071,16 @@ class HMONet3D(_OperatorNet3D):
         projection_normal_smoothing=0.5,
         projection_tangential_lift_beta=0.6,
         weight_head_mlp_enabled=True,
+        modified_mlp_enabled=False,
+        query_boundary_cross_attention_enabled=False,
+        boundary_layer_decoder_enabled=False,
+        decoupled_weight_decoder_enabled=False,
+        multiscale_boundary_encoder_enabled=False,
+        cross_attention_heads=4,
+        boundary_layer_width=0.08,
+        local_boundary_dim=32,
+        boundary_decoder_hidden_dim=32,
+        weight_adapter_hidden_dim=32,
         **kwargs,
     ):
         if int(branch_mlp_hidden_dim) <= 0:
@@ -1319,6 +1100,18 @@ class HMONet3D(_OperatorNet3D):
         self.projection_coefficient_min = float(projection_coefficient_min)
         self.branch_mlp_hidden_dim = int(branch_mlp_hidden_dim)
         self.branch_mlp_hidden_layer_num = int(branch_mlp_hidden_layer_num)
+        self.modified_mlp_enabled = bool(modified_mlp_enabled)
+        self.query_boundary_cross_attention_enabled = bool(
+            query_boundary_cross_attention_enabled
+        )
+        self.boundary_layer_decoder_enabled = bool(boundary_layer_decoder_enabled)
+        self.decoupled_weight_decoder_enabled = bool(decoupled_weight_decoder_enabled)
+        self.multiscale_boundary_encoder_enabled = bool(
+            multiscale_boundary_encoder_enabled
+        )
+        self.boundary_layer_width = float(boundary_layer_width)
+        if self.boundary_layer_width <= 0:
+            raise ValueError("boundary_layer_width must be positive")
         joint_geometry_dim = 3 * self.output_dim
         branch_mlp_layers = [
             self.branch_mlp_hidden_dim
@@ -1397,6 +1190,58 @@ class HMONet3D(_OperatorNet3D):
             persistent=False,
         )
         self.register_buffer("_face_priority", torch.arange(1, 7), persistent=False)
+        if self.modified_mlp_enabled:
+            branch_dim = int(self.adjust[0][0].output_dim)
+            self.branches = nn.ModuleList(
+                modules.ModifiedGatedMLP(
+                    branch_dim, self.branch_hidden_dim, self.branch_hidden_layer_num,
+                    self.output_dim,
+                )
+                for _ in range(3)
+            )
+            self.trunk = modules.ModifiedGatedMLP(
+                self.trunk_dim, self.trunk_hidden_dim, self.trunk_hidden_layer_num,
+                self.output_dim,
+            )
+        self.boundary_token_projection = (
+            nn.Sequential(nn.Linear(3, self.output_dim), nn.Tanh())
+            if self.query_boundary_cross_attention_enabled
+            and not self.multiscale_boundary_encoder_enabled else None
+        )
+        self.multiscale_boundary_encoder = (
+            modules.MultiScaleBoundaryEncoder(
+                3, 6, model_dim=int(local_boundary_dim), output_dim=self.output_dim,
+                num_heads=int(cross_attention_heads), dropout=float(attention_dropout),
+            )
+            if self.multiscale_boundary_encoder_enabled else None
+        )
+        self.query_boundary_attention = (
+            modules.QueryBoundaryCrossAttention(
+                self.output_dim, self.output_dim, int(cross_attention_heads),
+                float(attention_dropout),
+            )
+            if self.query_boundary_cross_attention_enabled else None
+        )
+        self.boundary_layer_decoder = (
+            modules.MLP(
+                4 * self.output_dim,
+                [int(boundary_decoder_hidden_dim)] * 2,
+                3,
+            )
+            if self.boundary_layer_decoder_enabled else None
+        )
+        self.weight_geometry_adapter = (
+            modules.MLP(
+                3 * self.output_dim, [int(weight_adapter_hidden_dim)], 3 * self.output_dim
+            )
+            if self.decoupled_weight_decoder_enabled else nn.Identity()
+        )
+        self.weight_location_adapter = (
+            modules.MLP(
+                self.output_dim, [int(weight_adapter_hidden_dim)], self.output_dim
+            )
+            if self.decoupled_weight_decoder_enabled else nn.Identity()
+        )
 
     def _activate_projection_coefficients(self, logits):
         return torch.sigmoid(logits)
@@ -1404,12 +1249,12 @@ class HMONet3D(_OperatorNet3D):
     def projection_coefficients(self, joint_geometry, trunk_features=None):
         """Return branch coefficients modulated by location-dependent trunk coefficients."""
         branch = self._activate_projection_coefficients(
-            self.projection_weight_head(joint_geometry)
+            self.projection_weight_head(self.weight_geometry_adapter(joint_geometry))
         )
         if self.trunk_projection_head is None:  # archived checkpoint compatibility
             return branch.unsqueeze(-2)
         location = self._activate_projection_coefficients(
-            self.trunk_projection_head(trunk_features)
+            self.trunk_projection_head(self.weight_location_adapter(trunk_features))
         )
         return branch.unsqueeze(-2) * location
 
@@ -1438,6 +1283,15 @@ class HMONet3D(_OperatorNet3D):
             descriptors = self.boundary_attention(*shaped_faces)
         geometry = [branch(descriptor) for branch, descriptor in zip(self.branches, descriptors)]
         joint_geometry = torch.cat(geometry, dim=-1)
+        if self.query_boundary_attention is not None:
+            if self.multiscale_boundary_encoder is not None:
+                tokens = self.multiscale_boundary_encoder(self._boundary_faces(p_x, p_y, p_z))
+            else:
+                physical_boundary = torch.stack((p_x, p_y, p_z), dim=-1)
+                if physical_boundary.dim() == 4:
+                    physical_boundary = physical_boundary[:, 0]
+                tokens = self.boundary_token_projection(physical_boundary)
+            trunk = self.query_boundary_attention(trunk, tokens)
         coordinate_coefficients = (
             self.branch_mlp_x(joint_geometry),
             self.branch_mlp_y(joint_geometry),
@@ -1449,6 +1303,17 @@ class HMONet3D(_OperatorNet3D):
             + bias[..., axis : axis + 1]
             for axis, coefficients in enumerate(coordinate_coefficients)
         )
+        if self.boundary_layer_decoder is not None:
+            geometry_queries = joint_geometry.unsqueeze(-2).expand(-1, trunk.shape[-2], -1)
+            residual = self.boundary_layer_decoder(
+                torch.cat((geometry_queries, trunk), dim=-1)
+            )
+            distance = torch.minimum(coordinates, 1.0 - coordinates).amin(
+                dim=-1, keepdim=True
+            )
+            gate = torch.exp(-distance / self.boundary_layer_width)
+            raw = torch.cat(outputs, dim=-1) + gate * residual
+            outputs = tuple(raw[..., axis : axis + 1] for axis in range(3))
         return outputs, joint_geometry, trunk
 
     def _load_from_state_dict(
@@ -1921,134 +1786,4 @@ class HMONet3D(_OperatorNet3D):
         xyz = (result[..., 0:1], result[..., 1:2], result[..., 2:3])
         return (*xyz, displacement) if return_displacement else xyz
 
-
-class AttentionHMONet3D(HMONet3D):
-    """Six-surface self-attention HMONet with factorized hard-map weights."""
-
-    face_names = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
-
-    def __init__(self, Nx=None, Ny=None, Nz=None, branch_dim=64, trunk_dim=24,
-                 branch_hidden_dim=128, trunk_hidden_dim=128,
-                 branch_hidden_layer_num=4, trunk_hidden_layer_num=4,
-                 output_dim=128, hmonet_mapping_mode="current",
-                 attention_dim=64, attention_heads=4, attention_layers=2,
-                 attention_feedforward_dim=128, attention_dropout=0.0, **kwargs):
-        # This attention variant owns separate branch/trunk projection heads;
-        # preserve its historical unused parent head for checkpoint stability.
-        kwargs.setdefault("weight_head_mlp_enabled", False)
-        super().__init__(
-            2, 2, 2, branch_dim=branch_dim, trunk_dim=trunk_dim,
-            branch_hidden_dim=branch_hidden_dim, trunk_hidden_dim=trunk_hidden_dim,
-            branch_hidden_layer_num=branch_hidden_layer_num,
-            trunk_hidden_layer_num=trunk_hidden_layer_num, output_dim=output_dim,
-            hmonet_mapping_mode=hmonet_mapping_mode, **kwargs,
-        )
-        self.boundary_attention = modules.BoundarySelfAttentionEncoder3D(
-            model_dim=attention_dim, num_heads=attention_heads,
-            num_layers=attention_layers, feedforward_dim=attention_feedforward_dim,
-            dropout=attention_dropout, output_dim=branch_dim,
-        )
-        del self.adjust
-        self.Nx = self.Ny = self.Nz = None
-        self.declared_grid_shape = tuple(
-            None if value is None else int(value) for value in (Nx, Ny, Nz)
-        )
-        self.joint_branches = nn.ModuleList([
-            modules.MLP(3 * output_dim, [branch_hidden_dim] * 2, output_dim)
-            for _ in range(3)
-        ])
-        self.bias_head = nn.Linear(3 * output_dim, 3)
-        self.branch_projection_head = nn.Linear(3 * output_dim, 6)
-        self.trunk_projection_head = nn.Linear(output_dim, 6)
-
-    @staticmethod
-    def _face_masks(faces, masks):
-        return modules.BoundarySurfaceTokenBuilder3D._normalize_masks(faces, masks)
-
-    @staticmethod
-    def _interpolate_face(face, mask, u, v):
-        valid = ~mask
-        nu = valid.any(2).sum(1)
-        nv = valid.any(1).sum(1)
-        su = u.clamp(0, 1) * (nu[:, None] - 1).to(u.dtype)
-        sv = v.clamp(0, 1) * (nv[:, None] - 1).to(v.dtype)
-        iu, iv = su.floor().long(), sv.floor().long()
-        ju = torch.minimum(iu + 1, nu[:, None] - 1)
-        jv = torch.minimum(iv + 1, nv[:, None] - 1)
-        fu, fv = (su - iu.to(su.dtype))[..., None], (sv - iv.to(sv.dtype))[..., None]
-        batch = torch.arange(face.shape[0], device=face.device)[:, None].expand_as(iu)
-        p00, p10 = face[batch, iu, iv], face[batch, ju, iv]
-        p01, p11 = face[batch, iu, jv], face[batch, ju, jv]
-        return (1-fu)*(1-fv)*p00 + fu*(1-fv)*p10 + (1-fu)*fv*p01 + fu*fv*p11
-
-    def encode_boundary(self, faces, masks):
-        descriptors = self.boundary_attention(*faces, surface_masks=masks)
-        axes = tuple(branch(descriptor) for branch, descriptor in zip(self.branches, descriptors))
-        joint = torch.cat(axes, -1)
-        return tuple(head(joint) for head in self.joint_branches), joint
-
-    def project_faces(self, faces, xi, eta, zeta, boundary_geometry=None,
-                      surface_masks=None):
-        if boundary_geometry is not None:
-            return evaluate_boundary_surfaces_torch(boundary_geometry, xi, eta, zeta)
-        masks = self._face_masks(faces, surface_masks)
-        modules.BoundarySurfaceTokenBuilder3D._validate(faces, masks)
-        return torch.stack((
-            self._interpolate_face(faces[0], masks[0], eta, zeta),
-            self._interpolate_face(faces[1], masks[1], eta, zeta),
-            self._interpolate_face(faces[2], masks[2], xi, zeta),
-            self._interpolate_face(faces[3], masks[3], xi, zeta),
-            self._interpolate_face(faces[4], masks[4], xi, eta),
-            self._interpolate_face(faces[5], masks[5], xi, eta),
-        ), -2)
-
-    def projection_weights(self, joint, trunk):
-        learned = torch.sigmoid(self.branch_projection_head(joint)).unsqueeze(-2) * \
-            torch.sigmoid(self.trunk_projection_head(trunk))
-        return self.projection_coefficient_min + (
-            1.0 - self.projection_coefficient_min
-        ) * learned
-
-    def forward(self, x_min, x_max, y_min, y_max, z_min, z_max,
-                xi, eta, zeta, return_displacement=False,
-                boundary_geometry=None, surface_masks=None):
-        if xi.dim() != 2 or eta.shape != xi.shape or zeta.shape != xi.shape:
-            raise ValueError("xi, eta and zeta must have matching [batch, query] shapes")
-        faces = (x_min, x_max, y_min, y_max, z_min, z_max)
-        masks = self._face_masks(faces, surface_masks)
-        branch_axes, joint = self.encode_boundary(faces, masks)
-        coordinates = torch.stack((xi, eta, zeta), -1)
-        trunk = self.trunk(coordinates if self.trunk_dim == 3 else self.data_enhance(coordinates))
-        bias = self.bias_head(joint).unsqueeze(-2)
-        raw = torch.cat([
-            (axis.unsqueeze(-2) * trunk).sum(-1, keepdim=True) + bias[..., i:i+1]
-            for i, axis in enumerate(branch_axes)
-        ], -1)
-        projected = self.project_faces(
-            faces, xi, eta, zeta, boundary_geometry=boundary_geometry,
-            surface_masks=masks,
-        )
-        if self.hmonet_mapping_mode != "current":
-            raise NotImplementedError(
-                "AttentionHMONet3D currently supports the requested current mapping only"
-            )
-        coefficients = self.projection_weights(joint, trunk)
-        center_weight, face_weights, incidence_count = _rational_affine_weights_3d(
-            xi, eta, zeta, coefficients
-        )
-        result = center_weight[..., None] * raw + (
-            face_weights[..., None] * projected
-        ).sum(-2)
-        distances = torch.stack((xi, 1-xi, eta, 1-eta, zeta, 1-zeta), -1)
-        priority = ((distances.abs() < 1e-7) * self._face_priority).amax(-1)
-        indices = (priority - 1).clamp_min(0)[..., None, None].expand(*priority.shape, 1, 3)
-        exact = projected.gather(-2, indices).squeeze(-2)
-        result = torch.where((incidence_count >= 3)[..., None], exact, result)
-        xyz = tuple(result[..., i:i+1] for i in range(3))
-        return (*xyz, torch.zeros_like(result)) if return_displacement else xyz
-
-
-if __name__ == "__main__":
-    model = AttentionHMONet2D(Nx=21, Ny=21)
-    print(model)
 

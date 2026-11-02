@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e5_qg_hmonet
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e5_qg_hmonet
+    value: Query--Geometry_Gated_Hard-Boundary_Mesh_Operator_Network
+    overrides: [--model, qghmonet, --lr, "0.0004"]

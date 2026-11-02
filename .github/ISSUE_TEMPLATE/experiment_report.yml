@@ -1,0 +1,43 @@
+name: Reproducibility or experiment report
+description: Report a reproduced result, discrepancy, or proposed benchmark.
+title: "[Experiment]: "
+labels: [research, reproducibility]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Git commit
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Scientific question or claim being tested
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Experimental protocol
+      description: Dataset/version/checksums, split, parameters, grid shapes, methods, seeds, hardware, configuration, and exact commands.
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: Mean and standard deviation across seeds, worst/mean quality, invalid counts, boundary error, and runtime where applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Artifacts
+      description: Relative paths or public links and SHA-256 checksums for configurations, checkpoints, results.json, tables, and figures.
+  - type: textarea
+    id: interpretation
+    attributes:
+      label: Interpretation and limitations
+    validations:
+      required: true
+

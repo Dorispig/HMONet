@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e3_boundary_decoder
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e3_boundary_decoder
+    value: boundary_layer_specific_decoder
+    overrides: [--lr, "0.0004", --boundary-layer-decoder-enabled]

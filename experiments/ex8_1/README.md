@@ -19,7 +19,7 @@ hmonet_mapping_mode = coons_residual
 训练并评估五个实验（一个随机种子）：
 
 ```powershell
-python scripts/experiments/run_ablations_2d.py --experiment-set ex8_1 --ablations physics_training_strategy --dataset run_ext_0_1000_61_21 --seeds 20261030 --run-tag physics_v1 --evaluation-grid-shapes 101x101 201x201 401x401 --continue-on-error
+python scripts/experiments/run.py ex8_1 physics_training_strategy --dataset run_ext_0_1000_61_21 --seed 20261030 --tag physics_v1 --grids 101 201 401 --continue-on-error
 ```
 
 若 ex8 中缺少相同数据集、随机种子和指纹的完整基线，脚本会在五个变体完成可执行训练后阻止基线对比汇总，并提示先训练 ex8 基线；它不会在 ex8_1 中补训或补评估基线。`--force` 也只作用于五个 Coons 变体，不覆盖 ex8 基线。

@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e6_modified_cross
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e6_modified_cross
+    value: modified_mlp_plus_cross_attention
+    overrides: [--lr, "0.0004", --modified-mlp-enabled, --query-boundary-cross-attention-enabled]

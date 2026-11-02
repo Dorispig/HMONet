@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible software or numerical failure.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Remove credentials and private paths. For numerical issues, distinguish an implementation failure from a scientifically poor but valid result.
+  - type: input
+    id: version
+    attributes:
+      label: HMONet version or Git commit
+      placeholder: 0.1.0-dev or full commit hash
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python, PyTorch, CUDA, GPU/CPU, and installation method.
+      placeholder: Ubuntu 22.04; Python 3.10; PyTorch 2.5.1; CUDA 12.x; RTX ...
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Minimal reproducing command
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration and artifact identity
+      description: Dataset name/checksum, model, seed, run tag, checkpoint path/checksum, and any YAML overrides.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and traceback
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Numerical evidence
+      description: For mesh failures, include parameter, grid shape, metric definition, invalid-cell counts, and a compact figure or results.json excerpt.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested the current repository version or explained why I could not.
+          required: true
+        - label: I removed credentials, private data, and unnecessary large files.
+          required: true
+        - label: I searched existing issues and documentation.
+          required: true
+

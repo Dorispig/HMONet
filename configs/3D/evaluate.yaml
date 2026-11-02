@@ -1,4 +1,4 @@
-# 三维参数边界评估入口：scripts/evaluate/evaluate_3d.py。
+﻿# 三维参数边界评估入口：scripts/evaluate/evaluate_3d.py。
 #
 # stop_on_error 控制批量评估是否在首次失败时停止。
 # cases.<name>.enabled 控制该案例是否参与批量评估。
@@ -39,18 +39,7 @@ cases:
   sch_r_int_0_1000_11_31_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.27, 0.30, 0.33], grid_shape: [11, 31, 11]}
   sch_r_ext_0_1000_11_31_11: {boundary: stadium_cylinder_with_circular_hole, parameter: hole_radius, values: [0.10, 0.50], grid_shape: [11, 31, 11]}
 evaluation:
-  attentionpihmonet_mapping_mode: current
-  # PI-HMONet：--model pihmonet 或 --methods tfi,pde,pihmonet。
-  # 内部映射独立于 HMONet；可用 --pihmonet-mapping-mode 覆盖，both 评估两种映射。
-  pihmonet_mapping_mode: current
-  # 默认无外部边界后处理；--pihmonet-boundary-projection 可覆盖。
-  pihmonet_boundary_projection: none
-  attentionpihmonet_boundary_projection: none
-  # 可用 --pihmonet-checkpoint 指定模型；null 自动查找对应数据集与映射的最新模型。
-  pihmonet_checkpoint: null
-  attentionpihmonet_checkpoint: null
   default_cases: [sch_r_int_0_1000_11_31_11, sch_r_ext_0_1000_11_31_11]
-  # 图中按 TFI、PDE、MeshONet、PI-MeshONet、HMONet、PI-HMONet 排列，仅显示选中的方法。
   methods: [tfi, pde, meshonet, hmonet]
   hmonet_mapping_mode: current
   # 适用于拉伸曲面、端面使用的参数曲线，也适用于二维参数曲线。

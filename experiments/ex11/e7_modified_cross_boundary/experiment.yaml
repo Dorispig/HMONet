@@ -1,0 +1,8 @@
+schema_version: 1
+experiment: e7_modified_cross_boundary
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e7_modified_cross_boundary
+    value: modified_mlp_plus_cross_attention_plus_boundary_decoder
+    overrides: [--lr, "0.0004", --modified-mlp-enabled, --query-boundary-cross-attention-enabled, --boundary-layer-decoder-enabled]

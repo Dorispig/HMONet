@@ -44,26 +44,28 @@ from src.engine.state import (
 )
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.data.parametric_dataset import ParametricDataset3D
-from src.models import HMONet3D, MeshONet3D
+from src.models import HMONet3D, MeshONet3D, QGHMONet3D
 from src.data.mesh.topology import GenerateHexMeshBoundaryIndex
 
 
-def train_hmonet(datasets, config, mode, args, device):
+def train_hmonet(
+    datasets, config, mode, args, device, *, model_name="hmonet", model_class=HMONet3D
+):
     """Train HMONet with batched boundary objects and weighted coordinate targets."""
-    config = prepare_training_config(config, "hmonet", args)
+    config = prepare_training_config(config, model_name, args)
     training = config["training"]
-    geometry_options = config["hmonet_training"]
+    geometry_options = config[f"{model_name}_training"]
     learning_rate = geometry_options
     shape = tuple(datasets[0].grid_shape)
     seed_everything(int(training["seed"]))
     model_options = dict(config["model"].get("common", {}))
-    model_options.update(config["model"].get("hmonet", {}))
+    model_options.update(config["model"].get(model_name, {}))
     residual_weight = float(model_options.pop("residual_regularization_weight", 0.0))
     model_options.pop("projection_softplus_enabled", None)
     model_options["trunk_projection_coefficients_enabled"] = True
     if residual_weight < 0:
         raise ValueError("residual_regularization_weight must be nonnegative")
-    model = HMONet3D(*shape, **model_options).to(device)
+    model = model_class(*shape, **model_options).to(device)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate["learning_rate"]
     )
@@ -381,20 +383,6 @@ def train_pimeshonet(datasets, config, mode, args, device):
     return train_physics(datasets, config, mode, args, device)
 
 
-def train_pihmonet(datasets, config, mode, args, device):
-    """Train hard-constrained HMONet using finite-difference PDE residuals."""
-    from scripts.train.train_pihmonet import train_pihmonet as train_physics
-
-    return train_physics(datasets, config, mode, args, device)
-
-
-def train_attentionpihmonet(datasets, config, mode, args, device):
-    """Train attention-encoded hard-constrained physics-informed HMONet."""
-    from scripts.train.train_attentionpihmonet import train_attentionpihmonet as train_physics
-
-    return train_physics(datasets, config, mode, args, device)
-
-
 def train_models(names, paths, config, mode, args, device):
     """Train every selected model/dataset pair independently."""
     root = Path(__file__).resolve().parents[2]
@@ -431,7 +419,7 @@ def train_models(names, paths, config, mode, args, device):
             run_args.mode = run_mode
             data = ParametricDataset3D(
                 path,
-                load_boundary=(name in ("hmonet", "pihmonet", "attentionpihmonet")),
+                load_boundary=(name in ("hmonet", "qghmonet")),
             )
             for axis, actual in zip(("nx", "ny", "nz"), data.grid_shape):
                 requested = getattr(args, axis, None)
@@ -451,14 +439,13 @@ def train_models(names, paths, config, mode, args, device):
             )
             if name == "hmonet":
                 train_hmonet([data], run_config, run_mode, run_args, device)
+            elif name == "qghmonet":
+                train_hmonet(
+                    [data], run_config, run_mode, run_args, device,
+                    model_name="qghmonet", model_class=QGHMONet3D,
+                )
             elif name == "pimeshonet":
                 train_pimeshonet([data], run_config, run_mode, run_args, device)
-            elif name == "pihmonet":
-                train_pihmonet([data], run_config, run_mode, run_args, device)
-            elif name == "attentionpihmonet":
-                train_attentionpihmonet(
-                    [data], run_config, run_mode, run_args, device
-                )
             elif name == "meshonet":
                 train_meshonet([data], run_config, run_mode, run_args, device)
             else:
@@ -519,6 +506,22 @@ def main(argv=None):
     parser.add_argument("--attention-layers", type=int)
     parser.add_argument("--attention-feedforward-dim", type=int)
     parser.add_argument("--attention-dropout", type=float)
+    for name in (
+        "modified-mlp-enabled",
+        "query-boundary-cross-attention-enabled",
+        "boundary-layer-decoder-enabled",
+        "decoupled-weight-decoder-enabled",
+        "multiscale-boundary-encoder-enabled",
+    ):
+        parser.add_argument(
+            "--" + name,
+            dest=name.replace("-", "_"),
+            action=argparse.BooleanOptionalAction,
+            default=None,
+        )
+    parser.add_argument("--cross-attention-heads", type=int)
+    parser.add_argument("--boundary-layer-width", type=float)
+    parser.add_argument("--local-boundary-dim", type=int)
     parser.add_argument("--projection-coefficient-min", type=float)
     parser.add_argument("--residual-regularization-weight", type=float)
     parser.add_argument(
@@ -754,6 +757,14 @@ def main(argv=None):
         "attention_layers",
         "attention_feedforward_dim",
         "attention_dropout",
+        "modified_mlp_enabled",
+        "query_boundary_cross_attention_enabled",
+        "boundary_layer_decoder_enabled",
+        "decoupled_weight_decoder_enabled",
+        "multiscale_boundary_encoder_enabled",
+        "cross_attention_heads",
+        "boundary_layer_width",
+        "local_boundary_dim",
     ):
         value = getattr(args, option)
         if value is not None:

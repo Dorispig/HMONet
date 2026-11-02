@@ -14,10 +14,9 @@ from src.data.mesh.sampling import sample_boundary
 from src.data.backend.curve_kernels import curve_kernel_mode, kernel_status
 from src.models import (
     HMONet2D, MeshONet2D, HMONet3D, MeshONet3D,
-    AttentionHMONet2D, AttentionHMONet3D,
     PIMeshONet2D, PIMeshONet3D,
+    QGHMONet2D, QGHMONet3D,
 )
-from src.engine.attention import build_boundary_inputs
 
 
 def resolve_device(value):
@@ -48,7 +47,7 @@ def find_checkpoint(dimension, dataset, method, mapping, options, split=None):
         parts = path.relative_to(root).parts
         if method not in parts:
             continue
-        if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet") and mapping not in parts:
+        if method in ("HMONet", "QG-HMONet") and mapping not in parts:
             continue
         candidates.append(path)
     return (
@@ -91,14 +90,11 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
     if len(shape) != dimension:
         raise ValueError("Checkpoint dimension does not match evaluation")
     model_config = config.get("model", {})
-    if method == "Attention-PI-HMONet" and model_config.get("name") == "attention_pihmonet":
-        kwargs = {key: value for key, value in model_config.items() if key != "name"}
-    else:
-        kwargs = {
-            **model_config.get("common", {}),
-            **model_config.get(method.lower().replace("-", ""), {}),
-        }
-    if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet"):
+    kwargs = {
+        **model_config.get("common", {}),
+        **model_config.get(method.lower().replace("-", ""), {}),
+    }
+    if method in ("HMONet", "QG-HMONet"):
         stored_mapping = kwargs.get("hmonet_mapping_mode", "current")
         if stored_mapping != mapping:
             raise ValueError(
@@ -106,7 +102,7 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
             )
     state_dict = payload.get("model_state_dict", payload)
     if (
-        method in ("HMONet", "PI-HMONet")
+        method == "HMONet"
         and "weight_head_mlp_enabled" not in kwargs
     ):
         # Older checkpoints predate the explicit architecture flag. Infer the
@@ -121,15 +117,13 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
     )
     cls = {
         (2, "HMONet"): HMONet2D,
+        (2, "QG-HMONet"): QGHMONet2D,
         (2, "MeshONet"): MeshONet2D,
         (2, "PI-MeshONet"): PIMeshONet2D if paper_pi_architecture else MeshONet2D,
-        (2, "PI-HMONet"): HMONet2D,
-        (2, "Attention-PI-HMONet"): AttentionHMONet2D,
         (3, "HMONet"): HMONet3D,
+        (3, "QG-HMONet"): QGHMONet3D,
         (3, "MeshONet"): MeshONet3D,
         (3, "PI-MeshONet"): PIMeshONet3D if paper_pi_architecture else MeshONet3D,
-        (3, "PI-HMONet"): HMONet3D,
-        (3, "Attention-PI-HMONet"): AttentionHMONet3D,
     }[(dimension, method)]
     if cls in (MeshONet2D, MeshONet3D) and not any(
         key.startswith("branch_fusion.") for key in state_dict
@@ -148,11 +142,9 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
     model = cls(*shape, **kwargs)
     model.load_state_dict(state_dict, strict=True)
     model.to(device).eval()
-    model.boundary_sample_counts = (
-        config.get("attentionpihmonet_training", {}).get("boundary_sample_counts")
-        if method == "Attention-PI-HMONet"
-        else None
-    ) or config.get("boundary_encoder", {}).get("sample_counts")
+    model.boundary_sample_counts = config.get("boundary_encoder", {}).get(
+        "sample_counts"
+    )
     summary = read_json(path.parent / "training_summary.json", {})
     return (
         model,
@@ -246,39 +238,28 @@ def _predict(
     explicit_single_batch = bool(
         not batched
         and (
-            method == "Attention-PI-HMONet"
-            or getattr(model, "boundary_self_attention_enabled", False)
+            getattr(model, "boundary_self_attention_enabled", False)
+            or getattr(model, "query_boundary_cross_attention_enabled", False)
+            or getattr(model, "multiscale_boundary_encoder_enabled", False)
         )
     )
     if batched:
         query = query[None].expand(batch_size, -1, -1).contiguous()
     elif explicit_single_batch:
-        # Attention encoders always consume [batch, points, coordinates], even
-        # when evaluation contains only one geometry.
+        # Boundary-token encoders always consume [batch, points, coordinates],
+        # even when evaluation contains only one geometry.
         query = query[None]
-        if method != "Attention-PI-HMONet":
-            boundary = boundary[None]
+        boundary = boundary[None]
     b = boundary.unbind(-1)
-    attention_boundary = None
-    if method == "Attention-PI-HMONet":
-        geometry_list = list(geometry) if batched else [geometry]
-        attention_boundary = build_boundary_inputs(
-            geometry_list, input_shape, device, torch.float32,
-            getattr(model, "boundary_sample_counts", None),
-        )
     chunk_size = int(options["query_batch_size"])
     chunks = tuple(query.split(chunk_size, dim=-2))
     geometries = (geometry,) * len(chunks)
 
     def forward(index):
-        args = (
-            (*attention_boundary, *chunks[index].unbind(-1))
-            if method == "Attention-PI-HMONet"
-            else (*b, *chunks[index].unbind(-1))
-        )
+        args = (*b, *chunks[index].unbind(-1))
         return (
             model(*args, boundary_geometry=geometries[index])
-            if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet")
+            if method in ("HMONet", "QG-HMONet")
             else model(*args)
         )
 
@@ -329,7 +310,7 @@ def _predict(
         "curve_kernel_backend": options.get("curve_kernel_backend", "auto"),
         "curve_kernel_calls": kernel_status()["calls"] - kernel_before["calls"],
         "curve_kernel_fallbacks": (
-            kernel_status()["failures"] if method in ("HMONet", "PI-HMONet", "Attention-PI-HMONet") else {}
+            kernel_status()["failures"] if method in ("HMONet", "QG-HMONet") else {}
         ),
         "effective_inference_warmup_runs": warmup_runs,
         "inference_warmup_runs": options["inference_warmup_runs"],

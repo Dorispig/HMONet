@@ -21,7 +21,9 @@ HMONet/
 ├── src/            # 数据、模型、损失、数值方法、评估和训练引擎
 ├── tests/          # 自动化测试
 ├── docs/           # 补充说明
-└── requirements.txt
+├── reports/        # 自动生成或冻结的科研结果报告
+├── requirements.txt      # 运行依赖
+└── requirements-dev.txt  # 完整测试依赖
 ```
 
 ## 环境配置
@@ -96,7 +98,7 @@ python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case 
 python scripts/evaluate/evaluate_3d.py --config configs/3D/evaluate.yaml --case sch_r_ext_0_1000_11_31_11 --methods tfi,pde,meshonet,hmonet --grid-shapes 21x21x21
 ```
 
-评估结果默认保存在 `outputs/results/`，包括网格、质量指标、非法单元统计、边界误差、生成时间和对比图。
+评估结果默认保存在 `outputs/results/`，包括质量指标、非法单元统计、边界误差、生成时间和对比图。默认紧凑模式会在汇总完成后删除网格数组；下游求解或二次分析需要网格时，应使用 `--generation-only` 或 `--no-compact-outputs`。详见[评估体系与输出结构](docs/evaluation_system.md)。
 
 ## 训练并评估
 
@@ -137,12 +139,38 @@ python scripts/experiments/run.py ex10 baseline all --dataset air_t_ext_1_500_21
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v
+pip install -r requirements-dev.txt
+python -m unittest discover -s tests -p "test_*.py" -v
+python -m pytest tests -q
 ```
+
+项目同时包含 `unittest` 类与 pytest 风格测试函数，两条测试命令均应执行。仅安装 `requirements.txt` 可运行项目，但不包含完整测试所需的 pytest。
+
+## 引用、贡献与许可
+
+学术工作中使用本项目时，请优先使用 [CITATION.cff](CITATION.cff) 中的软件引用元数据。当前为未正式打标签的开发版；论文录用、真实作者姓名、ORCID 和 DOI 将在正式发布前更新。
+
+- 贡献流程与科研变更要求：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 版本变更记录：[CHANGELOG.md](CHANGELOG.md)
+- 开源许可：[BSD 3-Clause License](LICENSE)
+- 自动化检查：[GitHub Actions CI](.github/workflows/ci.yml)
 
 ## 补充文档
 
-- [训练与评估命令](scripts/train/train_evaluate_cli.md)
-- [评估体系](docs/evaluation_system.md)
-- [跨平台运行](docs/cross_platform.md)
+- [完整文档索引](docs/README.md)
+- [环境、跨平台运行与代码同步](docs/environment.md)
+- [命令与多 GPU 队列速查](docs/command_reference.md)
+- [参数化数据集、边界族与曲线接口](docs/dataset_generation.md)
+- [评估体系、指标与输出结构](docs/evaluation_system.md)
+- [实验复现、指纹与 checkpoint 兼容性](docs/reproducibility.md)
+- [已知限制与结果解释](docs/known_limitations.md)
+- [二维 Poisson 下游案例](docs/downstream_poisson_2d.md)
+- [二维训练命令](configs/2D/train_cli.md)
+- [二维评估命令](configs/2D/evaluate_cli.md)
+- [三维训练命令](configs/3D/train_cli.md)
+- [三维评估命令](configs/3D/evaluate_cli.md)
+- [训练与评估联合入口](scripts/train/train_evaluate_cli.md)
 - [消融实验](experiments/README.md)
+- [HMONet 训练架构](HMONET_TRAINING_ARCHITECTURE.md)
+- [二维已生成数据集](data/raw/2D/README.md)
+- [三维已生成数据集](data/raw/3D/README.md)

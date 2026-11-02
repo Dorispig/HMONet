@@ -490,30 +490,6 @@ def hmonet_main_loss(
 def predict_coordinates(model, boundary, logical, geometry=None, **kwargs):
     """Evaluate all numerical samples in one network forward pass."""
     dimension = logical.shape[-1]
-    from src.models import AttentionHMONet2D, AttentionHMONet3D
-
-    if isinstance(model, (AttentionHMONet2D, AttentionHMONet3D)):
-        if geometry is None:
-            raise ValueError(
-                "Attention-PI-HMONet requires exact parameter boundary geometry"
-            )
-        from src.engine.attention import build_boundary_inputs
-
-        boundary_inputs = build_boundary_inputs(
-            geometry,
-            tuple(model.declared_grid_shape),
-            logical.device,
-            logical.dtype,
-            getattr(model, "boundary_sample_counts", None),
-        )
-        kwargs["boundary_geometry"] = geometry
-        outputs = model(
-            *boundary_inputs, *logical.unbind(dim=-1), **kwargs
-        )
-        prediction = torch.cat(outputs[:dimension], dim=-1)
-        if kwargs.get("return_displacement", False):
-            return prediction, outputs[-1]
-        return prediction
     if geometry is not None:
         kwargs["boundary_geometry"] = geometry
     outputs = model(*boundary.unbind(dim=-1), *logical.unbind(dim=-1), **kwargs)
@@ -886,13 +862,7 @@ def calculate_fixed_grid_metrics(
                         geometry = [
                             geometry_getter(dataset, i) for i in range(start, stop)
                         ]
-                    from src.models import AttentionHMONet2D
-
-                    if (
-                        geometry is not None
-                        and len(shape) == 2
-                        and not isinstance(model, AttentionHMONet2D)
-                    ):
+                    if geometry is not None and len(shape) == 2:
                         from src.data.geometry.parametric_curve_2d import BoundaryCurveSet2D
 
                         geometry = BoundaryCurveSet2D.batch(

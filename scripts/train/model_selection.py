@@ -7,13 +7,12 @@ MODEL_NAMES = (
     "hmonet",
     "meshonet",
     "pimeshonet",
-    "pihmonet",
-    "attentionpihmonet",
+    "qghmonet",
 )
 
 MODEL_ALIASES = {
     "both": ("hmonet", "meshonet"),
-    "pi": ("pimeshonet", "pihmonet", "attentionpihmonet"),
+    "pi": ("pimeshonet",),
     "all": MODEL_NAMES,
 }
 

@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: >-
+  If you use HMONet, its datasets, or its evaluation workflow in academic
+  work, please cite this software release. Update to the associated article
+  citation when the HMONet paper and DOI become available.
+title: "HMONet: Exact Parametric-Boundary Hard Constraints for Structured Mesh Generation"
+type: software
+authors:
+  - family-names: "Dorispig"
+    email: "zt2484665269@mail.ustc.edu.cn"
+    affiliation: "University of Science and Technology of China"
+repository-code: "https://github.com/Dorispig/HMONet"
+url: "https://github.com/Dorispig/HMONet"
+license: BSD-3-Clause
+version: 0.1.0-dev
+keywords:
+  - structured mesh generation
+  - neural operator
+  - physics-informed learning
+  - exact boundary condition
+  - quadrilateral mesh
+  - hexahedral mesh
+
