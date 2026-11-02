@@ -3,7 +3,7 @@
 import copy
 import numpy as np
 import torch
-from tqdm import tqdm
+from src.utils.progress import training_progress as tqdm
 
 from src.models import HMONet2D, HMONet3D
 from src.losses.physics import (

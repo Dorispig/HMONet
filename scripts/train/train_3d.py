@@ -15,7 +15,7 @@ if __package__ in (None, ""):
 import numpy as np
 import torch
 import yaml
-from tqdm import tqdm
+from src.utils.progress import training_progress as tqdm
 
 from scripts.train.model_selection import parse_model_selection
 from src.engine.training import (

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.experiments import run_ablation_2d
+from scripts.experiments import run_ablation_2d, run_ablations_2d
 
 
 def build_parser():
@@ -54,6 +54,18 @@ def build_parser():
     parser.add_argument("--experiment-root", type=Path)
     parser.add_argument("--run-tag", default="default")
     parser.add_argument("--device")
+    parser.add_argument(
+        "--gpus",
+        nargs="+",
+        help="Dynamic GPU queue, for example --gpus 0 1 2 3.",
+    )
+    parser.add_argument("--queue-log-root", type=Path)
+    parser.add_argument(
+        "--queue-terminal-interval",
+        type=int,
+        default=500,
+        help="Print one complete queued epoch summary every N epochs.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
@@ -67,7 +79,8 @@ def build_parser():
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     run_ablation_2d.validate_experiment_set_name(args.experiment_set)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
@@ -81,12 +94,11 @@ def main(argv=None):
         "--evaluate-config", str(args.evaluate_config),
         "--experiment-root", str(args.experiment_root),
         "--run-tag", args.run_tag,
-        (
-            "--evaluate-only"
-            if args.evaluate_only
-            else ("--continue-on-error" if args.evaluate else "--train-only")
-        ),
     ]
+    if args.evaluate_only:
+        command.append("--evaluate-only")
+    elif not args.evaluate:
+        command.append("--train-only")
     for dataset in args.dataset or []:
         command += ["--dataset", dataset]
     if args.seeds:
@@ -108,6 +120,48 @@ def main(argv=None):
         command.append("--force")
     if args.continue_on_error:
         command.append("--continue-on-error")
+    if args.gpus:
+        if args.device:
+            parser.error("Use either --device or --gpus, not both")
+        batch_command = [
+            "--experiment-set", args.experiment_set,
+            "--ablations", "baseline",
+            "--config", str(args.config),
+            "--baseline-config", str(args.baseline_config),
+            "--evaluate-config", str(args.evaluate_config),
+            "--experiment-root", str(args.experiment_root),
+            "--run-tag", args.run_tag,
+            "--gpus", *args.gpus,
+            "--queue-terminal-interval", str(args.queue_terminal_interval),
+        ]
+        for dataset in args.dataset or []:
+            batch_command += ["--dataset", dataset]
+        if args.seeds:
+            batch_command += ["--seeds", *map(str, args.seeds)]
+        if args.evaluation_grid_shapes:
+            batch_command += [
+                "--evaluation-grid-shapes",
+                *map(str, args.evaluation_grid_shapes),
+            ]
+        if args.evaluation_values:
+            batch_command += [
+                "--evaluation-values", *map(str, args.evaluation_values)
+            ]
+        if not args.evaluation_plots:
+            batch_command.append("--no-evaluation-plots")
+        if args.queue_log_root:
+            batch_command += ["--queue-log-root", str(args.queue_log_root)]
+        if args.dry_run:
+            batch_command.append("--dry-run")
+        if args.force:
+            batch_command.append("--force")
+        if args.continue_on_error:
+            batch_command.append("--continue-on-error")
+        if args.evaluate_only:
+            batch_command.append("--evaluate-only")
+        elif not args.evaluate:
+            batch_command.append("--train-only")
+        return run_ablations_2d.main(batch_command)
     return run_ablation_2d.main(command)
 
 

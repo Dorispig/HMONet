@@ -134,6 +134,12 @@ def build_parser():
         type=Path,
         help="Directory for one log per dynamically scheduled task.",
     )
+    parser.add_argument(
+        "--queue-terminal-interval",
+        type=int,
+        default=500,
+        help="Print one complete queued epoch summary every N epochs.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--evaluate-only", action="store_true")
@@ -258,6 +264,7 @@ def _run_dynamic_gpu_queue(args, selected):
         log_root=log_root,
         continue_on_error=args.continue_on_error,
         dry_run=args.dry_run,
+        terminal_interval=args.queue_terminal_interval,
     )
     if args.dry_run:
         return {

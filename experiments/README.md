@@ -12,6 +12,8 @@ python scripts/experiments/run.py ex9 baseline all --tag physics_v1
 `<实验名>/<实验名>/` 训练层级。已有结果不做破坏性搬移，运行器会递归发现并按指纹复用；
 `results_catalog.json` 给出所有历史清单的位置。
 
+所有 `ex1`--`ex10`（包括 `ex8_1`）均复用同一个动态 GPU 队列实现。队列中的最小任务固定为“一个实验变体、一个数据集、一个随机种子”的完整训练与评估；只有显式指定 `--train-only` 或 `--evaluate-only` 时才执行单阶段。`Ctrl+C`/`SIGTERM` 会中断整个队列、终止所有当前子任务并取消待运行任务，`--continue-on-error` 仅适用于普通任务异常。推荐统一使用 `python scripts/experiments/run.py exN ... --gpus ...`；旧的 `run_ablations_2d.py` 和 `run_baseline_2d.py` 入口也共享相同行为。
+
 - `ex1/`：迁移前的全部历史消融实验、模型和评估结果，配置与指纹保持原样。
 - `ex2/`：保留主干几何系数与自注意力的历史结构实验；Softplus 激活实验已删除。当前正式HMONet固定使用Branch×Trunk调制和Sigmoid激活。
 - `ex3/`：Jacobian 损失与曲边目标插值的 2×2 组合消融。

@@ -30,6 +30,7 @@ from src.engine.training import (
 )
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.utils.paths import portable_project_path
+from src.utils.progress import in_gpu_queue
 
 
 def _display_width(value):
@@ -969,10 +970,21 @@ class TrainingState:
             and "loss_boundary" in losses
             else ""
         )
-        # Keep the epoch summary compact and consistent across training modes.
-        # Per-batch progress already exposes the active loss components; the
-        # epoch line reports only the optimized total and fixed-grid metrics.
-        loss_text = f"training_loss={loss:.6e}" + smoothness_text + alpha_text
+        # Queue workers suppress per-batch tqdm updates, so their epoch line
+        # includes every active objective component. Interactive single-GPU
+        # runs retain the established compact line because tqdm already shows
+        # the component losses batch by batch.
+        if in_gpu_queue():
+            component_text = ", ".join(
+                f"{key}={float(value):.6e}"
+                for key, value in losses.items()
+                if key != "loss"
+            )
+            loss_text = f"training_loss={loss:.6e}"
+            if component_text:
+                loss_text += f", {component_text}"
+        else:
+            loss_text = f"training_loss={loss:.6e}" + smoothness_text + alpha_text
         print(
             f"Epoch {epoch}/{t['num_epochs']}: {loss_text}"
             + (f", {metric_text}" if metric_text else ""),

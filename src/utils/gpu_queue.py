@@ -9,9 +9,11 @@ import os
 from pathlib import Path
 from queue import Empty, Queue
 import re
+import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from typing import Iterable, Sequence
 
 
@@ -34,6 +36,15 @@ class GpuQueueError(RuntimeError):
             f"{record['task']} (exit={record['returncode']})" for record in failed
         )
         super().__init__(f"GPU task queue failed: {rendered}")
+
+
+class GpuQueueInterrupted(SystemExit):
+    """Raised after SIGINT/SIGTERM cancels the whole queue and its children."""
+
+    def __init__(self, records, signal_number):
+        self.records = records
+        self.signal_number = signal_number
+        super().__init__(128 + int(signal_number))
 
 
 def parse_gpu_ids(values: Sequence[str | int] | str | None) -> list[int]:
@@ -96,6 +107,7 @@ def run_gpu_queue(
     continue_on_error: bool = False,
     dry_run: bool = False,
     validate_devices: bool = True,
+    terminal_interval: int = 500,
 ):
     """Run a dynamic FIFO queue with one long-lived worker per selected GPU.
 
@@ -109,6 +121,8 @@ def run_gpu_queue(
     gpu_ids = list(gpu_ids)
     if not gpu_ids:
         raise ValueError("gpu_ids cannot be empty")
+    if int(terminal_interval) < 1:
+        raise ValueError("terminal_interval must be positive")
     if not tasks:
         return []
     if validate_devices and not dry_run:
@@ -141,9 +155,54 @@ def run_gpu_queue(
     records_lock = threading.Lock()
     print_lock = threading.Lock()
     stop_dispatch = threading.Event()
+    cancel_queue = threading.Event()
+    active_processes = {}
+    active_lock = threading.Lock()
+    received_signal = [None]
+
+    def signal_process_tree(process, signal_number, *, force=False):
+        if process.poll() is not None:
+            return
+        try:
+            if os.name == "nt":
+                if force:
+                    process.kill()
+                else:
+                    process.terminate()
+            else:
+                os.killpg(
+                    process.pid,
+                    signal.SIGKILL if force else signal_number,
+                )
+        except (OSError, ProcessLookupError):
+            pass
+
+    def cancel_all(signal_number, _frame=None):
+        if cancel_queue.is_set():
+            return
+        received_signal[0] = int(signal_number)
+        cancel_queue.set()
+        stop_dispatch.set()
+        print(
+            f"\n[GPU queue] received signal {signal_number}; cancelling the "
+            "entire queue and all running tasks...",
+            flush=True,
+        )
+        with active_lock:
+            running = list(active_processes.values())
+        for process in running:
+            signal_process_tree(process, signal_number)
+
+    previous_handlers = {}
+    if threading.current_thread() is threading.main_thread():
+        for signal_number in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signal_number] = signal.getsignal(signal_number)
+            signal.signal(signal_number, cancel_all)
 
     def worker(gpu_id: int):
         while True:
+            if cancel_queue.is_set():
+                return
             if stop_dispatch.is_set() and not continue_on_error:
                 return
             try:
@@ -157,6 +216,7 @@ def run_gpu_queue(
             environment.update({str(k): str(v) for k, v in task.environment.items()})
             environment["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
             environment.setdefault("PYTHONUNBUFFERED", "1")
+            environment["HMONET_GPU_QUEUE"] = "1"
             with print_lock:
                 print(
                     f"[GPU queue] start GPU {gpu_id}: {task.name} | log={log_path}",
@@ -164,20 +224,64 @@ def run_gpu_queue(
                 )
             returncode = -1
             error = None
+            recent_lines = deque(maxlen=30)
             try:
                 with log_path.open("w", encoding="utf-8", errors="replace") as stream:
-                    process = subprocess.run(
+                    process = subprocess.Popen(
                         list(task.command),
                         cwd=cwd,
                         env=environment,
-                        stdout=stream,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
-                        check=False,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        bufsize=1,
+                        start_new_session=(os.name != "nt"),
+                        creationflags=(
+                            subprocess.CREATE_NEW_PROCESS_GROUP
+                            if os.name == "nt"
+                            else 0
+                        ),
                     )
-                returncode = int(process.returncode)
+                    with active_lock:
+                        active_processes[gpu_id] = process
+                    if cancel_queue.is_set():
+                        signal_process_tree(
+                            process,
+                            received_signal[0] or signal.SIGTERM,
+                        )
+                    assert process.stdout is not None
+                    with process.stdout:
+                        for line in process.stdout:
+                            stream.write(line)
+                            stream.flush()
+                            clean = line.rstrip("\r\n")
+                            recent_lines.append(clean)
+                            match = re.match(r"^Epoch\s+(\d+)/(\d+):", clean)
+                            if match:
+                                epoch, total = map(int, match.groups())
+                                if (
+                                    epoch == 1
+                                    or epoch == total
+                                    or epoch % int(terminal_interval) == 0
+                                ):
+                                    with print_lock:
+                                        print(
+                                            f"[GPU queue][GPU {gpu_id}]"
+                                            f"[{task.name}] {clean}",
+                                            flush=True,
+                                        )
+                    returncode = int(process.wait())
             except Exception as exception:  # pragma: no cover - operating-system failure
                 error = repr(exception)
-            status = "completed" if returncode == 0 and error is None else "failed"
+            finally:
+                with active_lock:
+                    active_processes.pop(gpu_id, None)
+            if cancel_queue.is_set():
+                status = "interrupted"
+            else:
+                status = "completed" if returncode == 0 and error is None else "failed"
             record = {
                 "index": index,
                 "task": task.name,
@@ -200,6 +304,13 @@ def run_gpu_queue(
                     f"({record['elapsed_seconds']:.1f}s)",
                     flush=True,
                 )
+                if status in {"failed", "interrupted"} and recent_lines:
+                    print(
+                        f"[GPU queue] last log lines for {task.name}:",
+                        flush=True,
+                    )
+                    for line in recent_lines:
+                        print(f"  {line}", flush=True)
             pending.task_done()
             if status == "failed" and not continue_on_error:
                 stop_dispatch.set()
@@ -210,9 +321,46 @@ def run_gpu_queue(
     ]
     for thread in threads:
         thread.start()
-    for thread in threads:
-        thread.join()
+    cancellation_started = None
+    try:
+        while any(thread.is_alive() for thread in threads):
+            for thread in threads:
+                thread.join(timeout=0.1)
+            if cancel_queue.is_set():
+                cancellation_started = cancellation_started or time.time()
+                if time.time() - cancellation_started >= 5.0:
+                    with active_lock:
+                        running = list(active_processes.values())
+                    for process in running:
+                        signal_process_tree(
+                            process,
+                            received_signal[0] or signal.SIGTERM,
+                            force=True,
+                        )
+    finally:
+        for signal_number, handler in previous_handlers.items():
+            signal.signal(signal_number, handler)
     records = sorted(records, key=lambda item: item["index"])
+    if cancel_queue.is_set():
+        while True:
+            try:
+                index, task = pending.get_nowait()
+            except Empty:
+                break
+            records.append(
+                {
+                    "index": index,
+                    "task": task.name,
+                    "gpu": None,
+                    "status": "cancelled",
+                    "returncode": None,
+                    "command": list(task.command),
+                }
+            )
+            pending.task_done()
+        records = sorted(records, key=lambda item: item["index"])
+        _write_summary(summary_path, records)
+        raise GpuQueueInterrupted(records, received_signal[0])
     if any(record["status"] == "failed" for record in records) and not continue_on_error:
         raise GpuQueueError(records)
     if len(records) != len(tasks):

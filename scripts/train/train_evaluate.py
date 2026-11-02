@@ -128,7 +128,7 @@ def _queued_formal_run(
     selected_methods,
     resolved_dataset_mode,
 ):
-    """Dynamically train model/dataset pairs, then evaluate each dataset once."""
+    """Queue atomic per-dataset train-and-evaluate tasks on selected GPUs."""
     import shlex
 
     gpu_ids = parse_gpu_ids(args.gpus)
@@ -151,64 +151,69 @@ def _queued_formal_run(
     tasks = []
     result_files = []
     script = ROOT / "scripts/train/train_evaluate.py"
-    for model in models:
-        for path in paths:
-            dataset_name = path.parent.name if path.is_file() else path.name
-            task_mode = requested_mode
-            if task_mode in (None, "both"):
-                task_mode = (
-                    "interpolation"
-                    if "_int_" in dataset_name
-                    else "extrapolation" if "_ext_" in dataset_name else None
-                )
-            if task_mode not in ("interpolation", "extrapolation"):
-                raise ValueError(
-                    f"Cannot infer interpolation/extrapolation mode for {dataset_name!r}; "
-                    "pass --train-args '--dataset-mode interpolation' (or extrapolation)."
-                )
-            worker_extra = [
-                *stripped,
-                "--model",
-                model,
-                "--dataset",
-                str(path),
-                "--dataset-mode",
-                task_mode,
-                "--device",
-                "cuda:0",
-            ]
-            result_file = result_root / f"{model}__{dataset_name}.json"
-            result_files.append(result_file)
-            command = [
-                sys.executable,
-                str(script),
-                "--dimension",
-                str(args.dimension),
-                "--train-config",
-                str(args.train_config or f"configs/{args.dimension}D/train.yaml"),
-                "--evaluate-config",
-                str(args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"),
-                "--checkpoint",
-                args.checkpoint,
-                "--train-args",
-                shlex.join(worker_extra),
-                "--queue-worker",
-                "--queue-result",
-                str(result_file),
-            ]
-            tasks.append(
-                GpuTask(
-                    name=f"train__{model}__{dataset_name}",
-                    command=command,
-                )
+    evaluation_extra = _without_value_options(evaluate_extra, {"--device"})
+    for path in paths:
+        dataset_name = path.parent.name if path.is_file() else path.name
+        task_mode = requested_mode
+        if task_mode in (None, "both"):
+            task_mode = (
+                "interpolation"
+                if "_int_" in dataset_name
+                else "extrapolation" if "_ext_" in dataset_name else None
             )
-    training_records = run_gpu_queue(
+        if task_mode not in ("interpolation", "extrapolation"):
+            raise ValueError(
+                f"Cannot infer interpolation/extrapolation mode for {dataset_name!r}; "
+                "pass --train-args '--dataset-mode interpolation' (or extrapolation)."
+            )
+        worker_extra = [
+            *stripped,
+            "--model",
+            ",".join(models),
+            "--dataset",
+            str(path),
+            "--dataset-mode",
+            task_mode,
+            "--device",
+            "cuda:0",
+        ]
+        result_file = result_root / f"{dataset_name}.json"
+        result_files.append(result_file)
+        command = [
+            sys.executable,
+            str(script),
+            "--dimension",
+            str(args.dimension),
+            "--train-config",
+            str(args.train_config or f"configs/{args.dimension}D/train.yaml"),
+            "--evaluate-config",
+            str(args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"),
+            "--checkpoint",
+            args.checkpoint,
+            "--train-args",
+            shlex.join(worker_extra),
+            "--evaluate-args",
+            shlex.join([*evaluation_extra, "--device", "cuda:0"]),
+            "--queue-worker",
+            "--queue-result",
+            str(result_file),
+        ]
+        if selected_methods is not None:
+            command += ["--evaluate-methods", ",".join(selected_methods)]
+        tasks.append(
+            GpuTask(
+                name=f"train_evaluate__{dataset_name}",
+                command=command,
+            )
+        )
+    task_records = run_gpu_queue(
         tasks,
         gpu_ids,
         cwd=ROOT,
-        log_root=queue_root / "training",
+        log_root=queue_root / "tasks",
         continue_on_error=args.continue_on_error,
         dry_run=args.dry_run,
+        terminal_interval=args.queue_terminal_interval,
     )
     if args.dry_run:
         return []
@@ -216,42 +221,9 @@ def _queued_formal_run(
     for result_file in result_files:
         if result_file.is_file():
             summaries.extend(json.loads(result_file.read_text(encoding="utf-8")))
-    failed = [record for record in training_records if record["status"] == "failed"]
+    failed = [record for record in task_records if record["status"] == "failed"]
     if failed and not summaries:
         return []
-
-    evaluation_extra = _without_value_options(evaluate_extra, {"--device"})
-    evaluation_tasks = []
-    evaluate_script = ROOT / f"scripts/evaluate/evaluate_{args.dimension}d.py"
-    for command in evaluation_commands(
-        summaries,
-        evaluate_config,
-        cases,
-        args.checkpoint,
-        selected_methods,
-    ):
-        case = command[command.index("--case") + 1]
-        evaluation_tasks.append(
-            GpuTask(
-                name=f"evaluate__{case}",
-                command=[
-                    sys.executable,
-                    str(evaluate_script),
-                    *command,
-                    *evaluation_extra,
-                    "--device",
-                    "cuda:0",
-                ],
-            )
-        )
-    run_gpu_queue(
-        evaluation_tasks,
-        gpu_ids,
-        cwd=ROOT,
-        log_root=queue_root / "evaluation",
-        continue_on_error=args.continue_on_error,
-        dry_run=False,
-    )
     return summaries
 
 
@@ -284,6 +256,12 @@ def main(argv=None):
         help="Dynamic GPU queue, e.g. --gpus 0 1 2 3 or --gpus 0,1,2,3.",
     )
     parser.add_argument("--queue-log-root")
+    parser.add_argument(
+        "--queue-terminal-interval",
+        type=int,
+        default=500,
+        help="Print one complete queued epoch summary every N epochs.",
+    )
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--queue-worker", action="store_true", help=argparse.SUPPRESS)
@@ -399,6 +377,10 @@ def main(argv=None):
     train = importlib.import_module(f"scripts.train.train_{args.dimension}d")
     evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
     summaries = train.main(["--config", str(train_config)] + train_extra)
+    for command in evaluation_commands(
+        summaries, evaluate_config, cases, args.checkpoint, selected
+    ):
+        evaluate.main(command + evaluate_extra)
     if args.queue_worker:
         if not args.queue_result:
             parser.error("Internal queue workers require --queue-result")
@@ -408,11 +390,6 @@ def main(argv=None):
             json.dumps(summaries, ensure_ascii=False, indent=2, default=_json_default),
             encoding="utf-8",
         )
-        return summaries
-    for command in evaluation_commands(
-        summaries, evaluate_config, cases, args.checkpoint, selected
-    ):
-        evaluate.main(command + evaluate_extra)
     return summaries
 
 

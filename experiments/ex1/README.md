@@ -61,7 +61,7 @@
 ### 3.1 先检查，不执行训练或评估
 
 ```powershell
-python scripts/experiments/ex1/run_ablations_2d.py `
+python scripts/experiments/run_ablations_2d.py --experiment-set ex1 `
   --ablations jacobian_enabled jacobian_weight mapping_mode `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `
@@ -74,7 +74,7 @@ python scripts/experiments/ex1/run_ablations_2d.py `
 ### 3.2 训练并评估独立基线
 
 ```powershell
-python scripts/experiments/ex1/run_baseline_2d.py `
+python scripts/experiments/run_baseline_2d.py --experiment-set ex1 `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `
   --run-tag paper_v1 `
@@ -87,7 +87,7 @@ python scripts/experiments/ex1/run_baseline_2d.py `
 ### 3.3 运行一个消融实验
 
 ```powershell
-python scripts/experiments/ex1/run_ablation_2d.py `
+python scripts/experiments/run_ablation_2d.py --experiment-set ex1 `
   --ablation jacobian_weight `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `
@@ -105,7 +105,7 @@ python scripts/experiments/ex1/run_ablation_2d.py `
 ### 3.4 一次运行多个消融实验
 
 ```powershell
-python scripts/experiments/ex1/run_ablations_2d.py `
+python scripts/experiments/run_ablations_2d.py --experiment-set ex1 `
   --ablations jacobian_enabled jacobian_weight mapping_mode sampling_mode `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `
@@ -181,7 +181,7 @@ experiments/ex1/
 下面的命令只选择已经完成三个随机种子训练的六类消融实验。它会复用全部训练，新增101×101评估，不会修改已有51×51结果：
 
 ```powershell
-python scripts/experiments/ex1/run_ablations_2d.py `
+python scripts/experiments/run_ablations_2d.py --experiment-set ex1 `
   --ablations jacobian_enabled jacobian_weight mapping_mode sampling_mode target_interpolation training_sample_count `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `
@@ -194,7 +194,7 @@ python scripts/experiments/ex1/run_ablations_2d.py `
 如需让各消融实验与 baseline 的101×101结果一起比较，先单独补充 baseline：
 
 ```powershell
-python scripts/experiments/ex1/run_ablation_2d.py `
+python scripts/experiments/run_ablation_2d.py --experiment-set ex1 `
   --ablation baseline `
   --dataset air_t_int_0_1000_41_20 `
   --seeds 20260802 20260917 20261031 `

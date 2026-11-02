@@ -58,6 +58,12 @@ def build_parser():
         help="Run independent tasks dynamically on the selected GPU IDs.",
     )
     parser.add_argument("--queue-log-root")
+    parser.add_argument(
+        "--queue-terminal-interval",
+        type=int,
+        default=500,
+        help="Print one complete queued epoch summary every N epochs.",
+    )
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--force", action="store_true")
@@ -89,6 +95,7 @@ def command_from_args(args):
         command += ["--gpus", *args.gpus]
     if args.queue_log_root:
         command += ["--queue-log-root", args.queue_log_root]
+    command += ["--queue-terminal-interval", str(args.queue_terminal_interval)]
     if not args.plots:
         command.append("--no-evaluation-plots")
     for name in ("train_only", "evaluate_only", "force", "dry_run", "continue_on_error"):

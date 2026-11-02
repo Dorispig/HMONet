@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import numpy as np
 import torch
-from tqdm import tqdm
+from src.utils.progress import training_progress as tqdm
 
 from src.engine.attention import (
     autograd_physics_losses,

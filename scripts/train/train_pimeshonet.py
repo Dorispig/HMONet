@@ -3,7 +3,7 @@
 import copy
 import numpy as np
 import torch
-from tqdm import tqdm
+from src.utils.progress import training_progress as tqdm
 from src.models.pi_meshonet import PIMeshONet2D, PIMeshONet3D
 from src.data.mesh.sampling import logical_grid, boundary_indices
 from src.losses.physics import stencil_queries, elliptic_grid_pde_residual
