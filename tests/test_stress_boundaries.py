@@ -1,10 +1,10 @@
 """Geometry, serialization and differentiability checks for stress boundaries."""
 
-import unittest
 import numpy as np
 import torch
 from src.data.geometry.boundary_generator_2d import generate_boundary
 from src.data.geometry.parametric_curve_2d import BoundaryCurveSet2D, PiecewiseCurve
+import pytest
 
 NAMES = [
     "smooth_constricted_channel",
@@ -14,7 +14,7 @@ NAMES = [
 ]
 
 
-class StressBoundaryTests(unittest.TestCase):
+class TestStressBoundary:
     def test_values_derivatives_and_roundtrip(self):
         for name in NAMES:
             b = generate_boundary(name)
@@ -49,9 +49,7 @@ class StressBoundaryTests(unittest.TestCase):
                     derivative.detach(), numerical, atol=1e-5, rtol=1e-4
                 )
                 for endpoint in (0.0, 1.0):
-                    self.assertTrue(
-                        np.isfinite(curve.derivative(np.array([endpoint]))).all()
-                    )
+                    assert np.isfinite(curve.derivative(np.array([endpoint]))).all()
                 if isinstance(curve, PiecewiseCurve):
                     joins = torch.tensor(
                         curve.breakpoints[1:-1], dtype=torch.float64, requires_grad=True
@@ -82,8 +80,8 @@ class StressBoundaryTests(unittest.TestCase):
             )
             points = b.project_torch(t, t)
             g = torch.autograd.grad(points.square().sum(), t, create_graph=True)[0]
-            self.assertTrue(torch.isfinite(g).all())
-            self.assertTrue(torch.isfinite(torch.autograd.grad(g.sum(), t)[0]).all())
+            assert torch.isfinite(g).all()
+            assert torch.isfinite(torch.autograd.grad(g.sum(), t)[0]).all()
 
     def test_default_boundaries_have_no_crossings(self):
         for name in NAMES:
@@ -109,19 +107,15 @@ class StressBoundaryTests(unittest.TestCase):
             b = cross(direction[:, None, :], ends[None, :, :] - starts[:, None, :])
             c = cross(direction[None, :, :], -delta)
             d = cross(direction[None, :, :], ends[:, None, :] - starts[None, :, :])
-            self.assertFalse(np.any((a * b < -1e-20) & (c * d < -1e-20)), name)
+            assert not np.any((a * b < -1e-20) & (c * d < -1e-20)), name
 
     def test_gap_and_waves(self):
         t = np.linspace(0, 1, 1001)
         for name in NAMES[:2]:
             b = generate_boundary(name)
-            self.assertTrue(np.all(b.top(t)[:, 1] > b.bottom(t)[:, 1]))
+            assert np.all(b.top(t)[:, 1] > b.bottom(t)[:, 1])
         b = generate_boundary("smooth_constricted_channel")
-        self.assertAlmostEqual(float(b.top(0.5)[1] - b.bottom(0.5)[1]), 0.2)
+        assert (float(b.top(0.5)[1] - b.bottom(0.5)[1])) == pytest.approx(0.2, abs=1e-7)
         b = generate_boundary("gear_spline")
-        self.assertGreater(np.ptp(b.left(t)[:, 0]), 0.1)
-        self.assertGreater(np.ptp(b.right(t)[:, 0]), 0.1)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (np.ptp(b.left(t)[:, 0])) > (0.1)
+        assert (np.ptp(b.right(t)[:, 0])) > (0.1)

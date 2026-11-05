@@ -4,7 +4,6 @@ from argparse import Namespace
 import json
 from pathlib import Path
 import tempfile
-import unittest
 from unittest.mock import patch
 
 import matplotlib.pyplot as plt
@@ -19,22 +18,24 @@ from src.evaluation.quality_output import compute_quad_quality, save_quality_com
 from src.evaluation.zoom_3d import generate_zoom, load_meshes
 
 
-class EvaluationPlotOrderTests(unittest.TestCase):
+class TestEvaluationPlotOrder:
     unordered = ["HMONet", "MeshONet", "PDE_Winslow", "TFI"]
     ordered = ["TFI", "PDE_Winslow", "MeshONet", "HMONet"]
     labels = ["TFI", "PDE", "MeshONet", "HMONet"]
 
-    def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="hmonet_plot_order_")
-        self.root = Path(temporary.name)
-        self.addCleanup(temporary.cleanup)
-        self.addCleanup(plt.close, "all")
+    def setup_method(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="hmonet_plot_order_")
+        self.root = Path(self.temporary.name)
         self.options = dict(
             save_plots=True,
             save_png=True,
             save_pdf=False,
             save_distribution_plots=False,
         )
+
+    def teardown_method(self):
+        plt.close("all")
+        self.temporary.cleanup()
 
     def meshes(self, dimension):
         points = logical_grid((3,) * dimension)
@@ -46,7 +47,7 @@ class EvaluationPlotOrderTests(unittest.TestCase):
             spec = axis.get_subplotspec()
             if spec is not None and spec.rowspan.start == 0:
                 panels.append((spec.colspan.start, axis.get_title().split(" | ")[0]))
-        self.assertEqual(sorted(panels), list(enumerate(self.labels)))
+        assert (sorted(panels)) == (list(enumerate(self.labels)))
 
     def saved_source(self, dimension):
         folder = self.root / f"{dimension}D"
@@ -61,12 +62,12 @@ class EvaluationPlotOrderTests(unittest.TestCase):
         return folder
 
     def test_selection_and_legacy_result_loaders(self):
-        self.assertEqual(selected_methods("hmonet,meshonet,pde,tfi"), self.ordered)
-        self.assertEqual(selected_methods("hmonet,pde"), ["PDE_Winslow", "HMONet"])
+        assert (selected_methods("hmonet,meshonet,pde,tfi")) == (self.ordered)
+        assert (selected_methods("hmonet,pde")) == (["PDE_Winslow", "HMONet"])
         meshes, _, _, _ = load_comparison(self.saved_source(2), None)
-        self.assertEqual(list(meshes), self.labels)
+        assert (list(meshes)) == (self.labels)
         meshes, _, _ = load_meshes(self.saved_source(3))
-        self.assertEqual(list(meshes), self.ordered)
+        assert (list(meshes)) == (self.ordered)
 
     def test_2d_mesh_quality_and_zoom_columns(self):
         meshes = self.meshes(2)
@@ -85,9 +86,9 @@ class EvaluationPlotOrderTests(unittest.TestCase):
                 quality_cache={name: quality for name in meshes},
                 save_distribution_plots=False,
             )
-            self.assertEqual(saved.call_count, 2)
+            assert (saved.call_count) == (2)
         metadata = json.loads((self.root / "metadata.json").read_text(encoding="utf-8"))
-        self.assertEqual(metadata["method_order"], self.ordered)
+        assert (metadata["method_order"]) == (self.ordered)
         # Simulate old NPZ and JSON insertion order before loading local views.
         folder = self.saved_source(2)
         np.savez_compressed(
@@ -120,7 +121,7 @@ class EvaluationPlotOrderTests(unittest.TestCase):
                     {},
                     args,
                 )
-            self.assertEqual(saved.call_count, 4)
+            assert (saved.call_count) == (4)
 
     def test_3d_volume_middle_sections_and_zoom_columns(self):
         meshes = self.meshes(3)
@@ -129,16 +130,16 @@ class EvaluationPlotOrderTests(unittest.TestCase):
             "src.evaluation.analysis.save_figure", side_effect=self.assert_columns
         ) as saved:
             plot_volumes(self.root, meshes, fields, (3, 3, 3), self.options)
-            self.assertEqual(saved.call_count, 2)
+            assert (saved.call_count) == (2)
             save_sections(self.root, meshes, (3, 3, 3), self.options)
-            self.assertGreater(saved.call_count, 2)
+            assert (saved.call_count) > (2)
         for section in ("x_mid", "y_mid", "z_mid"):
             metadata = json.loads(
                 (self.root / "boundary_faces" / section / "metadata.json").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(metadata["method_order"], self.ordered)
+            assert (metadata["method_order"]) == (self.ordered)
         folder = self.saved_source(3)
         check = self.assert_columns
 
@@ -183,7 +184,3 @@ class EvaluationPlotOrderTests(unittest.TestCase):
 
         with patch("matplotlib.figure.Figure.savefig", new=capture):
             plot_surface_slice_comparison(self.root, fields, 3, 3, 3)
-
-
-if __name__ == "__main__":
-    unittest.main()

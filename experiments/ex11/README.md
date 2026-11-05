@@ -28,6 +28,9 @@ The lifted dimension is `3 d P`: 12 in 2-D and 18 in 3-D for `P=2`.
 | `e6_modified_cross` | `e1 + e2`. |
 | `e7_modified_cross_boundary` | `e1 + e2 + e3`. |
 | `e8_full_factorized` | `e1 + e2 + e3 + e4`. |
+| `e9_meshonet_200k` | MeshONet comparison model uses a 40-dimensional branch bottleneck and uniform width 80, giving 208,242 parameters on the `41 x 41` training boundary. |
+| `e10_pimeshonet_200k` | PI-MeshONet uses the same 40/80 regular dimensions, giving 191,122 parameters on the `41 x 41` training boundary. |
+| `e11_raw_pde` | Keep the baseline model, sampling, barriers, and optimizer unchanged, but replace the scale-invariant PDE loss by the raw mean squared elliptic-grid residual. |
 
 ## QG-HMONet
 
@@ -55,11 +58,18 @@ Run the baseline and the first five variants on `run_ext_1_500_41_41`:
 python scripts/experiments/run.py ex11 baseline e1_modified_mlp e2_cross_attention e3_boundary_decoder e4_decoupled_weights e5_qg_hmonet --dataset run_ext_1_500_41_41 --seed 20261030 --grids 101 201 401 --tag physics_v1
 ```
 
+Run the complete suite, including the approximately 200k-parameter MeshONet
+and PI-MeshONet comparisons:
+
+```text
+python scripts/experiments/run.py ex11 baseline all --dataset run_ext_1_500_41_41 --seed 20261030 --grids 101 201 401 --tag physics_v1
+```
+
 For `air_t_ext_1_500_21_21`, replace only the dataset name.  Add `--gpus 0 1 2 3` on a four-GPU server if dynamic multi-GPU scheduling is desired.
 
 Measure parameter counts and forward latency independently of training:
 
 ```text
-python tools/benchmark_ex11.py --device cpu --repeats 20
+python tools/benchmark_ex11.py --device cuda --warmup 20 --repeats 100
 ```
 

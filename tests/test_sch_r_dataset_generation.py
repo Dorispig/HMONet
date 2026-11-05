@@ -1,7 +1,6 @@
 """Tests for the reference sch_r parameter ranges and current 3-D layout."""
 
 import tempfile
-import unittest
 from pathlib import Path
 
 import numpy as np
@@ -15,28 +14,20 @@ from src.data.generation.make_dataset_parametric_3d import (
 )
 
 
-class SchRDatasetGenerationTest(unittest.TestCase):
+class TestSchRDatasetGeneration:
     def test_reference_ranges_and_canonical_names(self):
-        specification = DATASET_FAMILIES[
-            "stadium_cylinder_with_circular_hole"
-        ]
-        interpolation = sample_parameter_ranges(
-            specification["interpolation"], 1000
-        )
-        extrapolation = sample_parameter_ranges(
-            specification["extrapolation"], 1000
-        )
+        specification = DATASET_FAMILIES["stadium_cylinder_with_circular_hole"]
+        interpolation = sample_parameter_ranges(specification["interpolation"], 1000)
+        extrapolation = sample_parameter_ranges(specification["extrapolation"], 1000)
 
-        self.assertEqual(len(interpolation), 1000)
-        self.assertEqual(interpolation[0], 0.12)
-        self.assertEqual(interpolation[499], 0.24)
-        self.assertEqual(interpolation[500], 0.36)
-        self.assertEqual(interpolation[-1], 0.48)
-        self.assertFalse(
-            np.any((interpolation > 0.24) & (interpolation < 0.36))
-        )
-        self.assertEqual((extrapolation[0], extrapolation[-1]), (0.16, 0.44))
-        self.assertEqual(
+        assert (len(interpolation)) == (1000)
+        assert (interpolation[0]) == (0.12)
+        assert (interpolation[499]) == (0.24)
+        assert (interpolation[500]) == (0.36)
+        assert (interpolation[-1]) == (0.48)
+        assert not np.any((interpolation > 0.24) & (interpolation < 0.36))
+        assert (extrapolation[0], extrapolation[-1]) == (0.16, 0.44)
+        assert (
             build_dataset_name(
                 "stadium_cylinder_with_circular_hole",
                 "interpolation",
@@ -45,9 +36,8 @@ class SchRDatasetGenerationTest(unittest.TestCase):
                 11,
                 11,
                 11,
-            ),
-            "sch_r_int_0_1000_11_11_11",
-        )
+            )
+        ) == ("sch_r_int_0_1000_11_11_11")
 
     def test_small_dataset_round_trip(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -63,18 +53,10 @@ class SchRDatasetGenerationTest(unittest.TestCase):
             )
             dataset = ParametricDataset3D(output, load_boundary=True)
 
-            self.assertEqual(len(dataset), 4)
-            self.assertEqual(dataset.grid_shape, (5, 5, 5))
-            self.assertEqual(dataset.boundary_points.shape, (4, 98, 3))
-            self.assertEqual(dataset.mesh_points.shape, (4, 125, 3))
-            self.assertEqual(
-                read_sample_parameters(Path(output), 0)["hole_radius"], 0.12
-            )
-            self.assertEqual(
-                read_sample_parameters(Path(output), 3)["hole_radius"], 0.48
-            )
-            self.assertTrue(np.isfinite(dataset.mesh_points).all())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (len(dataset)) == (4)
+            assert (dataset.grid_shape) == (5, 5, 5)
+            assert (dataset.boundary_points.shape) == (4, 98, 3)
+            assert (dataset.mesh_points.shape) == (4, 125, 3)
+            assert (read_sample_parameters(Path(output), 0)["hole_radius"]) == (0.12)
+            assert (read_sample_parameters(Path(output), 3)["hole_radius"]) == (0.48)
+            assert np.isfinite(dataset.mesh_points).all()

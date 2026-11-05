@@ -627,7 +627,20 @@ class HMONet2D(nn.Module):
     def _add_boundary_layer_residual(self, raw, joint_geometry, trunk_features, xi_eta):
         if self.boundary_layer_decoder is None:
             return raw
-        geometry = joint_geometry.unsqueeze(-2).expand(-1, trunk_features.shape[-2], -1)
+        # ``joint_geometry`` is [D] for single-geometry inference and [B, D]
+        # during batched training.  Broadcast it over the query axis without
+        # assuming that a batch dimension is present.
+        expected_prefix = trunk_features.shape[:-2]
+        if joint_geometry.shape[:-1] != expected_prefix:
+            raise ValueError(
+                "Boundary descriptor and trunk feature batch shapes do not match: "
+                f"{tuple(joint_geometry.shape)} versus {tuple(trunk_features.shape)}"
+            )
+        geometry = joint_geometry.unsqueeze(-2).expand(
+            *expected_prefix,
+            trunk_features.shape[-2],
+            joint_geometry.shape[-1],
+        )
         residual = self.boundary_layer_decoder(
             torch.cat((geometry, trunk_features), dim=-1)
         )

@@ -44,7 +44,7 @@ python scripts/downstream/run_poisson_2d.py --config configs/downstream/poisson_
 One case can be selected without editing YAML:
 
 ```bash
-python scripts/downstream/run_poisson_2d.py --dataset run_ext_1_500_41_41 --values 1.22 1.25 --grids 101 201 401 --methods pde meshonet pimeshonet hmonet --protocols raw exact_boundary_control
+python scripts/downstream/run_poisson_2d.py --dataset run_ext_1_500_41_41 --values 1.52 1.55 --grids 101 201 401 --methods pde meshonet pimeshonet hmonet --protocols raw exact_boundary_control
 ```
 
 If an input archive is missing, first run the standard evaluation at the same

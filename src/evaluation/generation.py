@@ -18,6 +18,7 @@ def implementation_version():
         "src/models",
         "src/data",
         "src/evaluation",
+        "src/metrics",
         "src/utils",
         "scripts/tfi",
         "scripts/pde",

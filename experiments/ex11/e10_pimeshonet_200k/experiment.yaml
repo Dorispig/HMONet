@@ -1,0 +1,26 @@
+schema_version: 1
+experiment: e10_pimeshonet_200k
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e10_pimeshonet_200k
+    value: PI-MeshONet_approximately_200k_parameters
+    overrides:
+      - --model
+      - pimeshonet
+      - --lr
+      - "0.0004"
+      - --best-model-metric
+      - training_loss
+      - --plateau-metric
+      - train_loss
+      - --branch-dim
+      - "40"
+      - --adjust-hidden-dim
+      - "80"
+      - --branch-hidden-dim
+      - "80"
+      - --trunk-hidden-dim
+      - "80"
+      - --output-dim
+      - "80"

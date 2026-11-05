@@ -1,7 +1,6 @@
 """Regression tests for parametric counterparts of legacy 3-D O-grids."""
 
 import sys
-import unittest
 from pathlib import Path
 
 import numpy as np
@@ -36,20 +35,22 @@ def legacy_airfoil(q, camber, position, thickness, chord):
     q = float(q) % 1.0
     upper = q <= 0.5
     x = 1.0 - 2.0 * q if upper else 2.0 * q - 1.0
-    yt = 5.0 * thickness * (
-        0.2969 * np.sqrt(max(x, 0.0))
-        - 0.1260 * x
-        - 0.3516 * x**2
-        + 0.2843 * x**3
-        - 0.1036 * x**4
+    yt = (
+        5.0
+        * thickness
+        * (
+            0.2969 * np.sqrt(max(x, 0.0))
+            - 0.1260 * x
+            - 0.3516 * x**2
+            + 0.2843 * x**3
+            - 0.1036 * x**4
+        )
     )
     if x < position:
         yc = camber / position**2 * (2 * position * x - x**2)
         slope = 2 * camber / position**2 * (position - x)
     else:
-        yc = camber / (1 - position) ** 2 * (
-            1 - 2 * position + 2 * position * x - x**2
-        )
+        yc = camber / (1 - position) ** 2 * (1 - 2 * position + 2 * position * x - x**2)
         slope = 2 * camber / (1 - position) ** 2 * (position - x)
     angle = np.arctan(slope)
     sign = 1.0 if upper else -1.0
@@ -58,25 +59,25 @@ def legacy_airfoil(q, camber, position, thickness, chord):
     ) - np.array([0.5 * chord, 0.0])
 
 
-class LegacyParametricBoundary3DTests(unittest.TestCase):
+class TestLegacyParametricBoundary3D:
     def test_generators_are_distinct_and_registered(self):
-        self.assertIs(
-            BOUNDARY_GENERATORS["cylindrical_domain_with_airfoil_hole"],
-            cylindrical_domain_with_airfoil_hole,
+        assert (BOUNDARY_GENERATORS["cylindrical_domain_with_airfoil_hole"]) is (
+            cylindrical_domain_with_airfoil_hole
         )
-        self.assertIs(
-            BOUNDARY_GENERATORS["stadium_cylinder_with_circular_hole"],
-            stadium_cylinder_with_circular_hole,
+        assert (BOUNDARY_GENERATORS["stadium_cylinder_with_circular_hole"]) is (
+            stadium_cylinder_with_circular_hole
         )
 
     def test_stadium_curve_matches_legacy_formula_and_round_trips(self):
         curve = StadiumCurve(0.8, 0.7)
         q = np.linspace(0.0, 1.0, 41)
-        expected = np.stack([legacy_stadium(2 * np.pi * value, 0.8, 0.7) for value in q])
+        expected = np.stack(
+            [legacy_stadium(2 * np.pi * value, 0.8, 0.7) for value in q]
+        )
         np.testing.assert_allclose(curve.evaluate(q), expected, atol=2e-14)
         restored = ParametricCurve.from_dict(curve.to_dict())
         np.testing.assert_allclose(restored.evaluate(q), expected, atol=2e-14)
-        self.assertTrue(np.all(np.isfinite(curve.derivative(q))))
+        assert np.all(np.isfinite(curve.derivative(q)))
 
     def test_airfoil_wall_matches_legacy_formula(self):
         boundary = cylindrical_domain_with_airfoil_hole()
@@ -121,10 +122,6 @@ class LegacyParametricBoundary3DTests(unittest.TestCase):
 
         query = torch.rand(2, 19, 3, dtype=torch.float64, requires_grad=True)
         values = evaluate_boundary_surfaces_torch(boundaries, *query.unbind(-1))
-        self.assertEqual(values.shape, (2, 19, 6, 3))
+        assert (values.shape) == (2, 19, 6, 3)
         values.square().mean().backward()
-        self.assertTrue(torch.isfinite(query.grad).all())
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert torch.isfinite(query.grad).all()

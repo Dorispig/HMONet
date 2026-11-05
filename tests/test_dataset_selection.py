@@ -5,11 +5,11 @@ import copy
 import io
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -19,36 +19,30 @@ from src.data.generation import make_dataset_parametric_2d as generator
 from src.data.dataset import ParametricDataset2D, read_dataset_metadata
 
 
-class DatasetSelectionTests(unittest.TestCase):
+class TestDatasetSelection:
     def test_default_training_ranges_and_automatic_names(self):
         family = generator.DATASET_FAMILIES["circle_airfoil_t"]
-        self.assertEqual(family["interpolation"], [[0.055, 0.25], [0.35, 0.60]])
-        self.assertEqual(family["extrapolation"], [[0.055, 0.60]])
+        assert (family["interpolation"]) == ([[0.055, 0.25], [0.35, 0.60]])
+        assert (family["extrapolation"]) == ([[0.055, 0.60]])
         values, _, counts = generator.sample_thickness_ranges(family["interpolation"])
-        self.assertEqual(len(values), 1000)
-        self.assertEqual(counts, [438, 562])
-        self.assertFalse(np.any((values > 0.25) & (values < 0.35)))
+        assert (len(values)) == (1000)
+        assert (counts) == ([438, 562])
+        assert not np.any((values > 0.25) & (values < 0.35))
         for split, tag in (("interpolation", "int"), ("extrapolation", "ext")):
-            self.assertEqual(
-                generator.build_dataset_name(
-                    "circle_airfoil_t", split, 0, 1000, 21, 20
-                ),
-                f"air_t_{tag}_0_1000_21_20",
-            )
+            assert (
+                generator.build_dataset_name("circle_airfoil_t", split, 0, 1000, 21, 20)
+            ) == (f"air_t_{tag}_0_1000_21_20")
         for alias, split in (
             ("int", "interpolation"),
             ("INT", "interpolation"),
             ("ext", "extrapolation"),
             ("Extrapolation", "extrapolation"),
         ):
-            self.assertEqual(generator.normalize_split(alias), split)
-            self.assertEqual(
-                generator.build_dataset_name(
-                    "circle_airfoil_t", alias, 0, 1000, 21, 20
-                ),
-                generator.build_dataset_name(
-                    "circle_airfoil_t", split, 0, 1000, 21, 20
-                ),
+            assert (generator.normalize_split(alias)) == (split)
+            assert (
+                generator.build_dataset_name("circle_airfoil_t", alias, 0, 1000, 21, 20)
+            ) == (
+                generator.build_dataset_name("circle_airfoil_t", split, 0, 1000, 21, 20)
             )
 
     def test_original_cli_options_aliases_and_timing(self):
@@ -75,19 +69,19 @@ class DatasetSelectionTests(unittest.TestCase):
                         temporary,
                     ]
                 )
-            self.assertEqual(outputs[0].name, "air_t_ext_0_4_7_5")
+            assert (outputs[0].name) == ("air_t_ext_0_4_7_5")
             metadata = read_dataset_metadata(outputs[0])
-            self.assertEqual(metadata["split"], "extrapolation")
-            self.assertEqual(metadata["function"], "circle_airfoil")
-            self.assertEqual(metadata["parameter"], "t")
-            self.assertEqual(metadata["parameter_intervals"], [[0.055, 0.60]])
-            self.assertEqual(metadata["winslow_max_iter"], 500)
-            self.assertEqual(metadata["timing_samples_requested"], 2)
-            self.assertGreater(metadata["sample_generation_time_seconds"]["total"], 0)
+            assert (metadata["split"]) == ("extrapolation")
+            assert (metadata["function"]) == ("circle_airfoil")
+            assert (metadata["parameter"]) == ("t")
+            assert (metadata["parameter_intervals"]) == ([[0.055, 0.60]])
+            assert (metadata["winslow_max_iter"]) == (500)
+            assert (metadata["timing_samples_requested"]) == (2)
+            assert (metadata["sample_generation_time_seconds"]["total"]) > (0)
             for percent in range(10, 101, 10):
-                self.assertIn(f"Progress: {percent}%", stdout.getvalue())
-            self.assertIn("sample 2/4:", stdout.getvalue())
-            self.assertNotIn("sample 3/4:", stdout.getvalue())
+                assert (f"Progress: {percent}%") in (stdout.getvalue())
+            assert ("sample 2/4:") in (stdout.getvalue())
+            assert ("sample 3/4:") not in (stdout.getvalue())
 
     def test_family_fields_select_the_curve_constructor_and_parameter(self):
         specification = {
@@ -119,16 +113,15 @@ class DatasetSelectionTests(unittest.TestCase):
                     ny=3,
                     output_dir=temporary,
                 )
-            self.assertEqual(output.name, "rectangle_width_int_0_4_4_3")
+            assert (output.name) == ("rectangle_width_int_0_4_4_3")
             metadata = read_dataset_metadata(output)
-            self.assertEqual(metadata["parameter"], "x_max")
-            self.assertEqual(
-                metadata["fixed_parameters"],
+            assert (metadata["parameter"]) == ("x_max")
+            assert (metadata["fixed_parameters"]) == (
                 {
                     "x_min": -1,
                     "y_min": -1,
                     "y_max": 1,
-                },
+                }
             )
             dataset = ParametricDataset2D(output)
             np.testing.assert_allclose(
@@ -136,8 +129,9 @@ class DatasetSelectionTests(unittest.TestCase):
             )
 
     def test_single_dataset_cli_overrides_name_grid_size_version_and_ranges(self):
-        with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(
-            io.StringIO()
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            contextlib.redirect_stdout(io.StringIO()),
         ):
             output = generator.main(
                 [
@@ -160,23 +154,20 @@ class DatasetSelectionTests(unittest.TestCase):
                     temporary,
                 ]
             )
-            self.assertEqual(output.name, "air_t_ext_1_4_9_7")
+            assert (output.name) == ("air_t_ext_1_4_9_7")
             metadata = read_dataset_metadata(output)
-            self.assertEqual(metadata["parameter_intervals"], [[0.1, 0.2]])
-            self.assertEqual(
-                metadata["parameter_intervals_source"], "command_override"
-            )
-            self.assertEqual(
+            assert (metadata["parameter_intervals"]) == ([[0.1, 0.2]])
+            assert (metadata["parameter_intervals_source"]) == ("command_override")
+            assert (
                 [
                     item["parameter_value"]
                     for item in metadata["extreme_grid_legality_checks"]
-                ],
-                [0.1, 0.2],
-            )
-            self.assertIn("all_extreme_grids_legal", metadata)
+                ]
+            ) == ([0.1, 0.2])
+            assert ("all_extreme_grids_legal") in (metadata)
 
     def test_parameter_range_requires_single_family_mode(self):
-        with self.assertRaises(SystemExit):
+        with pytest.raises(SystemExit):
             generator.main(["--parameter-range", "0.1", "0.2"])
 
     def test_cli_generates_both_selected_pde_datasets(self):
@@ -209,12 +200,11 @@ class DatasetSelectionTests(unittest.TestCase):
                             "0",
                         ]
                     )
-            self.assertEqual(
-                [path.name for path in outputs],
+            assert ([path.name for path in outputs]) == (
                 [
                     "air_t_int_0_6_9_7",
                     "air_t_ext_0_6_9_7",
-                ],
+                ]
             )
             expected_values = [
                 np.concatenate(
@@ -226,26 +216,25 @@ class DatasetSelectionTests(unittest.TestCase):
                 outputs, ("interpolation", "extrapolation"), expected_values
             ):
                 metadata = read_dataset_metadata(output)
-                self.assertEqual(metadata["split"], split)
-                self.assertEqual(metadata["size"], 6)
-                self.assertEqual(metadata["grid_shape"], [9, 7])
-                self.assertTrue(metadata["all_pde_converged"])
+                assert (metadata["split"]) == (split)
+                assert (metadata["size"]) == (6)
+                assert (metadata["grid_shape"]) == ([9, 7])
+                assert metadata["all_pde_converged"]
                 rows = np.load(output / "boundary_geometry.npy", allow_pickle=True)
                 np.testing.assert_allclose(
                     [row["parameters"]["t"] for row in rows], expected
                 )
                 data = ParametricDataset2D(output)
-                self.assertTrue(np.isfinite(data.mesh_points).all())
-                self.assertEqual(
-                    set(data[0]), {"boundary_points", "mesh_points", "boundary"}
+                assert np.isfinite(data.mesh_points).all()
+                assert (set(data[0])) == (
+                    {"boundary_points", "mesh_points", "boundary"}
                 )
-                self.assertEqual(
-                    {path.name for path in output.iterdir() if path.is_file()},
-                    {"dataset.npy", "boundary_geometry.npy"},
+                assert ({path.name for path in output.iterdir() if path.is_file()}) == (
+                    {"dataset.npy", "boundary_geometry.npy"}
                 )
             catalog = (Path(temporary) / "README.md").read_text(encoding="utf-8")
             for output in outputs:
-                self.assertIn(f"### {output.name}", catalog)
+                assert (f"### {output.name}") in (catalog)
 
     def test_editable_selection_defaults_and_ranges(self):
         settings = dict(generator.DEFAULT_GENERATION_OPTIONS, nx=7, ny=5, size=4)
@@ -271,14 +260,14 @@ class DatasetSelectionTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 outputs = generator.main(["--ny", "9", "--count", "3"])
-            self.assertEqual(len(outputs), 1)
-            self.assertEqual(outputs[0].name, "air_t_ext_0_3_7_9")
+            assert (len(outputs)) == (1)
+            assert (outputs[0].name) == ("air_t_ext_0_3_7_9")
             rows = np.load(outputs[0] / "boundary_geometry.npy", allow_pickle=True)
             np.testing.assert_allclose(
                 [row["parameters"]["t"] for row in rows], [0.10, 0.15, 0.20]
             )
-            self.assertEqual(settings["ny"], 5)
-            self.assertEqual(settings["size"], 4)
+            assert (settings["ny"]) == (5)
+            assert (settings["size"]) == (4)
 
     def test_invalid_selection_is_rejected_before_generation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -290,11 +279,10 @@ class DatasetSelectionTests(unittest.TestCase):
                 [("circle_airfoil_t", "interpolation")] * 2,
                 [("circle_airfoil_t", "interpolation"), ("circle_airfoil_t", "int")],
             ):
-                with self.subTest(selection=selection):
-                    with patch.object(generator, "SELECTED_DATASETS", selection):
-                        with self.assertRaises(ValueError):
-                            generator.generate_selected_datasets(output_dir=temporary)
-            self.assertEqual(list(Path(temporary).iterdir()), [])
+                with patch.object(generator, "SELECTED_DATASETS", selection):
+                    with pytest.raises(ValueError):
+                        generator.generate_selected_datasets(output_dir=temporary)
+            assert (list(Path(temporary).iterdir())) == ([])
             family, split, version = generator.SELECTED_DATASETS[0]
             spec = generator.DATASET_FAMILIES[family]
             grid = spec.get("grid_shape", [21, 21])
@@ -304,10 +292,10 @@ class DatasetSelectionTests(unittest.TestCase):
             ).mkdir()
             existing = list(Path(temporary).iterdir())
             with patch.object(generator, "generate_dataset") as generate:
-                with self.assertRaises(FileExistsError):
+                with pytest.raises(FileExistsError):
                     generator.generate_selected_datasets(output_dir=temporary)
                 generate.assert_not_called()
-            self.assertEqual(list(Path(temporary).iterdir()), existing)
+            assert (list(Path(temporary).iterdir())) == (existing)
 
     def test_invalid_grid_options_fail_before_generation(self):
         for arguments in (
@@ -316,12 +304,7 @@ class DatasetSelectionTests(unittest.TestCase):
             ["--grid-shape", "invalid"],
             ["--grid-shape", "21x21", "--nx", "11"],
         ):
-            with self.subTest(arguments=arguments):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    with self.assertRaises(SystemExit) as raised:
-                        generator.main(arguments)
-                self.assertEqual(raised.exception.code, 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            with contextlib.redirect_stderr(io.StringIO()):
+                with pytest.raises(SystemExit) as raised:
+                    generator.main(arguments)
+            assert (raised.value.code) == (2)

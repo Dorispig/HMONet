@@ -46,4 +46,6 @@ def test_mesh_provider_loads_standard_archive_and_exact_control(tmp_path):
     assert timings["MeshONet"]["total_model_seconds"] == 0.2
     geometry = unit_square_boundary()
     corrected = replace_with_exact_boundary(meshes["MeshONet"], geometry, shape)
-    assert boundary_geometry_error(corrected, geometry, shape)["boundary_max_error"] == 0.0
+    assert (
+        boundary_geometry_error(corrected, geometry, shape)["boundary_max_error"] == 0.0
+    )

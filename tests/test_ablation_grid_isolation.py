@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 
 from scripts.experiments.run_ablation_2d import (
     aggregate_experiment,
@@ -14,7 +13,7 @@ from scripts.experiments.run_ablation_2d import (
 )
 
 
-class GridIsolationTests(unittest.TestCase):
+class TestGridIsolation:
     def test_compaction_keeps_summary_and_images_only(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -28,14 +27,12 @@ class GridIsolationTests(unittest.TestCase):
 
             result = compact_evaluation_result_directory(root)
 
-            self.assertEqual(result, root / "results.json")
-            self.assertTrue(result.is_file())
-            self.assertTrue((root / "plots/mesh_comparison.png").is_file())
-            self.assertTrue(
-                (root / "plots/quality/quality_scaled_jacobian.pdf").is_file()
-            )
-            self.assertFalse((root / "per_cell.csv").exists())
-            self.assertFalse((quality / "quality_data.npz").exists())
+            assert (result) == (root / "results.json")
+            assert result.is_file()
+            assert (root / "plots/mesh_comparison.png").is_file()
+            assert (root / "plots/quality/quality_scaled_jacobian.pdf").is_file()
+            assert not (root / "per_cell.csv").exists()
+            assert not (quality / "quality_data.npz").exists()
 
     def test_per_grid_manifest_entries_are_reused_independently(self):
         with TemporaryDirectory() as temporary:
@@ -46,7 +43,9 @@ class GridIsolationTests(unittest.TestCase):
             result_51.parent.mkdir(parents=True)
             result_101.parent.mkdir(parents=True)
             result_51.write_text(json.dumps({"grid_shape": [51, 51]}), encoding="utf-8")
-            result_101.write_text(json.dumps({"grid_shape": [101, 101]}), encoding="utf-8")
+            result_101.write_text(
+                json.dumps({"grid_shape": [101, 101]}), encoding="utf-8"
+            )
             run.mkdir(parents=True)
             manifest = {
                 "status": "completed",
@@ -69,12 +68,12 @@ class GridIsolationTests(unittest.TestCase):
             reuse_51 = find_reusable_evaluation(root, "fingerprint-51")
             reuse_101 = find_reusable_evaluation(root, "fingerprint-101")
 
-            self.assertEqual(reuse_51["grid_shape"], "51x51")
-            self.assertEqual(reuse_51["result_files"], [result_51])
-            self.assertEqual(reuse_101["grid_shape"], "101x101")
-            self.assertEqual(reuse_101["result_files"], [result_101])
-            self.assertEqual(read_results(run, "51x51"), [result_51])
-            self.assertEqual(read_results(run, "101x101"), [result_101])
+            assert (reuse_51["grid_shape"]) == ("51x51")
+            assert (reuse_51["result_files"]) == ([result_51])
+            assert (reuse_101["grid_shape"]) == ("101x101")
+            assert (reuse_101["result_files"]) == ([result_101])
+            assert (read_results(run, "51x51")) == ([result_51])
+            assert (read_results(run, "101x101")) == ([result_101])
 
     def test_aggregate_outputs_are_separated_by_grid(self):
         with TemporaryDirectory() as temporary:
@@ -98,7 +97,10 @@ class GridIsolationTests(unittest.TestCase):
             evaluations = {}
             for size in (51, 101):
                 grid = f"{size}x{size}"
-                result = experiment / f"dataset/_evaluation/0.5/seed_1/baseline/paper/{grid}/results.json"
+                result = (
+                    experiment
+                    / f"dataset/_evaluation/0.5/seed_1/baseline/paper/{grid}/results.json"
+                )
                 result.parent.mkdir(parents=True)
                 result.write_text(
                     json.dumps(
@@ -134,20 +136,18 @@ class GridIsolationTests(unittest.TestCase):
                 "training_summary": str(summary_path),
                 "evaluations": evaluations,
             }
-            (run / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (run / "run_manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
 
             aggregate_experiment(experiment, "paper")
 
             root = experiment / "dataset/aggregate/paper"
-            self.assertTrue((root / "51x51/per_case_metrics.csv").is_file())
-            self.assertTrue((root / "101x101/per_case_metrics.csv").is_file())
-            self.assertTrue((root / "evaluation_index.json").is_file())
-            self.assertFalse((root / "per_case_metrics.csv").exists())
+            assert (root / "51x51/per_case_metrics.csv").is_file()
+            assert (root / "101x101/per_case_metrics.csv").is_file()
+            assert (root / "evaluation_index.json").is_file()
+            assert not (root / "per_case_metrics.csv").exists()
             figures = experiment / "dataset/figures/paper"
-            self.assertTrue((figures / "training/training_loss_comparison.png").is_file())
-            self.assertTrue((figures / "51x51").is_dir())
-            self.assertTrue((figures / "101x101").is_dir())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (figures / "training/training_loss_comparison.png").is_file()
+            assert (figures / "51x51").is_dir()
+            assert (figures / "101x101").is_dir()

@@ -30,7 +30,7 @@ from src.engine.training import (
 )
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.utils.paths import portable_project_path
-from src.utils.progress import in_gpu_queue
+from src.utils.progress import in_gpu_queue, short_metric_name
 
 
 def _display_width(value):
@@ -953,9 +953,12 @@ class TrainingState:
             row["phase"] = str(active_phase)
         self.history.append(row)
 
-        metric_text = ", ".join(f"{key}={value:.6e}" for key, value in metrics.items())
+        metric_text = ", ".join(
+            f"{short_metric_name(key)}={value:.6e}"
+            for key, value in metrics.items()
+        )
         smoothness_text = (
-            f", smoothness_loss={losses['grid_smoothness']:.6e}"
+            f", smooth={losses['grid_smoothness']:.6e}"
             if self.name in ("pihmonet", "attentionpihmonet")
             and "grid_smoothness" in losses
             and self.config.get(f"{self.name}_training", {}).get(
@@ -964,29 +967,28 @@ class TrainingState:
             else ""
         )
         alpha_text = (
-            f", boundary_loss={losses['loss_boundary']:.6e}"
+            f", bnd={losses['loss_boundary']:.6e}"
             f", alpha={losses['boundary_alpha']:.8f}"
-            f", alpha_penalty={losses['alpha_penalty']:.6e}"
+            f", alpha_pen={losses['alpha_penalty']:.6e}"
             if self.name == "attentionpihmonet"
             and self.dimension == 2
             and "loss_boundary" in losses
             else ""
         )
-        # Queue workers suppress per-batch tqdm updates, so their epoch line
-        # includes every active objective component. Interactive single-GPU
-        # runs retain the established compact line because tqdm already shows
-        # the component losses batch by batch.
+        # Interactive runs already display every active loss in tqdm. Queue
+        # workers hide tqdm, so their sampled epoch line retains every active
+        # component while using the same concise labels.
         if in_gpu_queue():
             component_text = ", ".join(
-                f"{key}={float(value):.6e}"
+                f"{short_metric_name(key)}={float(value):.6e}"
                 for key, value in losses.items()
                 if key != "loss"
             )
-            loss_text = f"training_loss={loss:.6e}"
+            loss_text = f"loss={loss:.6e}"
             if component_text:
                 loss_text += f", {component_text}"
         else:
-            loss_text = f"training_loss={loss:.6e}" + smoothness_text + alpha_text
+            loss_text = f"loss={loss:.6e}" + smoothness_text + alpha_text
         print(
             f"Epoch {epoch}/{t['num_epochs']}: {loss_text}"
             + (f", {metric_text}" if metric_text else ""),

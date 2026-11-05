@@ -25,6 +25,30 @@ __all__ = [
 _GEOMETRY_TOLERANCE = 1e-12
 
 
+def _contact_tolerance(*coordinate_arrays) -> float:
+    """Return a scale- and dtype-aware tolerance for boundary contact.
+
+    Intersection orientation tests remain strict.  This larger tolerance is
+    used only to recognise endpoints and complete edges that are physically
+    shared but were evaluated independently (for example the two copies of an
+    O-grid seam produced in float32).
+    """
+    epsilon = np.finfo(float).eps
+    scale = 1.0
+    for values in coordinate_arrays:
+        raw = np.asarray(values)
+        if np.issubdtype(raw.dtype, np.floating):
+            epsilon = max(epsilon, float(np.finfo(raw.dtype).eps))
+        numeric = np.asarray(raw, dtype=float)
+        if numeric.size:
+            scale = max(
+                scale,
+                float(np.max(np.abs(numeric))),
+                float(np.max(np.ptp(numeric.reshape(-1, numeric.shape[-1]), axis=0))),
+            )
+    return max(_GEOMETRY_TOLERANCE, 8.0 * epsilon * scale)
+
+
 def _as_points(points, *, name="points", minimum_points=1) -> np.ndarray:
     array = np.asarray(points, dtype=float)
     if array.ndim != 2 or array.shape[1] != 2:
@@ -259,7 +283,9 @@ def _point_in_polygon(point: np.ndarray, polygon: np.ndarray) -> bool:
     return inside
 
 
-def _polygons_overlap(first: np.ndarray, second: np.ndarray) -> bool:
+def _polygons_overlap(
+    first: np.ndarray, second: np.ndarray, tolerance: float | None = None
+) -> bool:
     """Detect crossings/overlap without counting a shared endpoint as overlap.
 
     Cut boundaries may repeat a physical endpoint under different node IDs.
@@ -267,42 +293,18 @@ def _polygons_overlap(first: np.ndarray, second: np.ndarray) -> bool:
     duplicated C-grid seam edges. Retain T-junctions, proper crossings, identical
     cells and strict containment.
     """
-    tolerance = 1e-12
-    if len(first) == len(second) and all(
-        any(np.max(np.abs(point - other)) <= tolerance for other in second)
-        for point in first
-    ):
-        return True
-    for i in range(len(first)):
-        a, b = first[i], first[(i + 1) % len(first)]
-        for j in range(len(second)):
-            c, d = second[j], second[(j + 1) % len(second)]
-            if not CheckLineSegmentsIntersect(a, b, c, d, tolerance):
-                continue
-            shared_endpoint = any(
-                np.max(np.abs(x - y)) <= tolerance for x in (a, b) for y in (c, d)
-            )
-            if not shared_endpoint:
-                return True
-            # A positive-length collinear overlap is a shared physical edge.
-            # Structured C-grid seams may duplicate that edge with different node
-            # IDs, so boundary-only contact must not be reported as cell overlap.
-            # Genuine area overlap is still detected below by strict containment,
-            # while proper crossings and T-junctions return above.
-
-    # Checking all vertices also catches containment when vertex zero happens
-    # to be the shared endpoint. Boundary points are not strictly interior.
-    for vertices, polygon in ((first, second), (second, first)):
-        for point in vertices:
-            on_boundary = any(
-                _point_on_segment(
-                    point, polygon[i], polygon[(i + 1) % len(polygon)], tolerance
-                )
-                for i in range(len(polygon))
-            )
-            if not on_boundary and _point_in_polygon(point, polygon):
-                return True
-    return False
+    first_raw = np.asarray(first)
+    second_raw = np.asarray(second)
+    contact_tolerance = (
+        _contact_tolerance(first_raw, second_raw)
+        if tolerance is None
+        else float(tolerance)
+    )
+    return bool(
+        _polygons_overlap_many(
+            first_raw[None], second_raw[None], tolerance=contact_tolerance
+        )[0]
+    )
 
 
 def _segments_intersect_many(a, b, c, d, tolerance=_GEOMETRY_TOLERANCE):
@@ -383,10 +385,19 @@ def _spatial_aabb_pairs(minimum, maximum):
     return result[overlaps]
 
 
-def _polygons_overlap_many(first, second, tolerance=_GEOMETRY_TOLERANCE):
+def _polygons_overlap_many(first, second, tolerance=None):
     """Vectorized form of ``_polygons_overlap`` for batches of quadrilaterals."""
-    first = np.asarray(first, dtype=float)
-    second = np.asarray(second, dtype=float)
+    first_raw = np.asarray(first)
+    second_raw = np.asarray(second)
+    contact_tolerance = (
+        _contact_tolerance(first_raw, second_raw)
+        if tolerance is None
+        else float(tolerance)
+    )
+    if not np.isfinite(contact_tolerance) or contact_tolerance < 0:
+        raise ValueError("tolerance must be a finite non-negative number")
+    first = np.asarray(first_raw, dtype=float)
+    second = np.asarray(second_raw, dtype=float)
     count = len(first)
     if count == 0:
         return np.empty(0, dtype=bool)
@@ -402,18 +413,31 @@ def _polygons_overlap_many(first, second, tolerance=_GEOMETRY_TOLERANCE):
         b.reshape(-1, 2),
         c.reshape(-1, 2),
         d.reshape(-1, 2),
-        tolerance,
+        _GEOMETRY_TOLERANCE,
     ).reshape(count, 4, 4)
     shared_endpoint = (
-        np.max(np.abs(a - c), axis=-1) <= tolerance
+        np.max(np.abs(a - c), axis=-1) <= contact_tolerance
     ) | (
-        np.max(np.abs(a - d), axis=-1) <= tolerance
+        np.max(np.abs(a - d), axis=-1) <= contact_tolerance
     ) | (
-        np.max(np.abs(b - c), axis=-1) <= tolerance
+        np.max(np.abs(b - c), axis=-1) <= contact_tolerance
     ) | (
-        np.max(np.abs(b - d), axis=-1) <= tolerance
+        np.max(np.abs(b - d), axis=-1) <= contact_tolerance
     )
-    crossing = np.any(intersects & ~shared_endpoint, axis=(1, 2))
+    # Suppress only a complete common edge (in either direction).  Endpoint
+    # contact is also legal, while a T-junction has no matching pair of edge
+    # endpoints and remains an intersection.
+    shared_edge = (
+        (np.max(np.abs(a - c), axis=-1) <= contact_tolerance)
+        & (np.max(np.abs(b - d), axis=-1) <= contact_tolerance)
+    ) | (
+        (np.max(np.abs(a - d), axis=-1) <= contact_tolerance)
+        & (np.max(np.abs(b - c), axis=-1) <= contact_tolerance)
+    )
+    crossing = np.any(
+        intersects & ~shared_endpoint & ~shared_edge,
+        axis=(1, 2),
+    )
 
     def strictly_inside(points, polygons):
         x = points[..., 0, None]
@@ -424,16 +448,24 @@ def _polygons_overlap_many(first, second, tolerance=_GEOMETRY_TOLERANCE):
         x2, y2 = end[..., 0], end[..., 1]
         crosses_ray = (y1 > y) != (y2 > y)
         intersection_x = (x2 - x1) * (y - y1) / np.where(
-            np.abs(y2 - y1) > tolerance, y2 - y1, 1.0
+            np.abs(y2 - y1) > _GEOMETRY_TOLERANCE, y2 - y1, 1.0
         ) + x1
         inside = np.count_nonzero(crosses_ray & (x < intersection_x), axis=-1) % 2 == 1
         edge = end - start
         relative = points[:, :, None, :] - start
         cross = edge[..., 0] * relative[..., 1] - edge[..., 1] * relative[..., 0]
         on_boundary = np.any(
-            (np.abs(cross) <= tolerance)
-            & np.all(points[:, :, None, :] >= np.minimum(start, end) - tolerance, axis=-1)
-            & np.all(points[:, :, None, :] <= np.maximum(start, end) + tolerance, axis=-1),
+            (np.abs(cross) <= contact_tolerance * np.maximum(
+                np.linalg.norm(edge, axis=-1), 1.0
+            ))
+            & np.all(
+                points[:, :, None, :] >= np.minimum(start, end) - contact_tolerance,
+                axis=-1,
+            )
+            & np.all(
+                points[:, :, None, :] <= np.maximum(start, end) + contact_tolerance,
+                axis=-1,
+            ),
             axis=-1,
         )
         return inside & ~on_boundary
@@ -443,7 +475,7 @@ def _polygons_overlap_many(first, second, tolerance=_GEOMETRY_TOLERANCE):
     )
     matches = np.max(
         np.abs(first[:, :, None, :] - second[:, None, :, :]), axis=-1
-    ) <= tolerance
+    ) <= contact_tolerance
     identical = np.all(np.any(matches, axis=2), axis=1)
     return crossing | containment | identical
 
@@ -452,6 +484,7 @@ class QuadMeshQualityEvaluator:
     """Evaluate quadrilateral quality with cached vectorized geometry kernels."""
 
     def __init__(self, points: np.ndarray, quads: np.ndarray) -> None:
+        self.contact_tolerance = _contact_tolerance(points)
         self.points = _as_points(points, name="points", minimum_points=4)
         indices = np.asarray(quads)
         if indices.ndim != 2 or indices.shape[1] != 4:
@@ -686,7 +719,9 @@ class QuadMeshQualityEvaluator:
             for start in range(0, len(candidates), 4096):
                 chunk = candidates[start : start + 4096]
                 overlap = _polygons_overlap_many(
-                    self.cells[chunk[:, 0]], self.cells[chunk[:, 1]]
+                    self.cells[chunk[:, 0]],
+                    self.cells[chunk[:, 1]],
+                    tolerance=self.contact_tolerance,
                 )
                 overlapping = chunk[overlap]
                 if len(overlapping):

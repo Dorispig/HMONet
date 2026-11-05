@@ -1,13 +1,12 @@
 """Numerical and optimization checks for inward unit-normal alignment."""
 
-import unittest
-
 import torch
 
 from scripts.train.training_common import boundary_normal_loss, normal_alignment_loss
 from src.data.geometry.boundary_generator_2d import rectangular_boundary
 from src.data.geometry.boundary_generator_3d import box_boundary
 from src.data.mesh.sampling import logical_grid, sample_boundary
+import pytest
 
 
 class AffineModel(torch.nn.Module):
@@ -23,7 +22,7 @@ class AffineModel(torch.nn.Module):
         return (q @ self.matrix.T - 1).split(1, dim=-1)
 
 
-class NormalAlignmentTests(unittest.TestCase):
+class TestNormalAlignment:
     def test_angles_scaling_and_degenerate_prediction(self):
         n = torch.tensor([[1.0, 0.0]], dtype=torch.float64)
         for v, expected in (
@@ -32,10 +31,10 @@ class NormalAlignmentTests(unittest.TestCase):
             ([-2.0, 0.0], 4.0),
             ([0.0, 0.0], 1.0),
         ):
-            self.assertAlmostEqual(
-                normal_alignment_loss(torch.tensor([v]), n).item(), expected
-            )
-        with self.assertRaises(ValueError):
+            assert (
+                normal_alignment_loss(torch.tensor([v]), n).item()
+            ) == pytest.approx(expected, abs=1e-7)
+        with pytest.raises(ValueError):
             normal_alignment_loss(n, torch.zeros_like(n))
 
     def test_curved_boundary_uses_exact_normal(self):
@@ -83,8 +82,8 @@ class NormalAlignmentTests(unittest.TestCase):
         sampled = boundary_normal_loss(
             RadialModel(), boundary, mesh, shape, 2, "cpu", 256, 1e-4
         )
-        self.assertLess(exact.item(), 1e-12)
-        self.assertGreater(sampled.item(), 1e-6)
+        assert (exact.item()) < (1e-12)
+        assert (sampled.item()) > (1e-6)
 
     def test_exact_and_sampled_normals_in_both_dimensions(self):
         for dimension in (2, 3):
@@ -95,36 +94,31 @@ class NormalAlignmentTests(unittest.TestCase):
             )[None]
             mesh = torch.tensor(logical_grid(shape) * 2 - 1, dtype=torch.float64)[None]
             for exact in (geometry, None):
-                with self.subTest(dimension=dimension, exact=exact is not None):
-                    model = AffineModel(dimension)
+                model = AffineModel(dimension)
 
-                    def loss():
-                        torch.manual_seed(7)
-                        return boundary_normal_loss(
-                            model,
-                            boundary,
-                            mesh,
-                            shape,
-                            dimension,
-                            "cpu",
-                            128,
-                            0.01,
-                            geometry=exact,
-                        )
+                def loss():
+                    torch.manual_seed(7)
+                    return boundary_normal_loss(
+                        model,
+                        boundary,
+                        mesh,
+                        shape,
+                        dimension,
+                        "cpu",
+                        128,
+                        0.01,
+                        geometry=exact,
+                    )
 
-                    self.assertLess(loss().item(), 1e-20)
-                    with torch.no_grad():
-                        model.matrix[0, 1] = 1.0
-                    optimizer = torch.optim.SGD(model.parameters(), lr=0.5)
-                    initial = loss().item()
-                    for _ in range(15):
-                        optimizer.zero_grad()
-                        value = loss()
-                        value.backward()
-                        self.assertTrue(torch.isfinite(model.matrix.grad).all())
-                        optimizer.step()
-                    self.assertLess(loss().item(), initial * 0.8)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                assert (loss().item()) < (1e-20)
+                with torch.no_grad():
+                    model.matrix[0, 1] = 1.0
+                optimizer = torch.optim.SGD(model.parameters(), lr=0.5)
+                initial = loss().item()
+                for _ in range(15):
+                    optimizer.zero_grad()
+                    value = loss()
+                    value.backward()
+                    assert torch.isfinite(model.matrix.grad).all()
+                    optimizer.step()
+                assert (loss().item()) < (initial * 0.8)

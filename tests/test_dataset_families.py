@@ -4,7 +4,6 @@ import contextlib
 import io
 from pathlib import Path
 import tempfile
-import unittest
 import numpy as np
 import yaml
 from src.data.generation import make_dataset_parametric_2d as gen
@@ -13,7 +12,7 @@ from src.data.mesh.sampling import sample_boundary, boundary_indices
 from src.evaluation.configuration import create_geometry
 
 
-class DatasetFamilyTests(unittest.TestCase):
+class TestDatasetFamily:
     def test_family_defaults_and_endpoints(self):
         for family, prefix, grid in [
             ("rect_top_semiellipse", "rse", [20, 20]),
@@ -21,7 +20,7 @@ class DatasetFamilyTests(unittest.TestCase):
             ("symmetric_convex_tri", "tri", [21, 20]),
         ]:
             spec = gen.DATASET_FAMILIES[family]
-            self.assertEqual(spec["grid_shape"], grid)
+            assert (spec["grid_shape"]) == (grid)
             for split in ("int", "ext"):
                 with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(
                     io.StringIO()
@@ -29,22 +28,19 @@ class DatasetFamilyTests(unittest.TestCase):
                     path = gen.generate_dataset(
                         family, split, size=4, output_dir=tmp, timing_samples=0
                     )
-                    self.assertEqual(
-                        path.name, f"{prefix}_{split}_0_4_{grid[0]}_{grid[1]}"
-                    )
+                    assert (path.name) == (f"{prefix}_{split}_0_4_{grid[0]}_{grid[1]}")
                     meta = read_dataset_metadata(path)
-                    self.assertTrue(meta["all_pde_converged"])
-                    self.assertEqual(
-                        meta["interval_sample_counts"],
-                        [2, 2] if split == "int" else [4],
+                    assert meta["all_pde_converged"]
+                    assert (meta["interval_sample_counts"]) == (
+                        [2, 2] if split == "int" else [4]
                     )
                     numeric = np.load(path / "dataset.npy", allow_pickle=True)
                     geometric = np.load(
                         path / "boundary_geometry.npy", allow_pickle=True
                     )
                     for n, g in zip(numeric, geometric):
-                        self.assertEqual(n["sample_id"], g["sample_id"])
-                        self.assertEqual(n["dataset_id"], g["dataset_id"])
+                        assert (n["sample_id"]) == (g["sample_id"])
+                        assert (n["dataset_id"]) == (g["dataset_id"])
                         value = g["parameters"][spec["parameter"]]
                         boundary, _ = create_geometry(
                             2,
@@ -62,14 +58,14 @@ class DatasetFamilyTests(unittest.TestCase):
                         )
                     for need in (True, False):
                         dataset = ParametricDataset2D(path, load_boundary=need)
-                        self.assertEqual(len(dataset), 4)
+                        assert (len(dataset)) == (4)
 
     def test_evaluation_cases_use_reference_values_and_canonical_names(self):
         root = Path(__file__).resolve().parents[1]
         config = yaml.safe_load(
             (root / "configs/2D/evaluate.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(list(config["cases"]), sorted(config["cases"]))
+        assert (list(config["cases"])) == (sorted(config["cases"]))
         expected = {
             "rse_int_0_1000_20_20": [0.225, 0.25, 0.275],
             "rse_ext_0_1000_20_20": [0.42, 0.46, 0.50, 0.55, 0.60],
@@ -78,23 +74,16 @@ class DatasetFamilyTests(unittest.TestCase):
             "tri_int_0_1000_21_20": [0.225, 0.25, 0.275],
             "tri_ext_0_1000_21_20": [0.42, 0.46, 0.50],
         }
-        self.assertTrue(
-            (
-                set(expected)
-                | {"air_t_int_0_1000_21_20", "air_t_ext_0_1000_21_20"}
-            ).issubset(
-                config["cases"]
-            )
-        )
+        assert (
+            set(expected) | {"air_t_int_0_1000_21_20", "air_t_ext_0_1000_21_20"}
+        ).issubset(config["cases"])
         for name, values in expected.items():
             case = config["cases"][name]
-            self.assertEqual(case["values"], values)
+            assert (case["values"]) == (values)
             for value in values:
                 boundary, parameters = create_geometry(2, case, value)
-                self.assertEqual(parameters[case["parameter"]], value)
-                self.assertTrue(
-                    np.isfinite(sample_boundary(boundary, case["train_grid"])).all()
-                )
+                assert (parameters[case["parameter"]]) == (value)
+                assert np.isfinite(sample_boundary(boundary, case["train_grid"])).all()
 
     def test_apex_and_semicircle_geometry(self):
         tri = gen.DATASET_GENERATORS["symmetric_convex_tri"](protrusion_distance=0.3)
@@ -116,25 +105,23 @@ FAMILIES = [
 ]
 
 
-class StressDatasetTests(unittest.TestCase):
+class TestStressDataset:
     def test_evaluation_configuration(self):
         root = Path(__file__).resolve().parents[1]
         cases = yaml.safe_load(
             (root / "configs/2D/evaluate.yaml").read_text(encoding="utf-8")
         )["cases"]
-        self.assertEqual(list(cases), sorted(cases))
+        assert (list(cases)) == (sorted(cases))
         for family in FAMILIES:
             spec = gen.DATASET_FAMILIES[family]
             for split in ["interpolation", "extrapolation"]:
                 case = cases[
-                    gen.build_dataset_name(
-                        family, split, 0, 1000, *spec["grid_shape"]
-                    )
+                    gen.build_dataset_name(family, split, 0, 1000, *spec["grid_shape"])
                 ]
-                self.assertEqual(case["parameter"], spec["parameter"])
-                self.assertEqual(case["fixed_parameters"], spec["fixed_parameters"])
+                assert (case["parameter"]) == (spec["parameter"])
+                assert (case["fixed_parameters"]) == (spec["fixed_parameters"])
                 for value in case["values"]:
-                    self.assertFalse(any(a <= value <= b for a, b in spec[split]))
+                    assert not any(a <= value <= b for a, b in spec[split])
                     boundary, _ = create_geometry(2, case, value)
                     boundary.validate()
 
@@ -164,14 +151,10 @@ class StressDatasetTests(unittest.TestCase):
             for path in paths:
                 geom = np.load(path / "boundary_geometry.npy", allow_pickle=True)
                 for i, row in enumerate(geom):
-                    self.assertEqual(row["sample_id"], i)
-                    self.assertEqual(
-                        row["dataset_id"], data[paths.index(path)][i]["dataset_id"]
+                    assert (row["sample_id"]) == (i)
+                    assert (row["dataset_id"]) == (
+                        data[paths.index(path)][i]["dataset_id"]
                     )
-                self.assertEqual(read_dataset_metadata(path)["size"], 4)
-                self.assertEqual(len(ParametricDataset2D(path, load_boundary=True)), 4)
-                self.assertEqual(len(ParametricDataset2D(path, load_boundary=False)), 4)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                assert (read_dataset_metadata(path)["size"]) == (4)
+                assert (len(ParametricDataset2D(path, load_boundary=True))) == (4)
+                assert (len(ParametricDataset2D(path, load_boundary=False))) == (4)

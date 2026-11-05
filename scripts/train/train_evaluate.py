@@ -1,7 +1,7 @@
 """Train selected datasets, then evaluate the exact checkpoints from this run."""
 
 import argparse
-from datetime import datetime
+import hashlib
 import importlib
 import json
 import os
@@ -117,6 +117,69 @@ def _json_default(value):
     raise TypeError(f"Cannot serialize {type(value).__name__}")
 
 
+def _formal_queue_fingerprint(
+    *,
+    dimension,
+    dataset,
+    models,
+    train_config,
+    evaluate_config,
+    train_arguments,
+    evaluate_arguments,
+    evaluate_methods,
+    checkpoint,
+):
+    """Create a stable identity for one formal train-and-evaluate queue task."""
+    dataset = Path(dataset).resolve()
+
+    def config_digest(value):
+        path = Path(value)
+        if not path.is_absolute():
+            path = (ROOT / path).resolve()
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    if dataset.is_dir():
+        data_files = sorted(dataset.glob("*.npy"))
+    else:
+        data_files = [dataset]
+    dataset_signature = [
+        {
+            "name": item.name,
+            "size": item.stat().st_size,
+            "modified_ns": item.stat().st_mtime_ns,
+        }
+        for item in data_files
+    ]
+    payload = {
+        "dimension": int(dimension),
+        "dataset": str(dataset),
+        "dataset_signature": dataset_signature,
+        "models": list(models),
+        "train_config_sha256": config_digest(train_config),
+        "evaluate_config_sha256": config_digest(evaluate_config),
+        "train_arguments": list(train_arguments),
+        "evaluate_arguments": list(evaluate_arguments),
+        "evaluate_methods": list(evaluate_methods or []),
+        "checkpoint": str(checkpoint),
+    }
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _command_option(tokens, name, default=None):
+    """Read one ``--name value`` or ``--name=value`` option."""
+    for index, token in enumerate(tokens):
+        if token == name:
+            if index + 1 >= len(tokens):
+                raise ValueError(f"Missing value for {name}")
+            return tokens[index + 1]
+        if token.startswith(name + "="):
+            return token.split("=", 1)[1]
+    return default
+
+
 def _queued_formal_run(
     args,
     train_extra,
@@ -132,11 +195,7 @@ def _queued_formal_run(
     import shlex
 
     gpu_ids = parse_gpu_ids(args.gpus)
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    queue_root = Path(args.queue_log_root or ROOT / "outputs/gpu_queue/formal" / run_id)
-    result_root = queue_root / "results"
-    if not args.dry_run:
-        result_root.mkdir(parents=True, exist_ok=True)
+    queue_root = Path(args.queue_log_root or ROOT / "outputs/gpu_queue/formal")
     stripped = _without_value_options(
         train_extra, {"--model", "--dataset", "--dataset-mode", "--device"}
     )
@@ -177,7 +236,43 @@ def _queued_formal_run(
             "--device",
             "cuda:0",
         ]
-        result_file = result_root / f"{dataset_name}.json"
+        train_config = args.train_config or f"configs/{args.dimension}D/train.yaml"
+        evaluation_config = (
+            args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"
+        )
+        fingerprint = _formal_queue_fingerprint(
+            dimension=args.dimension,
+            dataset=path,
+            models=models,
+            train_config=train_config,
+            evaluate_config=evaluation_config,
+            train_arguments=worker_extra,
+            evaluate_arguments=[*evaluation_extra, "--device", "cuda:0"],
+            evaluate_methods=selected_methods,
+            checkpoint=args.checkpoint,
+        )
+        configured = yaml.safe_load(
+            (ROOT / train_config).read_text(encoding="utf-8-sig")
+            if not Path(train_config).is_absolute()
+            else Path(train_config).read_text(encoding="utf-8-sig")
+        ) or {}
+        seed = int(
+            _command_option(
+                worker_extra,
+                "--seed",
+                configured.get("training", {}).get("seed", 0),
+            )
+        )
+        experiment_name = "_".join(models)
+        task_directory = (
+            Path(dataset_name)
+            / experiment_name
+            / f"seed_{seed}"
+            / args.run_tag
+        )
+        result_file = queue_root / task_directory / "queue_result.json"
+        if not args.dry_run:
+            result_file.parent.mkdir(parents=True, exist_ok=True)
         result_files.append(result_file)
         command = [
             sys.executable,
@@ -185,9 +280,9 @@ def _queued_formal_run(
             "--dimension",
             str(args.dimension),
             "--train-config",
-            str(args.train_config or f"configs/{args.dimension}D/train.yaml"),
+            str(train_config),
             "--evaluate-config",
-            str(args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"),
+            str(evaluation_config),
             "--checkpoint",
             args.checkpoint,
             "--train-args",
@@ -204,13 +299,22 @@ def _queued_formal_run(
             GpuTask(
                 name=f"train_evaluate__{dataset_name}",
                 command=command,
+                log_relative_path=task_directory / "train_evaluate.log",
+                clear_log_directory=True,
+                metadata={
+                    "dataset": dataset_name,
+                    "experiment": experiment_name,
+                    "seed": seed,
+                    "run_tag": args.run_tag,
+                    "task_fingerprint": fingerprint,
+                },
             )
         )
     task_records = run_gpu_queue(
         tasks,
         gpu_ids,
         cwd=ROOT,
-        log_root=queue_root / "tasks",
+        log_root=queue_root,
         continue_on_error=args.continue_on_error,
         dry_run=args.dry_run,
         terminal_interval=args.queue_terminal_interval,
@@ -242,6 +346,13 @@ def main(argv=None):
         help="Comma-separated evaluation subset, e.g. tfi,pde,meshonet,hmonet; defaults to all models trained in this run plus TFI/PDE",
     )
     parser.add_argument("--checkpoint", choices=["best", "final"], default="best")
+    parser.add_argument(
+        "--run-tag",
+        "--tag",
+        dest="run_tag",
+        default="default",
+        help="Readable queue-log run tag (default: default).",
+    )
     parser.add_argument(
         "--train-args", default="", help="Quoted training CLI overrides"
     )

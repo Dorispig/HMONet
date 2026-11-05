@@ -7,7 +7,6 @@ import io
 import json
 import sys
 import tempfile
-import unittest
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +14,7 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -76,7 +76,7 @@ class IdentityModel(torch.nn.Module):
         return tuple(value.unsqueeze(-1) for value in values[dimension:])
 
 
-class TrainingMathTests(unittest.TestCase):
+class TestTrainingMath:
     def test_shuffle_is_reproducible_and_keeps_geometry_aligned(self):
         data = ArrayDataset()
 
@@ -86,19 +86,17 @@ class TrainingMathTests(unittest.TestCase):
                 order = []
                 for batch in loader:
                     ids = batch["boundary_points"][:, 0, 0].int().tolist()
-                    self.assertEqual(
-                        ids, [item["sample"] for item in batch["boundary"]]
-                    )
+                    assert (ids) == ([item["sample"] for item in batch["boundary"]])
                     order.extend(ids)
                 epochs.append(order)
             return epochs
 
         first = orders(make_data_loader([data], 4, seed=23, shuffle=True))
         repeated = orders(make_data_loader([data], 4, seed=23, shuffle=True))
-        self.assertEqual(first, repeated)
-        self.assertNotEqual(first[0], first[1])
-        self.assertNotEqual(first[0], list(range(len(data))))
-        self.assertEqual(sorted(first[0]), list(range(len(data))))
+        assert (first) == (repeated)
+        assert (first[0]) != (first[1])
+        assert (first[0]) != (list(range(len(data))))
+        assert (sorted(first[0])) == (list(range(len(data))))
 
     def test_batch_shares_random_points_but_each_batch_is_fresh(self):
         for dimension in (2, 3):
@@ -106,27 +104,25 @@ class TrainingMathTests(unittest.TestCase):
             first = sample_shared_random_points(3, 8, dimension, "cpu", generator)
             second = sample_shared_random_points(3, 8, dimension, "cpu", generator)
             torch.testing.assert_close(first[0], first[2], rtol=0, atol=0)
-            self.assertFalse(torch.equal(first, second))
-            self.assertTrue(bool(((first > 0) & (first < 1)).all()))
+            assert not torch.equal(first, second)
+            assert bool(((first > 0) & (first < 1)).all())
             replay = sample_shared_random_points(
                 3, 8, dimension, "cpu", torch.Generator().manual_seed(37)
             )
             torch.testing.assert_close(first, replay, rtol=0, atol=0)
 
     def test_finite_difference_sampling_uses_exact_axis_margins(self):
-        points = sample_shared_random_points(
-            2, 2048, 2, "cpu", margin=(0.07, 0.13)
-        )
-        self.assertTrue(bool((points[..., 0] >= 0.07).all()))
-        self.assertTrue(bool((points[..., 0] <= 0.93).all()))
-        self.assertTrue(bool((points[..., 1] >= 0.13).all()))
-        self.assertTrue(bool((points[..., 1] <= 0.87).all()))
+        points = sample_shared_random_points(2, 2048, 2, "cpu", margin=(0.07, 0.13))
+        assert bool((points[..., 0] >= 0.07).all())
+        assert bool((points[..., 0] <= 0.93).all())
+        assert bool((points[..., 1] >= 0.13).all())
+        assert bool((points[..., 1] <= 0.87).all())
         torch.testing.assert_close(points[0], points[1], rtol=0, atol=0)
 
         full = sample_shared_random_points(1, 20000, 2, "cpu", margin=0.0)
-        self.assertTrue(bool(((full > 0) & (full < 1)).all()))
-        self.assertTrue(bool((full[..., 0] < 0.07).any()))
-        self.assertTrue(bool((full[..., 1] > 0.87).any()))
+        assert bool(((full > 0) & (full < 1)).all())
+        assert bool((full[..., 0] < 0.07).any())
+        assert bool((full[..., 1] > 0.87).any())
 
     def test_pde_interpolation_uses_each_samples_mesh(self):
         for dimension in (2, 3):
@@ -162,7 +158,7 @@ class TrainingMathTests(unittest.TestCase):
 
     def test_invalid_point_weighting_is_rejected(self):
         value = torch.zeros(1, 1, 2)
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             hmonet_main_loss(value, value, value, point_weighting="unknown")
 
     def test_fixed_samples_gather_exact_mesh_nodes(self):
@@ -173,19 +169,19 @@ class TrainingMathTests(unittest.TestCase):
         torch.testing.assert_close(query[0], query[1])
         torch.testing.assert_close(targets[0], query[0])
         torch.testing.assert_close(targets[1], query[1] + 3)
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             sample_fixed_grid_batch(meshes, shape, len(interior) + 1)
 
         inset_query, _ = sample_fixed_grid_batch(meshes, shape, 2, margin=0.3)
-        self.assertTrue(bool(((inset_query >= 0.3) & (inset_query <= 0.7)).all()))
+        assert bool(((inset_query >= 0.3) & (inset_query <= 0.7)).all())
 
     def test_epoch_loss_weights_the_short_last_batch(self):
         totals = BatchLossTotals()
         totals.add(4, loss=2.0, coordinate_loss=1.0)
         totals.add(1, loss=12.0, coordinate_loss=6.0)
-        self.assertEqual(totals.means()["loss"], 4.0)
-        self.assertEqual(totals.means()["coordinate_loss"], 2.0)
-        with self.assertRaises(FloatingPointError):
+        assert (totals.means()["loss"]) == (4.0)
+        assert (totals.means()["coordinate_loss"]) == (2.0)
+        with pytest.raises(FloatingPointError):
             BatchLossTotals().means()
 
     def test_mse_excludes_boundary_and_doubles_coordinate_mean(self):
@@ -200,8 +196,8 @@ class TrainingMathTests(unittest.TestCase):
             metrics = calculate_fixed_grid_metrics(
                 model, [data], data.grid_shape, "cpu", batch_size=2
             )
-            self.assertEqual(metrics["mse"], 0.0)
-            self.assertTrue(model.training)
+            assert (metrics["mse"]) == (0.0)
+            assert model.training
             delta = np.arange(1, dimension + 1, dtype=np.float32)
             data.mesh_points[:, interior] += delta
             metrics = calculate_fixed_grid_metrics(
@@ -212,23 +208,23 @@ class TrainingMathTests(unittest.TestCase):
                 batch_size=2,
                 calculate_point_errors=True,
             )
-            self.assertAlmostEqual(
-                metrics["mse"], 2 * float((delta**2).mean()), places=6
+            assert (metrics["mse"]) == pytest.approx(
+                2 * float((delta**2).mean()), abs=10**-6
             )
-            self.assertAlmostEqual(
-                metrics["max_point_error"], float(np.linalg.norm(delta)), places=6
+            assert (metrics["max_point_error"]) == pytest.approx(
+                float(np.linalg.norm(delta)), abs=10**-6
             )
-            self.assertAlmostEqual(
-                metrics["p99_point_error"], float(np.linalg.norm(delta)), places=6
+            assert (metrics["p99_point_error"]) == pytest.approx(
+                float(np.linalg.norm(delta)), abs=10**-6
             )
 
     def test_learning_rate_can_cross_stop_threshold_once(self):
         parameter = torch.nn.Parameter(torch.tensor(1.0))
         optimizer = torch.optim.Adam([parameter], lr=1.2e-5)
         update_learning_rate(optimizer, 1, 0, 1, gamma=0.5, stop_below=1e-5)
-        self.assertAlmostEqual(optimizer.param_groups[0]["lr"], 6e-6)
+        assert (optimizer.param_groups[0]["lr"]) == pytest.approx(6e-6, abs=1e-7)
         update_learning_rate(optimizer, 2, 0, 1, gamma=0.5, stop_below=1e-5)
-        self.assertAlmostEqual(optimizer.param_groups[0]["lr"], 6e-6)
+        assert (optimizer.param_groups[0]["lr"]) == pytest.approx(6e-6, abs=1e-7)
 
     def test_nonfinite_loss_and_gradient_skip_or_raise_without_step(self):
         model = torch.nn.Linear(1, 1, bias=False)
@@ -236,17 +232,17 @@ class TrainingMathTests(unittest.TestCase):
         for skip in (True, False):
             loss = model.weight.sum() * float("nan")
             if skip:
-                self.assertFalse(safe_optimizer_step(loss, model, optimizer, 1.0, True))
+                assert not safe_optimizer_step(loss, model, optimizer, 1.0, True)
             else:
-                with self.assertRaises(FloatingPointError):
+                with pytest.raises(FloatingPointError):
                     safe_optimizer_step(loss, model, optimizer, 1.0, False)
         with torch.no_grad():
             model.weight.zero_()
         for clip in (1.0, None):
             loss = model.weight.sqrt().sum()
-            self.assertFalse(safe_optimizer_step(loss, model, optimizer, clip, True))
-            self.assertEqual(model.weight.item(), 0.0)
-        self.assertEqual(len(optimizer.state), 0)
+            assert not safe_optimizer_step(loss, model, optimizer, clip, True)
+            assert (model.weight.item()) == (0.0)
+        assert (len(optimizer.state)) == (0)
 
     def test_meshonet_batched_forward_matches_individual_predictions(self):
         model = MeshONet2D(4, 3, **SMALL_MODEL)
@@ -290,29 +286,23 @@ class TrainingMathTests(unittest.TestCase):
         torch.testing.assert_close(projection, expected)
 
 
-class TrainingControlTests(unittest.TestCase):
+class TestTrainingControl:
     def test_model_plateau_flags_and_command_line_override(self):
         cfg = {
             "hmonet_training": {"check_plateau_stability": True},
             "meshonet_training": {"check_plateau_stability": False},
         }
         args = SimpleNamespace()
-        self.assertTrue(
-            prepare_training_config(cfg, "hmonet", args)["training"][
-                "check_plateau_stability"
-            ]
-        )
-        self.assertFalse(
-            prepare_training_config(cfg, "meshonet", args)["training"][
-                "check_plateau_stability"
-            ]
-        )
+        assert prepare_training_config(cfg, "hmonet", args)["training"][
+            "check_plateau_stability"
+        ]
+        assert not prepare_training_config(cfg, "meshonet", args)["training"][
+            "check_plateau_stability"
+        ]
         args.check_plateau_stability = False
-        self.assertFalse(
-            prepare_training_config(cfg, "hmonet", args)["training"][
-                "check_plateau_stability"
-            ]
-        )
+        assert not prepare_training_config(cfg, "hmonet", args)["training"][
+            "check_plateau_stability"
+        ]
 
     def test_plateau_and_mse_stop_conditions_are_applied(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -350,12 +340,11 @@ class TrainingControlTests(unittest.TestCase):
                 for epoch in range(1, 5):
                     if state.end_epoch(epoch, {"loss": 0.1}, 0.001):
                         break
-                self.assertEqual(
-                    state.reason,
-                    "converged_near_best_plateau" if use_plateau else "maximum_epochs",
+                assert (state.reason) == (
+                    "converged_near_best_plateau" if use_plateau else "maximum_epochs"
                 )
                 if use_plateau:
-                    self.assertEqual(epoch, 3)
+                    assert (epoch) == (3)
             config = prepare_training_config(
                 {
                     "training": {
@@ -384,15 +373,15 @@ class TrainingControlTests(unittest.TestCase):
             for epoch in range(1, 5):
                 if state.end_epoch(epoch, {"loss": 0.1}, 0.001):
                     break
-            self.assertEqual(epoch, 3)
-            self.assertEqual(state.mse_epochs, [1, 3])
-            self.assertEqual(state.reason, "metric_convergence")
+            assert (epoch) == (3)
+            assert (state.mse_epochs) == ([1, 3])
+            assert (state.reason) == ("metric_convergence")
 
     def test_deprecated_projection_option_is_removed_at_config_boundary(self):
         cfg = {"model": {"hmonet": {"boundary_curve_interpolation": "fitted_curve"}}}
-        with self.assertWarns(UserWarning):
+        with pytest.warns(UserWarning):
             remove_deprecated_projection_config(cfg)
-        self.assertNotIn("boundary_curve_interpolation", cfg["model"]["hmonet"])
+        assert ("boundary_curve_interpolation") not in (cfg["model"]["hmonet"])
 
     def test_both_dataset_modes_are_labeled_separately(self):
         from scripts.train import train_2d, train_3d
@@ -434,21 +423,22 @@ class TrainingControlTests(unittest.TestCase):
                         ["hmonet", "meshonet"], paths, cfg, "both", args, "cpu"
                     )
                     for train in (htrain, mtrain):
-                        self.assertEqual(
-                            [call.args[2] for call in train.call_args_list],
-                            ["interpolation", "extrapolation"],
+                        assert ([call.args[2] for call in train.call_args_list]) == (
+                            ["interpolation", "extrapolation"]
                         )
                     report.assert_called_once()
-                    self.assertEqual(report.call_args.kwargs["dimension"], dimension)
-                    self.assertEqual(
-                        [item["dataset"] for item in report.call_args.args[0]],
-                        ["interpolation", "extrapolation"] * 2,
+                    assert (report.call_args.kwargs["dimension"]) == (dimension)
+                    assert ([item["dataset"] for item in report.call_args.args[0]]) == (
+                        ["interpolation", "extrapolation"] * 2
                     )
 
 
-class TrainingIntegrationTests(unittest.TestCase):
+class TestTrainingIntegration:
+    @pytest.mark.slow
     def test_both_dimensions_models_and_projection_modes_save_legacy_outputs(self):
-        from src.data.generation.make_dataset_parametric_2d import generate_explicit_dataset
+        from src.data.generation.make_dataset_parametric_2d import (
+            generate_explicit_dataset,
+        )
         from src.data.generation.make_dataset_parametric_3d import generate_dataset
         from scripts.train import train_2d, train_3d
 
@@ -525,12 +515,12 @@ class TrainingIntegrationTests(unittest.TestCase):
                         history = getattr(module, f"train_{name}")(
                             [data], config, "interpolation", args, torch.device("cpu")
                         )
-                    self.assertEqual(len(history), 2)
-                    self.assertIn("Epoch 2/2: training_loss=", stdout.getvalue())
+                    assert (len(history)) == (2)
+                    assert "Epoch 2/2: loss=" in stdout.getvalue()
                     folder = Path(args.training_output_dir)
                     summary = json.loads((folder / "training_summary.json").read_text())
-                    self.assertEqual(summary["dataset_mse_epochs"], [1, 2])
-                    self.assertEqual(summary["dataset_mse_scale"], 2.0)
+                    assert (summary["dataset_mse_epochs"]) == ([1, 2])
+                    assert (summary["dataset_mse_scale"]) == (2.0)
                     for key in (
                         "training_time_seconds",
                         "convergence_epoch",
@@ -541,22 +531,22 @@ class TrainingIntegrationTests(unittest.TestCase):
                         "best_checkpoint",
                         "final_checkpoint",
                     ):
-                        self.assertIn(key, summary)
-                    self.assertTrue(np.isfinite(summary["best_model_dataset_mse"]))
+                        assert (key) in (summary)
+                    assert np.isfinite(summary["best_model_dataset_mse"])
                     with (folder / "training_history.csv").open() as stream:
                         columns = next(csv.reader(stream))
                     expected = ["epoch", "training_loss"]
                     if name == "hmonet":
                         expected.append("jacobian_loss")
                     expected.append("dataset_mse")
-                    self.assertEqual(columns, expected)
+                    assert (columns) == (expected)
                     for filename in (
                         "config.json",
                         "training_loss.png",
                         "dataset_mse.png",
                         "mse_history.csv",
                     ):
-                        self.assertTrue((folder / filename).exists())
+                        assert (folder / filename).exists()
                     expected_files = {
                         "config.json",
                         "training_history.csv",
@@ -568,8 +558,8 @@ class TrainingIntegrationTests(unittest.TestCase):
                         "tensorboard",
                     }
 
-                    self.assertEqual(
-                        {path.name for path in folder.iterdir()}, expected_files
+                    assert ({path.name for path in folder.iterdir()}) == (
+                        expected_files
                     )
                     from tensorboard.backend.event_processing.event_accumulator import (
                         EventAccumulator,
@@ -579,14 +569,14 @@ class TrainingIntegrationTests(unittest.TestCase):
                     mirror = EventAccumulator(
                         summary["tensorboard_mirror_log_dir"]
                     ).Reload()
-                    self.assertEqual(primary.Tags(), mirror.Tags())
+                    assert (primary.Tags()) == (mirror.Tags())
                     for tag in primary.Tags()["scalars"]:
-                        self.assertEqual(primary.Scalars(tag), mirror.Scalars(tag))
+                        assert (primary.Scalars(tag)) == (mirror.Scalars(tag))
                     for tag in primary.Tags()["tensors"]:
-                        self.assertEqual(primary.Tensors(tag), mirror.Tensors(tag))
-                    self.assertIn("run/summary/text_summary", primary.Tags()["tensors"])
-                    self.assertIn("summary/best_metric_value", primary.Tags()["scalars"])
-                    self.assertTrue(Path(summary["config_yaml"]).is_file())
+                        assert (primary.Tensors(tag)) == (mirror.Tensors(tag))
+                    assert ("run/summary/text_summary") in (primary.Tags()["tensors"])
+                    assert ("summary/best_metric_value") in (primary.Tags()["scalars"])
+                    assert Path(summary["config_yaml"]).is_file()
                     checkpoint = Path(summary["checkpoint_dir"])
                     for filename in (
                         "best.pt",
@@ -595,18 +585,12 @@ class TrainingIntegrationTests(unittest.TestCase):
                         "final_model.pth",
                         "checkpoint_metadata.json",
                     ):
-                        self.assertTrue((checkpoint / filename).exists())
+                        assert (checkpoint / filename).exists()
                     payload = torch.load(
                         checkpoint / "final.pt", map_location="cpu", weights_only=True
                     )
-                    self.assertEqual(payload["model_name"], name)
-                    self.assertTrue(
-                        all(
-                            torch.isfinite(value).all()
-                            for value in payload["model_state_dict"].values()
-                        )
+                    assert (payload["model_name"]) == (name)
+                    assert all(
+                        torch.isfinite(value).all()
+                        for value in payload["model_state_dict"].values()
                     )
-
-
-if __name__ == "__main__":
-    unittest.main()

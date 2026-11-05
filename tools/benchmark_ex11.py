@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.models import HMONet2D, PIMeshONet2D, QGHMONet2D
+from src.models import HMONet2D, MeshONet2D, PIMeshONet2D, QGHMONet2D
 
 
 VARIANTS = {
@@ -40,6 +40,23 @@ VARIANTS = {
         "boundary_layer_decoder_enabled": True,
         "decoupled_weight_decoder_enabled": True,
     },
+    "e9_meshonet_200k": {
+        "model": "meshonet",
+        "branch_dim": 40,
+        "adjust_hidden_dim": 80,
+        "branch_hidden_dim": 80,
+        "trunk_hidden_dim": 80,
+        "output_dim": 80,
+        "branch_mlp_hidden_dim": 80,
+    },
+    "e10_pimeshonet_200k": {
+        "model": "pimeshonet",
+        "branch_dim": 40,
+        "adjust_hidden_dim": 80,
+        "branch_hidden_dim": 80,
+        "trunk_hidden_dim": 80,
+        "output_dim": 80,
+    },
 }
 
 
@@ -63,7 +80,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="experiments/ex11/baseline/experiment.yaml")
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--warmup", type=int, default=20)
+    parser.add_argument("--repeats", type=int, default=100)
     args = parser.parse_args()
     device = torch.device(args.device)
     config = yaml.safe_load(open(args.config, encoding="utf-8-sig"))
@@ -75,13 +93,34 @@ def main():
     xi, eta = xi.reshape(1, -1), eta.reshape(1, -1)
     rows = []
     for name, changes in VARIANTS.items():
-        options = {**common, **base, **{k: v for k, v in changes.items() if k != "model"}}
-        options.pop("residual_regularization_weight", None)
-        cls = QGHMONet2D if changes.get("model") == "qghmonet" else HMONet2D
+        model_name = changes.get("model", "hmonet")
+        if model_name == "meshonet":
+            options = {
+                **common,
+                **config["model"].get("meshonet", {}),
+                **{k: v for k, v in changes.items() if k != "model"},
+            }
+            cls = MeshONet2D
+        elif model_name == "pimeshonet":
+            options = {
+                **common,
+                **config["model"].get("pimeshonet", {}),
+                **{k: v for k, v in changes.items() if k != "model"},
+            }
+            options.pop("architecture", None)
+            cls = PIMeshONet2D
+        else:
+            options = {
+                **common,
+                **base,
+                **{k: v for k, v in changes.items() if k != "model"},
+            }
+            options.pop("residual_regularization_weight", None)
+            cls = QGHMONet2D if model_name == "qghmonet" else HMONet2D
         model = cls(41, 41, **options).to(device).eval()
         px, py = boundary.unbind(-1)
         with torch.inference_mode():
-            for _ in range(3):
+            for _ in range(args.warmup):
                 model(px, py, xi, eta)
             synchronize(device)
             samples = []
@@ -92,29 +131,22 @@ def main():
                 samples.append(time.perf_counter() - started)
         rows.append({
             "model": name,
+            "architecture": model_name,
+            "capacity": {
+                key: options[key]
+                for key in (
+                    "branch_dim", "trunk_dim", "adjust_hidden_dim",
+                    "adjust_hidden_layer_num", "branch_hidden_dim",
+                    "branch_hidden_layer_num", "trunk_hidden_dim",
+                    "trunk_hidden_layer_num", "output_dim",
+                    "branch_mlp_hidden_dim", "branch_mlp_hidden_layer_num",
+                )
+                if key in options
+            },
             "parameters": sum(p.numel() for p in model.parameters() if p.requires_grad),
             "forward_seconds_mean": sum(samples) / len(samples),
             "forward_seconds_minimum": min(samples),
         })
-    pi_options = {**common, **config["model"].get("pimeshonet", {})}
-    pi_options.pop("architecture", None)
-    pi = PIMeshONet2D(41, 41, **pi_options).to(device).eval()
-    with torch.inference_mode():
-        for _ in range(3):
-            pi(px, py, xi, eta)
-        synchronize(device)
-        samples = []
-        for _ in range(args.repeats):
-            started = time.perf_counter()
-            pi(px, py, xi, eta)
-            synchronize(device)
-            samples.append(time.perf_counter() - started)
-    rows.append({
-        "model": "PI-MeshONet",
-        "parameters": sum(p.numel() for p in pi.parameters() if p.requires_grad),
-        "forward_seconds_mean": sum(samples) / len(samples),
-        "forward_seconds_minimum": min(samples),
-    })
     print(json.dumps(rows, indent=2))
 
 

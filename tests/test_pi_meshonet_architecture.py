@@ -1,11 +1,8 @@
 """Unit tests for the paper-aligned PI-MeshONet architecture."""
 
-import unittest
-
 import torch
 
 from src.models.pi_meshonet import ModifiedMLP, PIMeshONet2D, PIMeshONet3D
-
 
 SMALL = dict(
     branch_dim=5,
@@ -19,11 +16,11 @@ SMALL = dict(
 )
 
 
-class PIMeshONetArchitectureTests(unittest.TestCase):
+class TestPIMeshONetArchitecture:
     def test_default_2d_parameter_count_matches_compact_scale(self):
         model = PIMeshONet2D(21, 20)
         parameter_count = sum(parameter.numel() for parameter in model.parameters())
-        self.assertEqual(parameter_count, 117570)
+        assert (parameter_count) == (117570)
 
     def test_modified_mlp_uses_paper_gate_equation(self):
         torch.manual_seed(3)
@@ -48,18 +45,14 @@ class PIMeshONetArchitectureTests(unittest.TestCase):
             boundary = torch.randn(2, model.boundary_point_count, dimension)
             logical = torch.rand(2, 11, dimension)
             outputs = model(*boundary.unbind(-1), *logical.unbind(-1))
-            self.assertEqual(len(outputs), dimension)
-            self.assertEqual(tuple(outputs[0].shape), (2, 11, 1))
+            assert (len(outputs)) == (dimension)
+            assert (tuple(outputs[0].shape)) == (2, 11, 1)
             torch.cat(outputs, -1).square().mean().backward()
-            self.assertTrue(all(parameter.grad is not None for parameter in model.parameters()))
+            assert all(parameter.grad is not None for parameter in model.parameters())
 
     def test_single_geometry_evaluation_shape(self):
         model = PIMeshONet2D(4, 3, trunk_dim=6, **SMALL)
         boundary = torch.randn(model.boundary_point_count, 2)
         logical = torch.rand(13, 2)
         outputs = model(*boundary.unbind(-1), *logical.unbind(-1))
-        self.assertEqual(tuple(outputs[0].shape), (13, 1))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (tuple(outputs[0].shape)) == (13, 1)

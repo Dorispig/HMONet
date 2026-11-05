@@ -55,7 +55,7 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 - `Ctrl+C`/`SIGTERM` 终止整个队列和所有子任务；
 - `--continue-on-error` 允许普通失败释放 GPU 并继续，但最终仍汇总失败。
 
-消融日志位于 `experiments/<suite>/queue_logs/<tag>/`，正式日志位于 `outputs/gpu_queue/`。`--queue-terminal-interval 1000` 表示主终端每 1000 epoch 转发一次完整汇总；任务日志仍保存每个完整 epoch 的结果，单 GPU输出不受影响。
+多 GPU 消融日志按 `experiments/<suite>/queue_logs/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 存放；正式实验采用相同顺序，位于 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/`。训练指纹只保存在队列元数据中，不再出现在路径里。训练和评估属于同一个原子任务时写入 `train_evaluate.log`；单阶段任务分别写入 `training.log` 或 `evaluation.log`。再次运行同一目录对应的任务时会先清除旧日志，再覆盖写入，避免新旧输出混合。正式多 GPU 流程可用 `--run-tag`（或 `--tag`）指定标签。`--queue-terminal-interval 1000` 表示主终端每 1000 epoch 转发一次完整汇总；任务日志仍保存每个完整 epoch 的结果，单 GPU 输出不受影响。
 
 常见故障：训练身份不匹配时应换 tag 或确认后使用 `--force`；任务瞬间退出应先查看对应日志的首个 traceback；CUDA OOM 时减小 batch/query batch，并避免两个队列同时使用同一物理卡。
 

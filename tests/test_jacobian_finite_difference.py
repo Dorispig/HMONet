@@ -3,7 +3,6 @@
 import importlib
 import json
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,9 +16,10 @@ from scripts.train.training_common import (
     jacobian_positive_loss_finite_difference,
 )
 from tests.test_paired_dataset_training import SMALL_MODEL
+import pytest
 
 
-class JacobianFiniteDifferenceTests(unittest.TestCase):
+class TestJacobianFiniteDifference:
     def test_quadratic_values_and_parameter_gradients_match_autograd(self):
         for dim in (2, 3):
             q = torch.tensor([0.0, 0.0001, 0.3, 0.9999, 1.0], dtype=torch.float64)
@@ -34,8 +34,8 @@ class JacobianFiniteDifferenceTests(unittest.TestCase):
                 return torch.stack(parts, dim=-1)
 
             queries = jacobian_finite_difference_queries(q, 0.01)
-            self.assertTrue(((queries >= 0) & (queries <= 1)).all())
-            self.assertEqual(queries.shape, (1, 5, 1 + 2 * dim, dim))
+            assert ((queries >= 0) & (queries <= 1)).all()
+            assert (queries.shape) == (1, 5, 1 + 2 * dim, dim)
             fd = jacobian_positive_loss_finite_difference(
                 mapping(queries), q, 0.1, 0.01
             )
@@ -66,17 +66,17 @@ class JacobianFiniteDifferenceTests(unittest.TestCase):
                     loss.backward()
                     optimizer.step()
                     losses.append(loss.item())
-            self.assertLess(losses[-1], losses[0] * 0.001)
+            assert (losses[-1]) < (losses[0] * 0.001)
 
     def test_invalid_steps_and_training_cli(self):
         q = torch.zeros(1, 2, 2)
         for step in (0, -1, 0.4, 0.51, float("nan"), float("inf")):
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 jacobian_finite_difference_queries(q, step)
         domain_points = torch.rand(2, 100, 3, dtype=torch.float64)
         for step in (1e-3, 0.2, 1 / 3):
             stencil = jacobian_finite_difference_queries(domain_points, step)
-            self.assertTrue(((stencil >= 0) & (stencil <= 1)).all())
+            assert ((stencil >= 0) & (stencil <= 1)).all()
         for dim in (2, 3):
             module = importlib.import_module(f"scripts.train.train_{dim}d")
             with patch.object(module, "train_models", return_value=[]) as dispatch:
@@ -98,13 +98,13 @@ class JacobianFiniteDifferenceTests(unittest.TestCase):
                     ]
                 )
                 config = dispatch.call_args.args[2]
-                self.assertEqual(
-                    config["hmonet_training"]["jacobian_method"], "autograd"
-                )
-                self.assertEqual(config["hmonet_training"]["jacobian_fd_step"], 0.002)
+                assert (config["hmonet_training"]["jacobian_method"]) == ("autograd")
+                assert (config["hmonet_training"]["jacobian_fd_step"]) == (0.002)
 
     def test_complete_training_both_dimensions_and_methods(self):
-        from src.data.generation.make_dataset_parametric_2d import generate_explicit_dataset
+        from src.data.generation.make_dataset_parametric_2d import (
+            generate_explicit_dataset,
+        )
         from src.data.generation.make_dataset_parametric_3d import generate_dataset
         from src.data.dataset import ParametricDataset2D, ParametricDataset3D
 
@@ -127,50 +127,39 @@ class JacobianFiniteDifferenceTests(unittest.TestCase):
                 ).train_hmonet
                 for method in ("finite_difference", "autograd"):
                     for mapping in ("current", "coons_residual"):
-                        with self.subTest(
-                            dimension=dim, method=method, mapping=mapping
-                        ):
-                            config = dict(
-                                model=dict(
-                                    common={**SMALL_MODEL, "trunk_dim": dim},
-                                    hmonet=dict(
-                                        hmonet_mapping_mode=mapping,
-                                        residual_regularization_weight=0.01,
-                                    ),
+                        config = dict(
+                            model=dict(
+                                common={**SMALL_MODEL, "trunk_dim": dim},
+                                hmonet=dict(
+                                    hmonet_mapping_mode=mapping,
+                                    residual_regularization_weight=0.01,
                                 ),
-                                training=dict(
-                                    num_epochs=1,
-                                    batch_size=1,
-                                    tensorboard_enabled=False,
-                                ),
-                                hmonet_training=dict(
-                                    jacobian_loss_enabled=True,
-                                    jacobian_minimum=10.0,
-                                    jacobian_method=method,
-                                ),
-                                hmonet_sampling=dict(
-                                    fixed_grid_count=2, global_random_count=4
-                                ),
-                            )
-                            args = SimpleNamespace(
-                                output_root=root / "training",
-                                checkpoint_root=root / "checkpoints",
-                                dataset_name=out.name,
-                                mode="interpolation",
-                            )
-                            if method == "finite_difference":
-                                with patch(
-                                    "torch.autograd.grad",
-                                    side_effect=AssertionError("Spatial AD used"),
-                                ):
-                                    history = train(
-                                        [data],
-                                        config,
-                                        "interpolation",
-                                        args,
-                                        torch.device("cpu"),
-                                    )
-                            else:
+                            ),
+                            training=dict(
+                                num_epochs=1,
+                                batch_size=1,
+                                tensorboard_enabled=False,
+                            ),
+                            hmonet_training=dict(
+                                jacobian_loss_enabled=True,
+                                jacobian_minimum=10.0,
+                                jacobian_method=method,
+                            ),
+                            hmonet_sampling=dict(
+                                fixed_grid_count=2, global_random_count=4
+                            ),
+                        )
+                        args = SimpleNamespace(
+                            output_root=root / "training",
+                            checkpoint_root=root / "checkpoints",
+                            dataset_name=out.name,
+                            mode="interpolation",
+                        )
+                        if method == "finite_difference":
+                            with patch(
+                                "torch.autograd.grad",
+                                side_effect=AssertionError("Spatial AD used"),
+                            ):
                                 history = train(
                                     [data],
                                     config,
@@ -178,16 +167,19 @@ class JacobianFiniteDifferenceTests(unittest.TestCase):
                                     args,
                                     torch.device("cpu"),
                                 )
-                            self.assertTrue(np.isfinite(history[0]["train_loss"]))
-                            summary = json.loads(
-                                (
-                                    Path(args.training_output_dir)
-                                    / "training_summary.json"
-                                ).read_text()
+                        else:
+                            history = train(
+                                [data],
+                                config,
+                                "interpolation",
+                                args,
+                                torch.device("cpu"),
                             )
-                            self.assertEqual(summary["jacobian_method"], method)
-                            self.assertEqual(summary["jacobian_fd_step"], 0.001)
-
-
-if __name__ == "__main__":
-    unittest.main()
+                        assert np.isfinite(history[0]["train_loss"])
+                        summary = json.loads(
+                            (
+                                Path(args.training_output_dir) / "training_summary.json"
+                            ).read_text()
+                        )
+                        assert (summary["jacobian_method"]) == (method)
+                        assert (summary["jacobian_fd_step"]) == (0.001)

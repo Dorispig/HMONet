@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-import unittest
 from unittest.mock import patch
 
 import numpy as np
@@ -20,23 +19,25 @@ from src.utils.quality_selection import (
     HEX_METRICS,
     selected_quality_metrics,
 )
+import pytest
 
 
-class QualitySelectionTests(unittest.TestCase):
-    setUp = pipeline.EvaluationPipelineTests.setUp
-    configuration = pipeline.EvaluationPipelineTests.configuration
-    run_evaluation = pipeline.EvaluationPipelineTests.run_evaluation
-    checkpoint = pipeline.EvaluationPipelineTests.checkpoint
+class TestQualitySelection:
+    setup_method = pipeline.TestEvaluationPipeline.setup_method
+    teardown_method = pipeline.TestEvaluationPipeline.teardown_method
+    configuration = pipeline.TestEvaluationPipeline.configuration
+    run_evaluation = pipeline.TestEvaluationPipeline.run_evaluation
+    checkpoint = pipeline.TestEvaluationPipeline.checkpoint
 
     def test_defaults_cli_case_switches_and_validation(self):
         for dimension in (2, 3):
             parser = build_parser(dimension)
             defaults = evaluation_options({}, {}, parser.parse_args([]))
-            self.assertEqual(defaults["inference_warmup_runs"], 3)
-            self.assertEqual(defaults["inference_timing_repeats"], 10)
+            assert (defaults["inference_warmup_runs"]) == (3)
+            assert (defaults["inference_timing_repeats"]) == (10)
             names = QUAD_METRICS if dimension == 2 else HEX_METRICS
             names = tuple(name for name in names if name != "cell_area")
-            self.assertEqual(selected_quality_metrics(defaults, dimension), names)
+            assert (selected_quality_metrics(defaults, dimension)) == (names)
             config = {"evaluation": {"quality_switches": {"min_angle": False}}}
             args = parser.parse_args(
                 [
@@ -51,21 +52,19 @@ class QualitySelectionTests(unittest.TestCase):
                 ]
             )
             options = evaluation_options(config, {}, args)
-            self.assertEqual(
-                selected_quality_metrics(options, dimension), ("min_angle",)
-            )
-            self.assertEqual(options["inference_timing_repeats"], 7)
-            self.assertEqual(options["inference_warmup_runs"], 2)
+            assert (selected_quality_metrics(options, dimension)) == ("min_angle",)
+            assert (options["inference_timing_repeats"]) == (7)
+            assert (options["inference_warmup_runs"]) == (2)
             disabled = evaluation_options(
                 {}, {}, parser.parse_args(["--no-compute-grid-quality"])
             )
-            self.assertFalse(selected_quality_metrics(disabled, dimension))
+            assert not selected_quality_metrics(disabled, dimension)
             for bad in ("typo", "both,min_angle"):
-                with self.assertRaises(ValueError):
+                with pytest.raises(ValueError):
                     evaluation_options(
                         {}, {}, parser.parse_args(["--quality-metrics", bad])
                     )
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 selected_quality_metrics(
                     {"quality_switches": {"min_angle": "false"}}, dimension
                 )
@@ -74,15 +73,15 @@ class QualitySelectionTests(unittest.TestCase):
         # Ties at the extremes must not discard every repeated extreme value.
         values = [1, 1, 2, 3, 4, 5, 6, 7, 100, 100]
         mean, info = summarize_inference_samples(values)
-        self.assertEqual(mean, 16.0)
-        self.assertEqual(info["inference_used_samples"], 8)
-        self.assertEqual(info["inference_discarded_samples"], 2)
+        assert (mean) == (16.0)
+        assert (info["inference_used_samples"]) == (8)
+        assert (info["inference_discarded_samples"]) == (2)
         for values in ([2], [2, 6]):
             mean, info = summarize_inference_samples(values)
-            self.assertEqual(mean, np.mean(values))
-            self.assertEqual(info["inference_timing_statistic"], "mean")
+            assert (mean) == (np.mean(values))
+            assert (info["inference_timing_statistic"]) == ("mean")
         for invalid in ([], [np.nan], [np.inf]):
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 summarize_inference_samples(invalid)
 
     def test_each_metric_matches_full_calculation_on_deformed_grid(self):
@@ -100,9 +99,9 @@ class QualitySelectionTests(unittest.TestCase):
             full = calculate(None)
             for name, expected in full.items():
                 single = calculate([name])
-                self.assertEqual(list(single), [name])
+                assert (list(single)) == ([name])
                 np.testing.assert_array_equal(single[name], expected)
-            self.assertEqual(calculate([]), {})
+            assert (calculate([])) == ({})
 
     def test_disabled_expensive_operations_are_not_called(self):
         grid = logical_grid((3, 3, 3)).reshape(3, 3, 3, 3)
@@ -149,25 +148,23 @@ class QualitySelectionTests(unittest.TestCase):
                 ]
                 group = Path(result["comparison_directory"])
                 root = group.parents[1]
-                self.assertEqual(result["metrics"], {"TFI": {}})
-                self.assertTrue((group / "mesh_comparison.png").is_file())
-                self.assertTrue((root / "TFI/mesh.png").is_file())
-                self.assertFalse(list(root.rglob("quality_*.png")))
-                self.assertFalse(list(root.rglob("quality_data.npz")))
+                assert (result["metrics"]) == ({"TFI": {}})
+                assert (group / "mesh_comparison.png").is_file()
+                assert (root / "TFI/mesh.png").is_file()
+                assert not list(root.rglob("quality_*.png"))
+                assert not list(root.rglob("quality_data.npz"))
                 if dim == 3:
                     for section in ("x_mid", "y_mid", "z_mid"):
-                        self.assertTrue(
-                            (group / "boundary_faces" / section / "mesh.png").is_file()
-                        )
-                        self.assertTrue(
-                            (
-                                root / "TFI/boundary_faces" / section / "mesh.png"
-                            ).is_file()
-                        )
+                        assert (
+                            group / "boundary_faces" / section / "mesh.png"
+                        ).is_file()
+                        assert (
+                            root / "TFI/boundary_faces" / section / "mesh.png"
+                        ).is_file()
                 again = self.run_evaluation(
                     dim, config, "--no-compute-grid-quality", "--analysis-only"
                 )[0]
-                self.assertTrue(again["timings"]["TFI"]["cache_hit"])
+                assert again["timings"]["TFI"]["cache_hit"]
 
     def test_selection_changes_reuse_mesh_remove_stale_metrics_and_keep_only_requested(
         self,
@@ -182,12 +179,12 @@ class QualitySelectionTests(unittest.TestCase):
                 selected = self.run_evaluation(
                     dim, config, "--quality-metrics", "min_angle", "--analysis-only"
                 )[0]
-                self.assertTrue(selected["timings"]["PDE_Winslow"]["cache_hit"])
+                assert selected["timings"]["PDE_Winslow"]["cache_hit"]
                 with np.load(
                     group / "grid_quality/comparison_quality_data.npz"
                 ) as data:
-                    self.assertEqual(
-                        set(data.files), {"TFI__min_angle", "PDE_Winslow__min_angle"}
+                    assert (set(data.files)) == (
+                        {"TFI__min_angle", "PDE_Winslow__min_angle"}
                     )
                 if dim == 3:
                     for section in ("x_mid", "y_mid", "z_mid"):
@@ -197,20 +194,15 @@ class QualitySelectionTests(unittest.TestCase):
                             / section
                             / "comparison_quality_data.npz"
                         ) as data:
-                            self.assertEqual(
-                                set(data.files),
-                                {"TFI__min_angle", "PDE_Winslow__min_angle"},
+                            assert (set(data.files)) == (
+                                {"TFI__min_angle", "PDE_Winslow__min_angle"}
                             )
-                    self.assertFalse((group / "self_intersection_table.csv").exists())
+                    assert not (group / "self_intersection_table.csv").exists()
                 self.run_evaluation(
                     dim, config, "--quality-metrics", "none", "--analysis-only"
                 )
-                self.assertFalse(
-                    (group / "grid_quality/comparison_quality_data.npz").exists()
-                )
-                self.assertFalse(
-                    list((group.parents[1] / "TFI").rglob("quality_data.npz"))
-                )
+                assert not (group / "grid_quality/comparison_quality_data.npz").exists()
+                assert not list((group.parents[1] / "TFI").rglob("quality_data.npz"))
                 self.run_evaluation(
                     dim, config, "--quality-metrics", "both", "--analysis-only"
                 )
@@ -220,20 +212,18 @@ class QualitySelectionTests(unittest.TestCase):
         for metric, volume in (("cell_volume", True), ("aspect_ratio", False)):
             result = self.run_evaluation(3, config, "--quality-metrics", metric)[0]
             group = Path(result["comparison_directory"])
-            self.assertEqual(
-                (group / "grid_quality/comparison_quality_data.npz").is_file(), volume
+            assert ((group / "grid_quality/comparison_quality_data.npz").is_file()) == (
+                volume
             )
-            self.assertEqual(
-                (group / "boundary_faces/z_mid/comparison_quality_data.npz").is_file(),
-                not volume,
-            )
+            assert (
+                (group / "boundary_faces/z_mid/comparison_quality_data.npz").is_file()
+            ) == (not volume)
 
     def test_cell_area_is_globally_suppressed(self):
         for dimension in (2, 3):
             options = {"compute_grid_quality": True, "quality_metrics": "cell_area"}
-            self.assertNotIn(
-                "cell_area",
-                selected_quality_metrics(options, dimension, surface=dimension == 3),
+            assert ("cell_area") not in (
+                selected_quality_metrics(options, dimension, surface=dimension == 3)
             )
 
     def test_configured_zooms_follow_switches_and_prune_disabled_quality(self):
@@ -248,7 +238,7 @@ class QualitySelectionTests(unittest.TestCase):
             )
             first = self.run_evaluation(dim, config)[0]
             group = Path(first["comparison_directory"])
-            self.assertTrue(list((group / "zoom_views").rglob("*zoom_metadata.json")))
+            assert list((group / "zoom_views").rglob("*zoom_metadata.json"))
             with patch(
                 "src.evaluation.zoom_3d.surface_quad_quality_fields",
                 side_effect=AssertionError,
@@ -259,8 +249,8 @@ class QualitySelectionTests(unittest.TestCase):
                 self.run_evaluation(dim, config, "--no-compute-grid-quality")
             for marker in (group / "zoom_views").rglob("*zoom_metadata.json"):
                 record = json.loads(marker.read_text(encoding="utf-8"))
-                self.assertEqual(record.get("options", record)["plot"], "mesh")
-            self.assertFalse(list((group / "zoom_views").rglob("local_quality*")))
+                assert (record.get("options", record)["plot"]) == ("mesh")
+            assert not list((group / "zoom_views").rglob("local_quality*"))
             # A disabled worst search cannot silently run quality computations.
             self.run_evaluation(
                 dim, config, "--no-compute-grid-quality", "--center-on", "worst"
@@ -291,7 +281,7 @@ class QualitySelectionTests(unittest.TestCase):
                 summary = json.loads(
                     (output / "local_quality_summary.json").read_text()
                 )
-                self.assertEqual(set(summary["TFI"]), {metric})
+                assert (set(summary["TFI"])) == ({metric})
 
     def test_network_raw_and_processed_mesh_only_and_recorded_trimmed_timing(self):
         for dim in (2, 3):
@@ -307,20 +297,16 @@ class QualitySelectionTests(unittest.TestCase):
             )
             result = self.run_evaluation(dim, config)[0]
             timing = result["timings"]["HMONet"]
-            self.assertEqual(timing["inference_warmup_runs"], 3)
-            self.assertEqual(timing["inference_used_samples"], 8)
+            assert (timing["inference_warmup_runs"]) == (3)
+            assert (timing["inference_used_samples"]) == (8)
             expected = np.mean(np.sort(timing["inference_samples_seconds"])[1:-1])
-            self.assertAlmostEqual(
-                timing["network_inference_seconds"], expected, places=12
+            assert (timing["network_inference_seconds"]) == pytest.approx(
+                expected, abs=10**-12
             )
             group = Path(result["comparison_directory"])
             root = group.parents[3]
             for stage in ("raw", "none"):
                 folder = root / "HMONet/current" / stage
-                self.assertTrue((folder / "mesh.npy").is_file())
-                self.assertTrue((folder / "boundary_error_summary.json").is_file())
-                self.assertFalse((folder / "grid_quality/quality_data.npz").exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+                assert (folder / "mesh.npy").is_file()
+                assert (folder / "boundary_error_summary.json").is_file()
+                assert not (folder / "grid_quality/quality_data.npz").exists()

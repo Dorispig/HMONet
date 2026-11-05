@@ -16,6 +16,8 @@ import time
 from collections import deque
 from typing import Iterable, Sequence
 
+from src.utils.progress import wrapped_print
+
 
 @dataclass(frozen=True)
 class GpuTask:
@@ -24,6 +26,9 @@ class GpuTask:
     name: str
     command: tuple[str, ...] | list[str]
     environment: dict[str, str] = field(default_factory=dict)
+    log_relative_path: str | Path | None = None
+    clear_log_directory: bool = False
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 class GpuQueueError(RuntimeError):
@@ -98,6 +103,26 @@ def _write_summary(path: Path, records):
     )
 
 
+def _task_log_path(log_root: Path, index: int, task: GpuTask) -> Path:
+    """Resolve one task log while preventing escape from the queue log root."""
+    if task.log_relative_path is None:
+        relative = Path(f"{index:04d}_{_safe_name(task.name)}.log")
+    else:
+        relative = Path(task.log_relative_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(
+                f"Task log path must be relative to the queue root: {relative}"
+            )
+        if relative.suffix.lower() != ".log":
+            raise ValueError(f"Task log path must end in .log: {relative}")
+    resolved = (log_root / relative).resolve()
+    try:
+        resolved.relative_to(log_root)
+    except ValueError as error:
+        raise ValueError(f"Task log path escapes the queue root: {relative}") from error
+    return resolved
+
+
 def run_gpu_queue(
     tasks: Iterable[GpuTask],
     gpu_ids: Sequence[int],
@@ -131,6 +156,19 @@ def run_gpu_queue(
     log_root = Path(log_root).resolve()
     summary_path = log_root / "queue_summary.json"
 
+    task_log_paths = [
+        _task_log_path(log_root, index, task)
+        for index, task in enumerate(tasks)
+    ]
+    duplicate_logs = {
+        path for path in task_log_paths if task_log_paths.count(path) > 1
+    }
+    if duplicate_logs:
+        raise ValueError(
+            "GPU queue tasks must have distinct log files: "
+            + ", ".join(str(path) for path in sorted(duplicate_logs))
+        )
+
     if dry_run:
         records = []
         for index, task in enumerate(tasks):
@@ -141,9 +179,15 @@ def run_gpu_queue(
                 "gpu": gpu,
                 "status": "dry_run",
                 "command": list(task.command),
+                "log": str(task_log_paths[index]),
             }
+            if task.metadata:
+                record["metadata"] = dict(task.metadata)
             records.append(record)
-            print(f"[GPU queue dry-run] GPU {gpu} <- {task.name}", flush=True)
+            wrapped_print(
+                f"[GPU queue dry-run] GPU {gpu} <- {task.name} "
+                f"| log={task_log_paths[index]}",
+            )
         return records
 
     log_root.mkdir(parents=True, exist_ok=True)
@@ -183,10 +227,9 @@ def run_gpu_queue(
         received_signal[0] = int(signal_number)
         cancel_queue.set()
         stop_dispatch.set()
-        print(
+        wrapped_print(
             f"\n[GPU queue] received signal {signal_number}; cancelling the "
             "entire queue and all running tasks...",
-            flush=True,
         )
         with active_lock:
             running = list(active_processes.values())
@@ -211,21 +254,27 @@ def run_gpu_queue(
                 return
             started = time.time()
             stamp = datetime.now().isoformat(timespec="seconds")
-            log_path = log_root / f"{index:04d}_{_safe_name(task.name)}.log"
+            log_path = task_log_paths[index]
             environment = os.environ.copy()
             environment.update({str(k): str(v) for k, v in task.environment.items()})
             environment["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
             environment.setdefault("PYTHONUNBUFFERED", "1")
             environment["HMONET_GPU_QUEUE"] = "1"
             with print_lock:
-                print(
-                    f"[GPU queue] start GPU {gpu_id}: {task.name} | log={log_path}",
-                    flush=True,
+                wrapped_print(
+                    f"[GPU queue] start GPU {gpu_id}: {task.name} | log={log_path}"
                 )
             returncode = -1
             error = None
             recent_lines = deque(maxlen=30)
             try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                if task.clear_log_directory:
+                    # One fingerprint directory represents one atomic run.  A
+                    # repeated train/evaluate request replaces its old logs
+                    # instead of leaving stale phase output beside the new run.
+                    for stale_log in log_path.parent.glob("*.log"):
+                        stale_log.unlink(missing_ok=True)
                 with log_path.open("w", encoding="utf-8", errors="replace") as stream:
                     process = subprocess.Popen(
                         list(task.command),
@@ -252,6 +301,7 @@ def run_gpu_queue(
                             received_signal[0] or signal.SIGTERM,
                         )
                     assert process.stdout is not None
+                    echo_epoch_continuation = False
                     with process.stdout:
                         for line in process.stdout:
                             stream.write(line)
@@ -261,17 +311,25 @@ def run_gpu_queue(
                             match = re.match(r"^Epoch\s+(\d+)/(\d+):", clean)
                             if match:
                                 epoch, total = map(int, match.groups())
-                                if (
+                                echo_epoch_continuation = bool(
                                     epoch == 1
                                     or epoch == total
                                     or epoch % int(terminal_interval) == 0
-                                ):
+                                )
+                                if echo_epoch_continuation:
                                     with print_lock:
-                                        print(
+                                        wrapped_print(
                                             f"[GPU queue][GPU {gpu_id}]"
-                                            f"[{task.name}] {clean}",
-                                            flush=True,
+                                            f"[{task.name}] {clean}"
                                         )
+                            elif echo_epoch_continuation and clean.startswith("  "):
+                                with print_lock:
+                                    wrapped_print(
+                                        f"[GPU queue][GPU {gpu_id}]"
+                                        f"[{task.name}] {clean.strip()}"
+                                    )
+                            else:
+                                echo_epoch_continuation = False
                     returncode = int(process.wait())
             except Exception as exception:  # pragma: no cover - operating-system failure
                 error = repr(exception)
@@ -293,24 +351,22 @@ def run_gpu_queue(
                 "command": list(task.command),
                 "log": str(log_path),
             }
+            if task.metadata:
+                record["metadata"] = dict(task.metadata)
             if error is not None:
                 record["error"] = error
             with records_lock:
                 records.append(record)
                 _write_summary(summary_path, sorted(records, key=lambda item: item["index"]))
             with print_lock:
-                print(
+                wrapped_print(
                     f"[GPU queue] {status} GPU {gpu_id}: {task.name} "
-                    f"({record['elapsed_seconds']:.1f}s)",
-                    flush=True,
+                    f"({record['elapsed_seconds']:.1f}s)"
                 )
                 if status in {"failed", "interrupted"} and recent_lines:
-                    print(
-                        f"[GPU queue] last log lines for {task.name}:",
-                        flush=True,
-                    )
+                    wrapped_print(f"[GPU queue] last log lines for {task.name}:")
                     for line in recent_lines:
-                        print(f"  {line}", flush=True)
+                        wrapped_print(f"  {line}", indent="    ")
             pending.task_done()
             if status == "failed" and not continue_on_error:
                 stop_dispatch.set()

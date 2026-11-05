@@ -2,12 +2,11 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 
 from src.evaluation.retention import compact_evaluation_directory
 
 
-class FormalEvaluationRetentionTests(unittest.TestCase):
+class TestFormalEvaluationRetention:
     def test_compaction_keeps_results_and_images_only(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -20,13 +19,7 @@ class FormalEvaluationRetentionTests(unittest.TestCase):
 
             compact_evaluation_directory(root)
 
-            self.assertTrue((root / "results.json").is_file())
-            self.assertTrue(
-                (root / "plots/TFI/quality/quality_scaled_jacobian.png").is_file()
-            )
-            self.assertFalse((root / "generated_meshes.npz").exists())
-            self.assertFalse((detail / "quality_summary.csv").exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (root / "results.json").is_file()
+            assert (root / "plots/TFI/quality/quality_scaled_jacobian.png").is_file()
+            assert not (root / "generated_meshes.npz").exists()
+            assert not (detail / "quality_summary.csv").exists()

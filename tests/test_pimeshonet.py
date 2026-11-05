@@ -4,7 +4,6 @@ import contextlib
 import io
 import json
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,9 +14,10 @@ from scripts.train.physics_loss import stencil_queries, elliptic_residual
 from scripts.train.train_pimeshonet import train_pimeshonet
 from src.evaluation.inference import load_network
 from tests.test_paired_dataset_training import SMALL_MODEL
+import pytest
 
 
-class PhysicsTests(unittest.TestCase):
+class TestPhysics:
     def test_analytic_residual_and_parameter_gradient(self):
         for dim in (2, 3):
             q = torch.full((2, 7, dim), 0.5, dtype=torch.float64)
@@ -32,8 +32,8 @@ class PhysicsTests(unittest.TestCase):
             torch.testing.assert_close(result, expected, atol=1e-10, rtol=1e-10)
             loss = result.square().sum(-1).mean()
             loss.backward()
-            self.assertAlmostEqual(a.grad.item(), 8 * a.item(), places=8)
-            self.assertTrue(torch.all((points >= 0) & (points <= 1)))
+            assert (a.grad.item()) == pytest.approx(8 * a.item(), abs=10**-8)
+            assert torch.all((points >= 0) & (points <= 1))
 
     def test_mixed_derivatives_against_autograd_reference(self):
         torch.manual_seed(41)
@@ -76,10 +76,12 @@ class PhysicsTests(unittest.TestCase):
                 loss.backward()
                 optim.step()
                 losses.append(loss.item())
-            self.assertLess(losses[-1], losses[0] * 0.01)
+            assert (losses[-1]) < (losses[0] * 0.01)
 
     def test_train_checkpoint_evaluate_both_dimensions(self):
-        from src.data.generation.make_dataset_parametric_2d import generate_explicit_dataset
+        from src.data.generation.make_dataset_parametric_2d import (
+            generate_explicit_dataset,
+        )
         from src.data.generation.make_dataset_parametric_3d import generate_dataset
         from src.data.dataset import ParametricDataset2D, ParametricDataset3D
         from src.evaluation.configuration import load_configuration
@@ -127,22 +129,20 @@ class PhysicsTests(unittest.TestCase):
                     history = train_pimeshonet(
                         [data], config, "interpolation", args, torch.device("cpu")
                     )
-                self.assertTrue(np.isfinite(history[-1]["loss_pde"]))
+                assert np.isfinite(history[-1]["loss_pde"])
                 checkpoint = Path(args.checkpoint_output_dir) / "best.pt"
-                self.assertIn("PI-MeshONet", checkpoint.parts)
-                self.assertIn("PI-MeshONet", Path(args.training_output_dir).parts)
+                assert ("PI-MeshONet") in (checkpoint.parts)
+                assert ("PI-MeshONet") in (Path(args.training_output_dir).parts)
                 model, _, _ = load_network(
                     checkpoint, "PI-MeshONet", dim, "current", torch.device("cpu")
                 )
                 saved = torch.load(checkpoint, weights_only=False)
-                self.assertEqual(
-                    saved["config"]["training"]["best_model_metric"], "training_loss"
+                assert (saved["config"]["training"]["best_model_metric"]) == (
+                    "training_loss"
                 )
-                self.assertTrue(
-                    list(
-                        (root / "configs" / f"{dim}D" / name / "PI-MeshONet").glob(
-                            "*/train.yaml"
-                        )
+                assert list(
+                    (root / "configs" / f"{dim}D" / name / "PI-MeshONet").glob(
+                        "*/train.yaml"
                     )
                 )
                 # Deliberately corrupt interior labels: optimization must be identical.
@@ -154,9 +154,8 @@ class PhysicsTests(unittest.TestCase):
                 second_saved = torch.load(
                     Path(args.checkpoint_output_dir) / "best.pt", weights_only=False
                 )
-                self.assertEqual(
-                    [r["train_loss"] for r in history],
-                    [r["train_loss"] for r in second_history],
+                assert ([r["train_loss"] for r in history]) == (
+                    [r["train_loss"] for r in second_history]
                 )
                 for key, value in saved["model_state_dict"].items():
                     torch.testing.assert_close(
@@ -205,17 +204,11 @@ class PhysicsTests(unittest.TestCase):
                 run_evaluation(dim, ea, cfg)
                 result_paths = list((root / "results").rglob("results.json"))
                 relevant = [p for p in result_paths if name in p.parts]
-                self.assertTrue(relevant)
+                assert relevant
                 result = json.loads(relevant[0].read_text())
-                self.assertIn("PI-MeshONet", result["timings"])
-                self.assertIn("PI-MeshONet", result["metrics"])
-                self.assertTrue(
-                    any(
-                        r["method"] == "PI-MeshONet" and r["stage"] == "raw"
-                        for r in result["boundary_errors"]
-                    )
+                assert ("PI-MeshONet") in (result["timings"])
+                assert ("PI-MeshONet") in (result["metrics"])
+                assert any(
+                    r["method"] == "PI-MeshONet" and r["stage"] == "raw"
+                    for r in result["boundary_errors"]
                 )
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -2,12 +2,13 @@
 
 import copy
 import sys
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import torch
+import pytest
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -18,7 +19,10 @@ from src.data.geometry.boundary_generator_2d import (
     GenerateRectangleWithTopSemiEllipseBoundary,
     rectangular_boundary,
 )
-from src.data.geometry.boundary_generator_3d import box_boundary, cylindrical_domain_with_airfoil_hole
+from src.data.geometry.boundary_generator_3d import (
+    box_boundary,
+    cylindrical_domain_with_airfoil_hole,
+)
 from src.data.generation.make_dataset_parametric_2d import to_computational_boundary
 from src.data.geometry.parametric_curve_2d import (
     BezierCurve,
@@ -75,7 +79,7 @@ def numpy_projection(boundaries, query):
     return torch.as_tensor(values, dtype=query.dtype, device=query.device)
 
 
-class ParametricTorchTests(unittest.TestCase):
+class TestParametricTorch:
     def test_analytic_curves_match_numpy_with_mixed_types_and_shapes(self):
         airfoil = NACA4Curve(m=0.03, p=0.35, t=0.17, c=1.3, center=(-0.3, 0.1))
         curves = [
@@ -97,7 +101,7 @@ class ParametricTorchTests(unittest.TestCase):
             for shape in [(), (6,), (2, 3)]:
                 q = t[2] if not shape else t.reshape(shape)
                 result = curve.evaluate(q)
-                self.assertEqual(result.shape, q.shape + (2,))
+                assert (result.shape) == (q.shape + (2,))
                 np.testing.assert_allclose(
                     result.numpy(), curve.evaluate(q.numpy()), atol=1e-12
                 )
@@ -120,10 +124,8 @@ class ParametricTorchTests(unittest.TestCase):
         query = torch.tensor(
             [[0.17, 0.33, 0.71]] * 3, dtype=torch.float64, requires_grad=True
         )
-        self.assertTrue(
-            torch.autograd.gradcheck(
-                lambda x: evaluate_curves_torch(curves, x), (query,)
-            )
+        assert torch.autograd.gradcheck(
+            lambda x: evaluate_curves_torch(curves, x), (query,)
         )
 
     def test_mixed_boundary_order_and_single_boundary_broadcast(self):
@@ -141,14 +143,14 @@ class ParametricTorchTests(unittest.TestCase):
         torch.testing.assert_close(
             out, numpy_projection([boundaries[1]] * 3, q), atol=1e-12, rtol=1e-12
         )
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             evaluate_boundary_curves_torch(boundaries[:2], q[..., 0], q[..., 1])
 
     def test_numpy_custom_fallback_and_explicit_tensor_hook(self):
         seen = []
 
         def function(t):
-            self.assertIsInstance(t, np.ndarray)
+            assert isinstance(t, np.ndarray)
             seen.append(t.copy())
             return np.stack((t, np.sin(t)), -1)
 
@@ -156,7 +158,7 @@ class ParametricTorchTests(unittest.TestCase):
         t = torch.rand(2, 7, dtype=torch.float64)
         out = evaluate_curves_torch(curves, t)
         torch.testing.assert_close(out, torch.stack((t, t.sin()), -1))
-        self.assertEqual(len(seen), 2)
+        assert (len(seen)) == (2)
 
         class TensorCurve(FunctionalCurve):
             def evaluate_torch(self, t):
@@ -170,11 +172,11 @@ class ParametricTorchTests(unittest.TestCase):
             lambda t: (_ for _ in ()).throw(ValueError("invalid geometry"))
         )
         # Coordinate-gradient requests must fail before a NumPy conversion.
-        with self.assertRaisesRegex(TypeError, "differentiable tensor evaluator"):
+        with pytest.raises(TypeError, match="differentiable tensor evaluator"):
             evaluate_curves_torch(curves, t)
-        self.assertEqual(len(seen), 2)
+        assert (len(seen)) == (2)
         # Ordinary value evaluation still propagates the geometry's own error.
-        with self.assertRaisesRegex(ValueError, "invalid geometry"):
+        with pytest.raises(ValueError, match="invalid geometry"):
             evaluate_curves_torch([bad], t[:1].detach())
 
     def test_spline_compatibility_uses_same_curve_on_cpu_and_gpu(self):
@@ -206,7 +208,7 @@ class ParametricTorchTests(unittest.TestCase):
         torch.testing.assert_close(actual, expected, atol=1e-12, rtol=1e-12)
         q.requires_grad_(True)
         evaluate_boundary_surfaces_torch(boundaries, *q.unbind(-1)).sum().backward()
-        self.assertTrue(torch.isfinite(q.grad).all())
+        assert torch.isfinite(q.grad).all()
         u, v = torch.rand(2, 3, dtype=torch.float64), torch.tensor(
             0.3, dtype=torch.float64
         )
@@ -256,54 +258,47 @@ class ParametricTorchTests(unittest.TestCase):
             )
             klass = HMONet2D if dimension == 2 else HMONet3D
             for mode in ("current", "coons_residual"):
-                with self.subTest(dimension=dimension, mode=mode):
-                    model = klass(
-                        *([3] * dimension),
-                        trunk_dim=dimension,
-                        hmonet_mapping_mode=mode,
-                        **options
-                    ).double()
-                    reference = copy.deepcopy(model)
-                    count = 8 if dimension == 2 else 26
-                    b = torch.rand(2, count, dimension, dtype=torch.float64)
-                    q = torch.rand(2, 13, dimension, dtype=torch.float64)
-                    q[:, 0] = 0
-                    q[:, -1] = 1
-                    args = (*b.unbind(-1), *q.unbind(-1))
+                model = klass(
+                    *([3] * dimension),
+                    trunk_dim=dimension,
+                    hmonet_mapping_mode=mode,
+                    **options
+                ).double()
+                reference = copy.deepcopy(model)
+                count = 8 if dimension == 2 else 26
+                b = torch.rand(2, count, dimension, dtype=torch.float64)
+                q = torch.rand(2, 13, dimension, dtype=torch.float64)
+                q[:, 0] = 0
+                q[:, -1] = 1
+                args = (*b.unbind(-1), *q.unbind(-1))
 
-                    def reference_project(*args, boundary_geometry=None):
-                        queries = torch.stack(args[dimension:], -1)
-                        return numpy_projection(boundary_geometry, queries)
+                def reference_project(*args, boundary_geometry=None):
+                    queries = torch.stack(args[dimension:], -1)
+                    return numpy_projection(boundary_geometry, queries)
 
-                    reference.project = reference_project
-                    projected = model.project(*args, boundary_geometry=boundaries)
-                    single_args = tuple(value[0] for value in args)
-                    single = model.project(
-                        *single_args, boundary_geometry=boundaries[0]
-                    )
-                    torch.testing.assert_close(single, projected[0])
-                    single_list = model.project(
-                        *single_args, boundary_geometry=boundaries[:1]
-                    )
-                    torch.testing.assert_close(single_list, projected[0])
-                    actual = torch.cat(model(*args, boundary_geometry=boundaries), -1)
-                    expected = torch.cat(
-                        reference(*args, boundary_geometry=boundaries), -1
-                    )
-                    torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-11)
-                    actual.square().sum().backward()
-                    expected.square().sum().backward()
-                    for p, ref in zip(model.parameters(), reference.parameters()):
-                        if p.grad is not None:
-                            torch.testing.assert_close(
-                                p.grad, ref.grad, atol=1e-10, rtol=1e-10
-                            )
-                    self.assertEqual(
-                        set(model.state_dict()), set(reference.state_dict())
-                    )
-                    self.assertFalse(any("cache" in name for name in vars(model)))
+                reference.project = reference_project
+                projected = model.project(*args, boundary_geometry=boundaries)
+                single_args = tuple(value[0] for value in args)
+                single = model.project(*single_args, boundary_geometry=boundaries[0])
+                torch.testing.assert_close(single, projected[0])
+                single_list = model.project(
+                    *single_args, boundary_geometry=boundaries[:1]
+                )
+                torch.testing.assert_close(single_list, projected[0])
+                actual = torch.cat(model(*args, boundary_geometry=boundaries), -1)
+                expected = torch.cat(reference(*args, boundary_geometry=boundaries), -1)
+                torch.testing.assert_close(actual, expected, atol=1e-11, rtol=1e-11)
+                actual.square().sum().backward()
+                expected.square().sum().backward()
+                for p, ref in zip(model.parameters(), reference.parameters()):
+                    if p.grad is not None:
+                        torch.testing.assert_close(
+                            p.grad, ref.grad, atol=1e-10, rtol=1e-10
+                        )
+                assert (set(model.state_dict())) == (set(reference.state_dict()))
+                assert not any("cache" in name for name in vars(model))
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
     def test_cuda_native_projection_has_no_host_query_transfers(self):
         b2 = [
             to_computational_boundary(circle_airfoil_boundary(t=t))
@@ -327,8 +322,3 @@ class ParametricTorchTests(unittest.TestCase):
                 out3 = evaluate_boundary_surfaces_torch(b3, *q3.unbind(-1))
         torch.testing.assert_close(out2, ref2, atol=1e-6, rtol=1e-5)
         torch.testing.assert_close(out3, ref3, atol=1e-6, rtol=1e-5)
-
-
-if __name__ == "__main__":
-    unittest.main()
-

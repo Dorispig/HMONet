@@ -1,8 +1,8 @@
 """Numerical, gradient and no-preparation contracts for the four inference routes."""
 
-import unittest
 from unittest.mock import patch
 import torch
+import pytest
 from src.data.backend.inference_options import inference_routes
 from src.data.backend.curve_kernels import kernel_status
 from src.data.mesh.sampling import sample_boundary, logical_grid
@@ -17,7 +17,7 @@ from src.models.inference_optimizations import fuse_coordinates
 from tests.test_inference_geometry import boundary, small_model
 
 
-class ForwardOptimizationTests(unittest.TestCase):
+class TestForwardOptimization:
     def test_feature_contraction_for_batched_and_unbatched_inputs(self):
         for batch_shape in ((), (3,)):
             trunk = torch.randn(*batch_shape, 1200, 17, dtype=torch.float64)
@@ -64,7 +64,7 @@ class ForwardOptimizationTests(unittest.TestCase):
             for old, new in zip(*results):
                 torch.testing.assert_close(old, new, atol=1e-10, rtol=1e-10)
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
     def test_all_routes_batched_and_unbatched_both_mappings(self):
         for dtype in (torch.float32, torch.float64):
             for mapping in ("current", "coons_residual"):
@@ -94,9 +94,9 @@ class ForwardOptimizationTests(unittest.TestCase):
                         torch.testing.assert_close(
                             old, new, atol=tolerance, rtol=tolerance
                         )
-        self.assertFalse(kernel_status()["failures"])
+        assert not kernel_status()["failures"]
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
     def test_single_boundary_has_no_grouping_or_parameter_tensor_upload(self):
         g = boundary(2, 0.3)
         q = torch.linspace(0, 1, 31, device="cuda").reshape(1, -1)
@@ -111,10 +111,10 @@ class ForwardOptimizationTests(unittest.TestCase):
             for segment in g.top.segments:
                 segment.base.thickness = 0.5
             second = g.project_torch(q, q)
-        self.assertGreater(float((first - second).abs().max()), 0.01)
-        self.assertTrue(torch.isfinite(second).all())
+        assert (float((first - second).abs().max())) > (0.01)
+        assert torch.isfinite(second).all()
 
-    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
     def test_scalar_curve_formulas_match_reference_and_gradients(self):
         curves = [
             LineSegment((0, 1), (2, 3)),
@@ -129,6 +129,3 @@ class ForwardOptimizationTests(unittest.TestCase):
                     expected = curve(q)
                 actual = curve(q)
             torch.testing.assert_close(actual, expected, atol=2e-14, rtol=2e-14)
-
-if __name__ == "__main__":
-    unittest.main()

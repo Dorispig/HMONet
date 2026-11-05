@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 from scripts.experiments.run_ablation_2d import (
@@ -15,12 +14,13 @@ from scripts.experiments.run_ablation_2d import (
     organize_evaluation_results,
 )
 from scripts.experiments.evaluation_paths import evaluation_result_root
+import pytest
 
 TEST_TEMP_ROOT = Path.home() / ".hmonet_test_tmp"
 TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
-class AblationTrainingReuseTests(unittest.TestCase):
+class TestAblationTrainingReuse:
     def args(self, root, tag):
         project = Path(__file__).resolve().parents[1]
         return SimpleNamespace(
@@ -76,20 +76,20 @@ class AblationTrainingReuseTests(unittest.TestCase):
             return_value=None,
         ):
             execute(self.args(temporary, "first"), config, [base])
-            self.assertEqual(train.call_count, 1)
+            assert (train.call_count) == (1)
             execute(self.args(temporary, "second"), config, [base])
-            self.assertEqual(train.call_count, 1)
+            assert (train.call_count) == (1)
             second = (
                 Path(temporary)
                 / "training_sample_count/air_t_int_0_1000_21_20/samples/seed_7/second/run_manifest.json"
             )
             manifest = json.loads(second.read_text(encoding="utf-8"))
-            self.assertTrue(manifest["training_reused"])
-            self.assertIn("first", manifest["training_source_directory"])
+            assert manifest["training_reused"]
+            assert ("first") in (manifest["training_source_directory"])
             execute(self.args(temporary, "second"), config, [changed])
-            self.assertEqual(train.call_count, 2)
+            assert (train.call_count) == (2)
             replaced = json.loads(second.read_text(encoding="utf-8"))
-            self.assertFalse(replaced["training_reused"])
+            assert not replaced["training_reused"]
 
     def test_alias_manifest_resolves_to_physical_training_directory(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -136,13 +136,13 @@ class AblationTrainingReuseTests(unittest.TestCase):
 
             reusable = find_reusable_training(root, "training-sha256")
 
-            self.assertIsNotNone(reusable)
-            self.assertEqual(reusable["directory"], physical.resolve())
-            self.assertEqual(reusable["manifest_path"], physical_manifest)
+            assert (reusable) is not None
+            assert (reusable["directory"]) == (physical.resolve())
+            assert (reusable["manifest_path"]) == (physical_manifest)
 
-
-
-    def test_baseline_mismatch_finishes_variant_training_and_evaluation_then_errors(self):
+    def test_baseline_mismatch_finishes_variant_training_and_evaluation_then_errors(
+        self,
+    ):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
             dataset = root / "air_t_int_0_1000_21_20"
@@ -206,7 +206,9 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 return f"training-{variant.name}", {"variant": variant.name}
 
             def fake_evaluation_identity(args, dataset, summary, fingerprint):
-                return f"evaluation-{fingerprint}", {"training_fingerprint": fingerprint}
+                return f"evaluation-{fingerprint}", {
+                    "training_fingerprint": fingerprint
+                }
 
             def fake_evaluate(args, dataset, summary, evaluation_root):
                 output = evaluation_root / "case" / "51x51"
@@ -234,11 +236,11 @@ class AblationTrainingReuseTests(unittest.TestCase):
             ) as aggregate, patch(
                 "scripts.experiments.run_ablation_2d.plot_training_histories"
             ) as histories:
-                with self.assertRaisesRegex(RuntimeError, "Baseline compatibility"):
+                with pytest.raises(RuntimeError, match="Baseline compatibility"):
                     execute(args, {"datasets": [], "seeds": [7]}, variants)
 
-            self.assertEqual(train.call_count, 2)
-            self.assertEqual(evaluate.call_count, 2)
+            assert (train.call_count) == (2)
+            assert (evaluate.call_count) == (2)
             aggregate.assert_not_called()
             histories.assert_called_once()
             baseline_after = {
@@ -246,12 +248,12 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 for item in baseline.rglob("*")
                 if item.is_file()
             }
-            self.assertEqual(baseline_after, baseline_before)
+            assert (baseline_after) == (baseline_before)
             report = root / "jacobian_enabled/baseline_compatibility_errors.json"
-            self.assertTrue(report.is_file())
+            assert report.is_file()
             issue = json.loads(report.read_text(encoding="utf-8"))[0]
-            self.assertEqual(issue["status"], "baseline_parameter_mismatch")
-            self.assertTrue(issue["differences"])
+            assert (issue["status"]) == ("baseline_parameter_mismatch")
+            assert issue["differences"]
 
     def test_existing_evaluation_is_protected_without_force(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -263,15 +265,12 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 json.dumps({"value": 0.5, "grid_shape": [51, 51]}),
                 encoding="utf-8",
             )
-            target = (
-                root
-                / "eval/dataset/seed_7/paper/baseline/51x51/0.5"
-            )
+            target = root / "eval/dataset/seed_7/paper/baseline/51x51/0.5"
             target.mkdir(parents=True)
             sentinel = target / "keep.txt"
             sentinel.write_text("preserve", encoding="utf-8")
 
-            with self.assertRaises(FileExistsError):
+            with pytest.raises(FileExistsError):
                 organize_evaluation_results(
                     staging,
                     root / "baseline/dataset",
@@ -280,8 +279,7 @@ class AblationTrainingReuseTests(unittest.TestCase):
                     "paper",
                 )
 
-            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve")
-
+            assert (sentinel.read_text(encoding="utf-8")) == ("preserve")
 
     def test_force_evaluate_only_preserves_baseline_training(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -351,7 +349,7 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 )
 
             train.assert_not_called()
-            self.assertEqual(checkpoint.read_bytes(), b"preserve-checkpoint")
+            assert (checkpoint.read_bytes()) == (b"preserve-checkpoint")
             result = (
                 evaluation_result_root(
                     root / "baseline" / dataset.name,
@@ -363,7 +361,7 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 )
                 / "results.json"
             )
-            self.assertTrue(result.is_file())
+            assert result.is_file()
 
     def test_existing_baseline_training_is_not_deleted_without_force(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -387,11 +385,15 @@ class AblationTrainingReuseTests(unittest.TestCase):
             ), patch(
                 "scripts.experiments.run_ablation_2d.train_one"
             ) as train:
-                with self.assertRaises(FileExistsError):
-                    execute(args, {"datasets": [], "seeds": [7]}, [Variant("baseline", "baseline", ())])
+                with pytest.raises(FileExistsError):
+                    execute(
+                        args,
+                        {"datasets": [], "seeds": [7]},
+                        [Variant("baseline", "baseline", ())],
+                    )
 
             train.assert_not_called()
-            self.assertEqual(sentinel.read_bytes(), b"preserve")
+            assert (sentinel.read_bytes()) == (b"preserve")
 
     def test_completed_evaluation_is_found_by_fingerprint(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -411,9 +413,9 @@ class AblationTrainingReuseTests(unittest.TestCase):
 
             reusable = find_reusable_evaluation(root, "evaluation-sha256")
 
-            self.assertIsNotNone(reusable)
-            self.assertEqual(reusable["manifest_path"], manifest_path)
-            self.assertEqual(reusable["result_files"], [result])
+            assert (reusable) is not None
+            assert (reusable["manifest_path"]) == (manifest_path)
+            assert (reusable["result_files"]) == ([result])
 
     def test_incomplete_or_missing_evaluation_is_not_reused(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
@@ -431,10 +433,4 @@ class AblationTrainingReuseTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertIsNone(
-                find_reusable_evaluation(root, "evaluation-sha256")
-            )
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert (find_reusable_evaluation(root, "evaluation-sha256")) is None

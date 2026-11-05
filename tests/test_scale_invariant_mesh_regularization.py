@@ -1,5 +1,3 @@
-import unittest
-
 import torch
 
 from scripts.train.physics_loss import (
@@ -8,10 +6,11 @@ from scripts.train.physics_loss import (
     scale_invariant_pde_loss,
     stencil_queries,
 )
+import pytest
 
 
-class ScaleInvariantMeshRegularizationTests(unittest.TestCase):
-    def setUp(self):
+class TestScaleInvariantMeshRegularization:
+    def setup_method(self):
         self.steps = torch.tensor([0.01, 0.01], dtype=torch.float64)
         centers = torch.tensor([[0.3, 0.4], [0.6, 0.7]], dtype=torch.float64)
         self.queries = stencil_queries(centers, self.steps)
@@ -21,8 +20,7 @@ class ScaleInvariantMeshRegularizationTests(unittest.TestCase):
             q = self.queries
             return scale * torch.stack(
                 (
-                    q[..., 0] + 0.2 * q[..., 0].square()
-                    + 0.05 * q[..., 0] * q[..., 1],
+                    q[..., 0] + 0.2 * q[..., 0].square() + 0.05 * q[..., 0] * q[..., 1],
                     q[..., 1] + 0.15 * q[..., 1].square(),
                 ),
                 -1,
@@ -37,16 +35,16 @@ class ScaleInvariantMeshRegularizationTests(unittest.TestCase):
         jacobian, singular = normalized_mapping_barriers(
             values, self.steps, torch.tensor([1.0], dtype=torch.float64)
         )
-        self.assertEqual(float(jacobian), 0.0)
-        self.assertEqual(float(singular), 0.0)
+        assert (float(jacobian)) == (0.0)
+        assert (float(singular)) == (0.0)
 
     def test_collapsed_mapping_activates_both_barriers(self):
         values = (0.001 * self.queries).unsqueeze(0)
         jacobian, singular = normalized_mapping_barriers(
             values, self.steps, torch.tensor([1.0], dtype=torch.float64)
         )
-        self.assertGreater(float(jacobian), 0.0)
-        self.assertGreater(float(singular), 0.0)
+        assert (float(jacobian)) > (0.0)
+        assert (float(singular)) > (0.0)
 
     def test_barriers_average_only_nonzero_violations(self):
         first = torch.stack(
@@ -61,8 +59,8 @@ class ScaleInvariantMeshRegularizationTests(unittest.TestCase):
             jacobian_minimum=0.02,
             singular_value_minimum=0.05,
         )
-        self.assertAlmostEqual(float(jacobian), 1.0, places=12)
-        self.assertAlmostEqual(float(singular), 1.0, places=12)
+        assert (float(jacobian)) == pytest.approx(1.0, abs=10**-12)
+        assert (float(singular)) == pytest.approx(1.0, abs=10**-12)
 
     def test_barriers_can_average_over_all_samples(self):
         first = torch.stack(
@@ -78,9 +76,5 @@ class ScaleInvariantMeshRegularizationTests(unittest.TestCase):
             singular_value_minimum=0.05,
             reduction="all",
         )
-        self.assertAlmostEqual(float(jacobian), 0.5, places=12)
-        self.assertAlmostEqual(float(singular), 0.5, places=12)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert (float(jacobian)) == pytest.approx(0.5, abs=10**-12)
+        assert (float(singular)) == pytest.approx(0.5, abs=10**-12)

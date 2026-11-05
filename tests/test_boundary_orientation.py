@@ -2,10 +2,10 @@
 
 import json
 import sys
-import unittest
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -30,34 +30,33 @@ from src.data.geometry.parametric_curve_2d import (
 )
 
 
-class BoundaryOrientationTests(unittest.TestCase):
+class TestBoundaryOrientation:
     def test_all_registered_boundaries_preserve_contour_and_tfi_edges(self):
         nx, ny = 21, 11
         counts = dict(bottom=nx, right=ny, top=nx, left=ny)
         ids = GenerateQuadMeshBoundaryIndex(ny, nx)
         for name, factory in BOUNDARY_GENERATORS.items():
-            with self.subTest(boundary=name):
-                source = factory()
-                original = json.dumps(source.to_dict(), sort_keys=True)
-                result = to_computational_boundary(source)
-                self.assertEqual(result.parameter_order, "computational")
-                self.assertTrue(result.validate())
-                np.testing.assert_allclose(
-                    result.sample_closed(counts), source.sample_closed(counts), atol=1e-12
-                )
-                self.assertEqual(original, json.dumps(source.to_dict(), sort_keys=True))
-                again = to_computational_boundary(result)
-                self.assertEqual(result.to_dict(), again.to_dict())
-                loaded = BoundaryCurveSet2D.from_dict(result.to_dict())
-                np.testing.assert_allclose(
-                    loaded.sample_closed(counts), result.sample_closed(counts), atol=1e-12
-                )
-                grid = tfi_from_curves(loaded, nx=nx, ny=ny)
-                np.testing.assert_allclose(
-                    grid.reshape(-1, 2)[ids],
-                    loaded.sample_closed(counts)[:-1],
-                    atol=1e-12,
-                )
+            source = factory()
+            original = json.dumps(source.to_dict(), sort_keys=True)
+            result = to_computational_boundary(source)
+            assert (result.parameter_order) == ("computational")
+            assert result.validate()
+            np.testing.assert_allclose(
+                result.sample_closed(counts), source.sample_closed(counts), atol=1e-12
+            )
+            assert (original) == (json.dumps(source.to_dict(), sort_keys=True))
+            again = to_computational_boundary(result)
+            assert (result.to_dict()) == (again.to_dict())
+            loaded = BoundaryCurveSet2D.from_dict(result.to_dict())
+            np.testing.assert_allclose(
+                loaded.sample_closed(counts), result.sample_closed(counts), atol=1e-12
+            )
+            grid = tfi_from_curves(loaded, nx=nx, ny=ny)
+            np.testing.assert_allclose(
+                grid.reshape(-1, 2)[ids],
+                loaded.sample_closed(counts)[:-1],
+                atol=1e-12,
+            )
 
     def test_custom_perimeter_input_can_override_missing_metadata(self):
         reference = rectangular_boundary()
@@ -68,14 +67,14 @@ class BoundaryOrientationTests(unittest.TestCase):
             reference.left.reverse(),
             validate=False,
         )
-        with self.assertRaisesRegex(ValueError, "corner mismatch"):
+        with pytest.raises(ValueError, match="corner mismatch"):
             to_computational_boundary(perimeter)
         result = to_computational_boundary(perimeter, source_order="perimeter")
         for side in BoundaryCurveSet2D.names:
             np.testing.assert_allclose(
                 getattr(result, side).sample(17), getattr(reference, side).sample(17)
             )
-        self.assertEqual(perimeter.metadata, {})
+        assert (perimeter.metadata) == ({})
 
     def test_arc_and_spline_reversal_preserves_the_original_curve(self):
         curves = [
@@ -89,21 +88,30 @@ class BoundaryOrientationTests(unittest.TestCase):
             (0.3, -2.1, True),
             (0, 2 * np.pi, False),
         ):
-            curves.extend([
-                CircleArc((0.1, -0.3), 2, start, end, clockwise=clockwise),
-                EllipseArc((0.1, -0.3), 2, 1, start, end, rotation=0.4, clockwise=clockwise),
-            ])
+            curves.extend(
+                [
+                    CircleArc((0.1, -0.3), 2, start, end, clockwise=clockwise),
+                    EllipseArc(
+                        (0.1, -0.3), 2, 1, start, end, rotation=0.4, clockwise=clockwise
+                    ),
+                ]
+            )
         parameters = np.linspace(0, 1, 31)
         for curve in curves:
-            with self.subTest(curve=type(curve).__name__):
-                reverse = curve.reverse()
-                expected = curve.evaluate(1 - parameters)
-                np.testing.assert_allclose(reverse.evaluate(parameters), expected, atol=1e-12)
-                loaded = ParametricCurve.from_dict(reverse.to_dict())
-                np.testing.assert_allclose(loaded.evaluate(parameters), expected, atol=1e-12)
-                np.testing.assert_allclose(
-                    reverse.reverse().evaluate(parameters), curve.evaluate(parameters), atol=1e-12
-                )
+            reverse = curve.reverse()
+            expected = curve.evaluate(1 - parameters)
+            np.testing.assert_allclose(
+                reverse.evaluate(parameters), expected, atol=1e-12
+            )
+            loaded = ParametricCurve.from_dict(reverse.to_dict())
+            np.testing.assert_allclose(
+                loaded.evaluate(parameters), expected, atol=1e-12
+            )
+            np.testing.assert_allclose(
+                reverse.reverse().evaluate(parameters),
+                curve.evaluate(parameters),
+                atol=1e-12,
+            )
 
     def test_legacy_circle_metadata_and_visualization_remain_compatible(self):
         import matplotlib.pyplot as plt
@@ -112,9 +120,9 @@ class BoundaryOrientationTests(unittest.TestCase):
         descriptor = circle_airfoil_boundary().to_dict()
         descriptor["metadata"].pop("parameter_order")
         source = BoundaryCurveSet2D.from_dict(descriptor)
-        self.assertEqual(source.parameter_order, "perimeter")
+        assert (source.parameter_order) == ("perimeter")
         result = to_computational_boundary(source)
-        self.assertEqual(result.metadata["topology"], "circle_airfoil")
+        assert (result.metadata["topology"]) == ("circle_airfoil")
         figure, axes = plt.subplots(1, 2)
         try:
             for boundary, axis in zip((source, result), axes):
@@ -127,11 +135,11 @@ class BoundaryOrientationTests(unittest.TestCase):
 
     def test_invalid_boundaries_are_rejected(self):
         source = rectangular_boundary()
-        with self.assertRaisesRegex(ValueError, "source_order"):
+        with pytest.raises(ValueError, match="source_order"):
             to_computational_boundary(source, source_order="guess")
-        with self.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             to_computational_boundary("rectangle")
-        with self.assertRaisesRegex(ValueError, "tolerance"):
+        with pytest.raises(ValueError, match="tolerance"):
             to_computational_boundary(source, tolerance=0)
         for start in ([3, 3], [np.nan, 0]):
             malformed = BoundaryCurveSet2D(
@@ -141,9 +149,5 @@ class BoundaryOrientationTests(unittest.TestCase):
                 LineSegment(start, [-1, 1]),
                 validate=False,
             )
-            with self.assertRaises(ValueError):
+            with pytest.raises(ValueError):
                 to_computational_boundary(malformed)
-
-
-if __name__ == "__main__":
-    unittest.main()

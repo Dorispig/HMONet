@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 import sys
+import traceback
 from types import SimpleNamespace
 
 import numpy as np
@@ -64,6 +65,7 @@ ABLATIONS = (
     "e9_3",
     "e9_4",
     "uniform_400",
+    "adaptive_400",
     "global200_adaptive200",
     "global200_boundary200",
     "pimeshonet",
@@ -76,6 +78,9 @@ ABLATIONS = (
     "e6_modified_cross",
     "e7_modified_cross_boundary",
     "e8_full_factorized",
+    "e9_meshonet_200k",
+    "e10_pimeshonet_200k",
+    "e11_raw_pde",
 )
 BASELINE_ABLATION = "baseline"
 DEFAULT_LEARNING_RATES = (0.0001, 0.0002, 0.0004, 0.0008, 0.001)
@@ -696,6 +701,37 @@ _MIGRATED_DATASET_DIGESTS = {
 }
 
 
+# Training flags that carry their value in the flag itself.  Keep this list in
+# one place so identity parsing and command forwarding cannot disagree when a
+# new architecture switch is added.
+_BOOLEAN_OVERRIDE_FLAGS = frozenset(
+    {
+        "--jacobian-loss-enabled",
+        "--boundary-normal-loss-enabled",
+        "--boundary-self-attention-enabled",
+        "--pde-loss-enabled",
+        "--hmonet-physics-jacobian-enabled",
+        "--hmonet-save-phase-best-checkpoints",
+        "--hmonet-reset-optimizer-on-phase-transition",
+        "--hmonet-physics-scale-invariant-pde-enabled",
+        "--modified-mlp-enabled",
+        "--query-boundary-cross-attention-enabled",
+        "--boundary-layer-decoder-enabled",
+        "--decoupled-weight-decoder-enabled",
+        "--multiscale-boundary-encoder-enabled",
+    }
+)
+
+
+def _override_value_count(flag: str) -> int:
+    """Return how many following tokens belong to one controlled override."""
+    if flag.startswith("--no-") or flag in _BOOLEAN_OVERRIDE_FLAGS:
+        return 0
+    if flag == "--pde-fd-step":
+        return 2
+    return 1
+
+
 def _dataset_digest(dataset: Path) -> str:
     """Hash the actual NumPy files consumed by training, not plots or audits."""
     dataset = dataset.resolve()
@@ -724,44 +760,25 @@ def _variant_options(overrides: tuple[str, ...]) -> dict:
     index = 0
     while index < len(overrides):
         flag = overrides[index]
+        if not flag.startswith("--"):
+            raise ValueError(f"Invalid ablation override flag: {flag!r}")
         if flag.startswith("--no-"):
             result[flag[5:].replace("-", "_")] = False
             index += 1
-        elif flag == "--pde-fd-step":
-            if index + 2 >= len(overrides):
-                raise ValueError("--pde-fd-step requires xi and eta step values")
-            result["pde_fd_step"] = [
-                overrides[index + 1],
-                overrides[index + 2],
-            ]
-            index += 3
-        elif flag in {
-            "--jacobian-loss-enabled",
-            "--boundary-normal-loss-enabled",
-            "--boundary-self-attention-enabled",
-            "--pde-loss-enabled",
-            "--hmonet-physics-jacobian-enabled",
-            "--hmonet-save-phase-best-checkpoints",
-            "--hmonet-reset-optimizer-on-phase-transition",
-            "--hmonet-physics-scale-invariant-pde-enabled",
-            "--modified-mlp-enabled",
-            "--query-boundary-cross-attention-enabled",
-            "--boundary-layer-decoder-enabled",
-            "--decoupled-weight-decoder-enabled",
-            "--multiscale-boundary-encoder-enabled",
-            "--modified-mlp-enabled",
-            "--query-boundary-cross-attention-enabled",
-            "--boundary-layer-decoder-enabled",
-            "--decoupled-weight-decoder-enabled",
-            "--multiscale-boundary-encoder-enabled",
-        }:
+        elif flag in _BOOLEAN_OVERRIDE_FLAGS:
             result[flag[2:].replace("-", "_")] = True
             index += 1
         else:
-            if index + 1 >= len(overrides):
-                raise ValueError(f"Missing value for ablation override {flag}")
-            result[flag[2:].replace("-", "_")] = overrides[index + 1]
-            index += 2
+            value_count = _override_value_count(flag)
+            if index + value_count >= len(overrides):
+                raise ValueError(
+                    f"Ablation override {flag} requires {value_count} value(s)"
+                )
+            values = list(overrides[index + 1 : index + 1 + value_count])
+            result[flag[2:].replace("-", "_")] = (
+                values[0] if value_count == 1 else values
+            )
+            index += 1 + value_count
     return result
 
 
@@ -779,27 +796,19 @@ def variant_training_overrides(variant: Variant) -> list[str]:
     result = []
     index = 0
     while index < len(values):
-        if values[index] == "--model":
-            index += 2
+        flag = values[index]
+        if not flag.startswith("--"):
+            raise ValueError(f"Invalid ablation override flag: {flag!r}")
+        value_count = _override_value_count(flag)
+        if index + value_count >= len(values):
+            raise ValueError(
+                f"Ablation override {flag} requires {value_count} value(s)"
+            )
+        if flag == "--model":
+            index += 1 + value_count
             continue
-        result.append(values[index])
-        if values[index].startswith("--no-") or values[index] in {
-            "--jacobian-loss-enabled",
-            "--boundary-normal-loss-enabled",
-            "--boundary-self-attention-enabled",
-            "--pde-loss-enabled",
-            "--hmonet-physics-jacobian-enabled",
-            "--hmonet-save-phase-best-checkpoints",
-            "--hmonet-reset-optimizer-on-phase-transition",
-            "--hmonet-physics-scale-invariant-pde-enabled",
-        }:
-            index += 1
-        elif values[index] == "--pde-fd-step":
-            result.extend(values[index + 1 : index + 3])
-            index += 3
-        else:
-            result.append(values[index + 1])
-            index += 2
+        result.extend(values[index : index + 1 + value_count])
+        index += 1 + value_count
     return result
 
 
@@ -876,12 +885,36 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
     options.pop("model", None)
     if model_name != "hmonet":
         model_training = config.setdefault(f"{model_name}_training", {})
+        model_config = config.setdefault("model", {}).setdefault(model_name, {})
+        common_capacity_keys = {
+            "branch_dim",
+            "trunk_dim",
+            "coordinate_lift_mode",
+            "coordinate_lift_max_power",
+            "adjust_hidden_dim",
+            "adjust_hidden_layer_num",
+            "branch_hidden_dim",
+            "branch_hidden_layer_num",
+            "trunk_hidden_dim",
+            "trunk_hidden_layer_num",
+            "output_dim",
+            "branch_mlp_hidden_dim",
+            "branch_mlp_hidden_layer_num",
+        }
         if "lr" in options:
             model_training["learning_rate"] = float(options.pop("lr"))
         if "best_model_metric" in options:
             training["best_model_metric"] = str(options.pop("best_model_metric"))
         if "plateau_metric" in options:
             training["plateau_metric"] = str(options.pop("plateau_metric"))
+        for key in tuple(options):
+            if key in common_capacity_keys:
+                value = options.pop(key)
+                model_config[key] = (
+                    str(value)
+                    if key == "coordinate_lift_mode"
+                    else int(value)
+                )
         if options:
             raise ValueError(
                 f"Unsupported {model_name} ablation overrides: {sorted(options)}"
@@ -3152,8 +3185,18 @@ def execute(args, config, variants: list[Variant]):
                     )
                     completed.append(destination)
                 except Exception as error:
-                    manifest.update(status="failed", error=repr(error))
+                    failure_details = {
+                        "status": "failed",
+                        "error": repr(error),
+                        "traceback": traceback.format_exc(),
+                        "failed_at": datetime.now().isoformat(timespec="seconds"),
+                    }
+                    manifest.update(**failure_details)
                     destination.mkdir(parents=True, exist_ok=True)
+                    # Keep the complete diagnostic independently from the run
+                    # manifest.  A reusable/completed manifest may be restored
+                    # below, but the most recent failure must remain inspectable.
+                    write_json(destination / "failure.json", failure_details)
                     if previous_manifest is not None and not force_training:
                         manifest_path.write_text(previous_manifest, encoding="utf-8")
                     else:

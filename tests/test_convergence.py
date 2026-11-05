@@ -1,6 +1,5 @@
 """Regression checks for the unified quantile-based convergence rules."""
 
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,9 +7,10 @@ import yaml
 
 from scripts.train.training_common import simplified_plateau_status
 from scripts.train.training_state import TrainingState, prepare_training_config
+import pytest
 
 
-class SimplifiedPlateauTests(unittest.TestCase):
+class TestSimplifiedPlateau:
     def check(self, history, previous=None):
         return simplified_plateau_status(
             history, 3, 2, 0.1, 1e-6, 1e-5, 0.005, 0.2, 1e-7, previous
@@ -41,49 +41,49 @@ class SimplifiedPlateauTests(unittest.TestCase):
 
     def test_patience_and_outlier(self):
         status = self.check([1e-4, 1e-8, 1e-4])
-        self.assertEqual(status["historical_best"], 1e-4)
-        self.assertFalse(status["passes"])
+        assert (status["historical_best"]) == (1e-4)
+        assert not status["passes"]
         status = self.check([1e-4] * 3, status)
-        self.assertEqual(status["stale"], 1)
+        assert (status["stale"]) == (1)
         status = self.check([1e-4] * 3, status)
-        self.assertTrue(status["passes"])
+        assert status["passes"]
 
     def test_noise_does_not_erase_no_improvement_history(self):
         base = self.check([1e-4] * 3)
         base = self.check([1e-4] * 3, base)
         noisy = self.check([1e-4, 1e-2, 1e-4], base)
-        self.assertEqual(noisy["epochs_without_significant_improvement"], 2)
-        self.assertEqual(noisy["consecutive_stable_count"], 0)
-        self.assertFalse(noisy["passes"])
+        assert (noisy["epochs_without_significant_improvement"]) == (2)
+        assert (noisy["consecutive_stable_count"]) == (0)
+        assert not noisy["passes"]
         degraded = self.check([2e-4] * 3, base)
-        self.assertEqual(degraded["epochs_without_significant_improvement"], 2)
-        self.assertFalse(degraded["near_best_passes"])
-        self.assertFalse(degraded["passes"])
+        assert (degraded["epochs_without_significant_improvement"]) == (2)
+        assert not degraded["near_best_passes"]
+        assert not degraded["passes"]
         improved = self.check([8e-5] * 3, base)
-        self.assertEqual(improved["epochs_without_significant_improvement"], 0)
-        self.assertTrue(improved["significant_improvement"])
-        self.assertEqual(improved["historical_best"], 8e-5)
+        assert (improved["epochs_without_significant_improvement"]) == (0)
+        assert improved["significant_improvement"]
+        assert (improved["historical_best"]) == (8e-5)
 
     def test_absolute_floor_and_incomplete_window(self):
-        self.assertIsNone(self.check([0]))
-        self.assertTrue(self.check([0, 1e-7, 0])["stability_passes"])
+        assert (self.check([0])) is None
+        assert self.check([0, 1e-7, 0])["stability_passes"]
 
     def test_improvement_uses_lower_quantile_and_near_best_uses_median(self):
         base = self.check([1.0, 1.0, 1.0])
         improved = self.check([0.8, 1.0, 1.0], base)
-        self.assertEqual(improved["improvement_basis"], "window_lower_quantile")
-        self.assertEqual(improved["historical_best_basis"], "window_median")
-        self.assertTrue(improved["significant_improvement"])
-        self.assertAlmostEqual(improved["historical_best"], 1.0)
-        self.assertTrue(improved["near_best_passes"])
+        assert (improved["improvement_basis"]) == ("window_lower_quantile")
+        assert (improved["historical_best_basis"]) == ("window_median")
+        assert improved["significant_improvement"]
+        assert (improved["historical_best"]) == pytest.approx(1.0, abs=1e-7)
+        assert improved["near_best_passes"]
 
     def test_window_improvement_accumulates_against_significant_reference(self):
         base = self.check([1.0, 1.0, 1.0])
         small_one = self.check([0.996, 0.996, 0.996], base)
         accumulated = self.check([0.994, 0.994, 0.994], small_one)
-        self.assertFalse(small_one["significant_improvement"])
-        self.assertTrue(accumulated["significant_improvement"])
-        self.assertAlmostEqual(accumulated["reference_best"], 0.994)
+        assert not small_one["significant_improvement"]
+        assert accumulated["significant_improvement"]
+        assert (accumulated["reference_best"]) == pytest.approx(0.994, abs=1e-7)
 
     def test_default_schema_is_shared_in_both_dimensions(self):
         root = Path(__file__).resolve().parents[1]
@@ -106,14 +106,14 @@ class SimplifiedPlateauTests(unittest.TestCase):
                 training = prepare_training_config(config, model, SimpleNamespace())[
                     "training"
                 ]
-                self.assertEqual(training["num_epochs"], 50000)
-                self.assertEqual(training["convergence_start_epoch"], 3000)
-                self.assertEqual(training["success_plateau_patience"], 1000)
-                self.assertEqual(training["failure_plateau_metric_ratio"], 1.5)
-                self.assertEqual(training["plateau_window"], 500)
-                self.assertFalse(obsolete.intersection(training))
-                self.assertFalse(training["check_mse_convergence"])
-                self.assertFalse(training["check_training_loss_convergence"])
+                assert (training["num_epochs"]) == (50000)
+                assert (training["convergence_start_epoch"]) == (3000)
+                assert (training["success_plateau_patience"]) == (1000)
+                assert (training["failure_plateau_metric_ratio"]) == (1.5)
+                assert (training["plateau_window"]) == (500)
+                assert not obsolete.intersection(training)
+                assert not training["check_mse_convergence"]
+                assert not training["check_training_loss_convergence"]
 
     def test_success_cannot_stop_before_earliest_epoch(self):
         training = self._training("hmonet")
@@ -127,13 +127,13 @@ class SimplifiedPlateauTests(unittest.TestCase):
         state = self.make_state(training)
         for epoch in range(1, 5):
             state._check_plateau(epoch, 1.0e-4)
-        self.assertEqual(state.stale, 0)
-        self.assertEqual(state.reason, "maximum_epochs")
+        assert (state.stale) == (0)
+        assert (state.reason) == ("maximum_epochs")
         state._check_plateau(5, 1.0e-4)
-        self.assertEqual(state.stale, 1)
-        self.assertEqual(state.reason, "maximum_epochs")
+        assert (state.stale) == (1)
+        assert (state.reason) == ("maximum_epochs")
         state._check_plateau(6, 1.0e-4)
-        self.assertEqual(state.reason, "converged_near_best_plateau")
+        assert (state.reason) == ("converged_near_best_plateau")
 
     def test_long_fluctuation_is_an_alternative_success_branch(self):
         training = self._training("hmonet")
@@ -151,11 +151,11 @@ class SimplifiedPlateauTests(unittest.TestCase):
         state = self.make_state(training)
         for epoch in range(1, 5):
             state._check_plateau(epoch, 1.0e-4)
-        self.assertEqual(state.stale, 1)
-        self.assertEqual(state.reason, "maximum_epochs")
+        assert (state.stale) == (1)
+        assert (state.reason) == ("maximum_epochs")
         state._check_plateau(5, 1.0e-4)
-        self.assertTrue(state.plateau["long_fluctuation_passes"])
-        self.assertEqual(state.reason, "converged_near_best_plateau")
+        assert state.plateau["long_fluctuation_passes"]
+        assert (state.reason) == ("converged_near_best_plateau")
 
     def test_failure_uses_shared_window_ratio_and_earliest_epoch(self):
         training = {
@@ -171,15 +171,15 @@ class SimplifiedPlateauTests(unittest.TestCase):
         state = self.make_state(training)
         for epoch, value in enumerate((1.0, 1.0, 1.0, 2.0, 2.0), start=1):
             state.plateau_history.append(value)
-            self.assertFalse(state._failure_plateau_ready(epoch))
+            assert not state._failure_plateau_ready(epoch)
         state.plateau_history.append(2.0)
-        self.assertFalse(state._failure_plateau_ready(6))
+        assert not state._failure_plateau_ready(6)
         state.plateau_history.append(2.0)
-        self.assertTrue(state._failure_plateau_ready(7))
-        self.assertAlmostEqual(
-            state.failure_plateau["historical_best_window_median"], 1.0
-        )
-        self.assertGreaterEqual(state.failure_plateau["metric_ratio"], 2.0)
+        assert state._failure_plateau_ready(7)
+        assert (
+            state.failure_plateau["historical_best_window_median"]
+        ) == pytest.approx(1.0, abs=1e-7)
+        assert (state.failure_plateau["metric_ratio"]) >= (2.0)
 
     def test_legacy_convergence_fields_are_removed(self):
         root = Path(__file__).resolve().parents[1]
@@ -207,7 +207,7 @@ class SimplifiedPlateauTests(unittest.TestCase):
             "failure_plateau_start_epoch",
             "failure_plateau_window",
         ):
-            self.assertNotIn(key, training)
+            assert (key) not in (training)
 
     def test_plateau_switch_applies_to_all_models(self):
         for dimension in ("2D", "3D"):
@@ -216,32 +216,23 @@ class SimplifiedPlateauTests(unittest.TestCase):
                 training.update(
                     plateau_window=3,
                     success_plateau_patience=2,
-            plateau_stable_consecutive_checks=2,
+                    plateau_stable_consecutive_checks=2,
                     convergence_start_epoch=1,
                     plateau_fluctuation_spread_enabled=False,
                 )
                 state = self.make_state(training)
                 for epoch in range(1, 6):
                     state._check_plateau(epoch, 1e-4)
-                self.assertEqual(state.reason, "converged_near_best_plateau")
+                assert (state.reason) == ("converged_near_best_plateau")
                 state.training["plateau_enabled"] = False
                 state.reason = "maximum_epochs"
                 state._check_plateau(5, 1e-4)
-                self.assertEqual(state.reason, "maximum_epochs")
+                assert (state.reason) == ("maximum_epochs")
 
     @staticmethod
     def _training(model, dimension="2D"):
         root = Path(__file__).resolve().parents[1]
         config = yaml.safe_load(
-            (root / "configs" / dimension / "train.yaml").read_text(
-                encoding="utf-8"
-            )
+            (root / "configs" / dimension / "train.yaml").read_text(encoding="utf-8")
         )
         return prepare_training_config(config, model, SimpleNamespace())["training"]
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-

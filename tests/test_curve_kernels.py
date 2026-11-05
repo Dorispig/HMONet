@@ -1,6 +1,5 @@
 """Exact geometry and gradient regression checks for fused CUDA evaluation."""
 
-import unittest
 from unittest.mock import patch
 import os
 from pathlib import Path
@@ -8,21 +7,29 @@ import tempfile
 
 import numpy as np
 import torch
+import pytest
 
 from src.data.geometry.boundary_generator_2d import circle_airfoil_boundary
 from src.data.geometry.boundary_generator_3d import cylindrical_domain_with_airfoil_hole
 from src.data.backend.curve_kernels import curve_kernel_mode, kernel_status
 from src.data.backend import curve_kernels
 from src.data.generation.make_dataset_parametric_2d import to_computational_boundary
-from src.data.geometry.parametric_curve_2d import CircleArc, EllipseArc, LineSegment, NACA4Curve
+from src.data.geometry.parametric_curve_2d import (
+    CircleArc,
+    EllipseArc,
+    LineSegment,
+    NACA4Curve,
+)
 from src.data.geometry.parametric_geometry_3d import LineSegment3D
 from src.data.mesh.sampling import logical_grid, sample_boundary
 from src.data.backend.parametric_torch import evaluate_curves_torch
 from tests.test_inference_geometry import small_model
 
 
-@unittest.skipUnless(torch.cuda.is_available(), "CUDA required for fused kernels")
-class CurveKernelTests(unittest.TestCase):
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA required for fused kernels"
+)
+class TestCurveKernel:
     def assert_reference(self, function, tolerance=2e-6):
         with curve_kernel_mode(False):
             expected = function()
@@ -50,12 +57,11 @@ class CurveKernelTests(unittest.TestCase):
                 2, -1
             )
             for curves in families:
-                with self.subTest(dtype=dtype, curve=type(curves[0]).__name__):
-                    self.assert_reference(
-                        lambda: evaluate_curves_torch(curves, t),
-                        2e-6 if dtype == torch.float32 else 2e-14,
-                    )
-        self.assertFalse(kernel_status()["failures"])
+                self.assert_reference(
+                    lambda: evaluate_curves_torch(curves, t),
+                    2e-6 if dtype == torch.float32 else 2e-14,
+                )
+        assert not kernel_status()["failures"]
 
     def test_piecewise_endpoints_junctions_and_mutation(self):
         boundaries = [
@@ -69,7 +75,7 @@ class CurveKernelTests(unittest.TestCase):
         for segment in curves[1].segments:
             segment.base.thickness = 0.45
         after, _ = self.assert_reference(lambda: evaluate_curves_torch(curves, t))
-        self.assertGreater(float((after - before).abs().max()), 0.01)
+        assert (float((after - before).abs().max())) > (0.01)
 
     def test_coordinate_gradients_keep_reference_path(self):
         curves = [NACA4Curve(t=0.2), NACA4Curve(t=0.3)]
@@ -94,7 +100,7 @@ class CurveKernelTests(unittest.TestCase):
         torch.testing.assert_close(
             actual_second, reference_second, atol=2e-6, rtol=2e-6
         )
-        self.assertEqual(count, kernel_status()["calls"])
+        assert (count) == (kernel_status()["calls"])
 
     def test_models_batches_mappings_and_weight_gradients(self):
         for dimension in (2, 3):
@@ -104,46 +110,48 @@ class CurveKernelTests(unittest.TestCase):
                     for t in (0.2, 0.3)
                 ]
                 if dimension == 2
-                else [cylindrical_domain_with_airfoil_hole(thickness=t) for t in (0.2, 0.3)]
+                else [
+                    cylindrical_domain_with_airfoil_hole(thickness=t)
+                    for t in (0.2, 0.3)
+                ]
             )
             for mapping in ("current", "coons_residual"):
-                with self.subTest(dimension=dimension, mapping=mapping):
-                    model, shape = small_model(dimension, mapping)
-                    model = model.cuda().train()
-                    b = torch.tensor(
-                        np.stack([sample_boundary(g, shape) for g in geometries]),
-                        dtype=torch.float32,
-                        device="cuda",
-                    )
-                    q = torch.tensor(
-                        logical_grid((5,) * dimension),
-                        dtype=torch.float32,
-                        device="cuda",
-                    )[None].expand(2, -1, -1)
+                model, shape = small_model(dimension, mapping)
+                model = model.cuda().train()
+                b = torch.tensor(
+                    np.stack([sample_boundary(g, shape) for g in geometries]),
+                    dtype=torch.float32,
+                    device="cuda",
+                )
+                q = torch.tensor(
+                    logical_grid((5,) * dimension),
+                    dtype=torch.float32,
+                    device="cuda",
+                )[None].expand(2, -1, -1)
 
-                    def forward():
-                        return torch.cat(
-                            model(
-                                *b.unbind(-1),
-                                *q.unbind(-1),
-                                boundary_geometry=geometries,
-                            ),
-                            -1,
-                        )
+                def forward():
+                    return torch.cat(
+                        model(
+                            *b.unbind(-1),
+                            *q.unbind(-1),
+                            boundary_geometry=geometries,
+                        ),
+                        -1,
+                    )
 
-                    actual, expected = self.assert_reference(forward)
-                    weights = list(model.parameters())
-                    actual_gradients = torch.autograd.grad(
-                        actual.square().mean(), weights, allow_unused=True
-                    )
-                    expected_gradients = torch.autograd.grad(
-                        expected.square().mean(), weights, allow_unused=True
-                    )
-                    for a, e in zip(actual_gradients, expected_gradients):
-                        if a is None or e is None:
-                            self.assertIs(a, e)
-                        else:
-                            torch.testing.assert_close(a, e, rtol=2e-5, atol=2e-6)
+                actual, expected = self.assert_reference(forward)
+                weights = list(model.parameters())
+                actual_gradients = torch.autograd.grad(
+                    actual.square().mean(), weights, allow_unused=True
+                )
+                expected_gradients = torch.autograd.grad(
+                    expected.square().mean(), weights, allow_unused=True
+                )
+                for a, e in zip(actual_gradients, expected_gradients):
+                    if a is None or e is None:
+                        assert (a) is (e)
+                    else:
+                        torch.testing.assert_close(a, e, rtol=2e-5, atol=2e-6)
 
     def test_direct_geometry_tracks_changed_queries(self):
         for dimension in (2, 3):
@@ -184,11 +192,11 @@ class CurveKernelTests(unittest.TestCase):
             with patch.dict(curve_kernels._FUNCTIONS, {"naca": unavailable}):
                 actual = evaluate_curves_torch(curves, t)
                 repeated = evaluate_curves_torch(curves, t)
-                self.assertEqual(len(curve_kernels._FAILED), 1)
+                assert (len(curve_kernels._FAILED)) == (1)
                 torch.testing.assert_close(actual, expected, atol=0, rtol=0)
                 torch.testing.assert_close(repeated, expected, atol=0, rtol=0)
 
-    @unittest.skipUnless(os.name == "nt", "Windows cache workaround")
+    @pytest.mark.skipif(os.name != "nt", reason="Windows cache workaround")
     def test_cache_finalization_only_touches_owned_unpublished_files(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -202,14 +210,9 @@ class CurveKernelTests(unittest.TestCase):
                 {"PYTORCH_KERNEL_CACHE_PATH": folder, "USE_PYTORCH_KERNEL_CACHE": "1"},
             ):
                 curve_kernels._persist_windows_kernel("exact_test")
-                self.assertEqual(published.read_bytes(), b"compiled test kernel")
-                self.assertTrue(unrelated.exists())
+                assert (published.read_bytes()) == (b"compiled test kernel")
+                assert unrelated.exists()
                 owned.write_bytes(b"must not overwrite")
                 curve_kernels._persist_windows_kernel("exact_test")
-                self.assertEqual(published.read_bytes(), b"compiled test kernel")
-                self.assertTrue(owned.exists())
-
-
-if __name__ == "__main__":
-    unittest.main()
-
+                assert (published.read_bytes()) == (b"compiled test kernel")
+                assert owned.exists()

@@ -1,0 +1,11 @@
+schema_version: 1
+experiment: e11_raw_pde
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e11_raw_pde
+    value: raw_elliptic_pde_residual_loss
+    overrides:
+      - --lr
+      - "0.0004"
+      - --no-hmonet-physics-scale-invariant-pde-enabled

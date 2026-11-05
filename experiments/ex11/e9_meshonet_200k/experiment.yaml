@@ -1,0 +1,28 @@
+schema_version: 1
+experiment: e9_meshonet_200k
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e9_meshonet_200k
+    value: MeshONet_approximately_200k_parameters
+    overrides:
+      - --model
+      - meshonet
+      - --lr
+      - "0.0004"
+      - --best-model-metric
+      - dataset_mse
+      - --plateau-metric
+      - mse
+      - --branch-dim
+      - "40"
+      - --adjust-hidden-dim
+      - "80"
+      - --branch-hidden-dim
+      - "80"
+      - --trunk-hidden-dim
+      - "80"
+      - --output-dim
+      - "80"
+      - --branch-mlp-hidden-dim
+      - "80"

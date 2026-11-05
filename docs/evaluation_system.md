@@ -104,8 +104,10 @@ experiments/<suite>/
 ├── eval/<dataset>/...
 ├── aggregate/<tag>/...
 ├── batch_runs/
-└── queue_logs/<tag>/
+└── queue_logs/<dataset>/<experiment>/seed_<seed>/<run-tag>/
 ```
+
+多 GPU 队列把同一数据集、实验、随机种子和 run-tag 对应的训练与评估输出放在上述同一个目录中；训练指纹仅保留在队列 JSON 元数据中。完整流程使用 `train_evaluate.log`，只训练或只评估分别使用 `training.log`、`evaluation.log`；重复运行该任务时旧日志会在新子进程启动前清空。正式训练采用对应的 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 结构。
 
 强制重训前应归档或删除同一运行目录的旧 TensorBoard event 文件，否则曲线会叠加。评估目录默认保留 `results.json` 和启用的网格、质量及对比图片；`--no-plots` 不会删除历史图片。
 

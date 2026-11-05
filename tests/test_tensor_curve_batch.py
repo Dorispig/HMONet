@@ -1,6 +1,5 @@
 """Check analytic tangents, vectorized batches, endpoint rules and model gradients."""
 
-import unittest
 from unittest.mock import patch
 import numpy as np
 import torch
@@ -23,7 +22,7 @@ from src.data.mesh.sampling import sample_boundary
 from tests.test_inference_geometry import boundary, small_model
 
 
-class TensorCurveTests(unittest.TestCase):
+class TestTensorCurve:
     def curves(self):
         return [
             LineSegment([0, 0], [1, 2]),
@@ -44,42 +43,41 @@ class TensorCurveTests(unittest.TestCase):
     def test_values_and_analytic_derivatives_cpu_cuda(self):
         for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
             for curve in self.curves():
-                with self.subTest(device=device, curve=type(curve).__name__):
-                    t = torch.tensor(
-                        [0.13, 0.27, 0.72, 0.91],
-                        device=device,
-                        dtype=torch.float64,
-                        requires_grad=True,
+                t = torch.tensor(
+                    [0.13, 0.27, 0.72, 0.91],
+                    device=device,
+                    dtype=torch.float64,
+                    requires_grad=True,
+                )
+                batch = ParametricCurve.batch([curve, curve], device, torch.float64)
+                value = batch(t[None].expand(2, -1))
+                np.testing.assert_allclose(
+                    value[0].detach().cpu(),
+                    curve(t.detach().cpu().numpy()),
+                    rtol=1e-9,
+                    atol=1e-9,
+                )
+                derivative = curve.derivative(t)
+                fd = (
+                    curve(t.detach().cpu().numpy() + 1e-6)
+                    - curve(t.detach().cpu().numpy() - 1e-6)
+                ) / 2e-6
+                np.testing.assert_allclose(
+                    derivative.detach().cpu(), fd, rtol=1e-5, atol=1e-6
+                )
+                for axis in range(curve.dimension):
+                    grad = torch.autograd.grad(
+                        value[0, :, axis].sum(), t, retain_graph=True
+                    )[0]
+                    torch.testing.assert_close(
+                        grad, derivative[:, axis], rtol=1e-8, atol=1e-8
                     )
-                    batch = ParametricCurve.batch([curve, curve], device, torch.float64)
-                    value = batch(t[None].expand(2, -1))
-                    np.testing.assert_allclose(
-                        value[0].detach().cpu(),
-                        curve(t.detach().cpu().numpy()),
-                        rtol=1e-9,
-                        atol=1e-9,
-                    )
-                    derivative = curve.derivative(t)
-                    fd = (
-                        curve(t.detach().cpu().numpy() + 1e-6)
-                        - curve(t.detach().cpu().numpy() - 1e-6)
-                    ) / 2e-6
-                    np.testing.assert_allclose(
-                        derivative.detach().cpu(), fd, rtol=1e-5, atol=1e-6
-                    )
-                    for axis in range(curve.dimension):
-                        grad = torch.autograd.grad(
-                            value[0, :, axis].sum(), t, retain_graph=True
-                        )[0]
-                        torch.testing.assert_close(
-                            grad, derivative[:, axis], rtol=1e-8, atol=1e-8
-                        )
-                    np.testing.assert_allclose(
-                        curve.derivative(t.detach().cpu().numpy()),
-                        derivative.detach().cpu(),
-                        rtol=1e-8,
-                        atol=1e-8,
-                    )
+                np.testing.assert_allclose(
+                    curve.derivative(t.detach().cpu().numpy()),
+                    derivative.detach().cpu(),
+                    rtol=1e-8,
+                    atol=1e-8,
+                )
 
     def test_endpoints_and_piecewise_global_mean(self):
         c = CircleArc([0, 0], 1, 0, 1)
@@ -105,7 +103,7 @@ class TensorCurveTests(unittest.TestCase):
             y = c(t)
             for axis in range(2):
                 g = torch.autograd.grad(y[:, axis].sum(), t, retain_graph=True)[0]
-                self.assertTrue(torch.isfinite(g).all())
+                assert torch.isfinite(g).all()
                 torch.testing.assert_close(g, c.derivative(t)[:, axis])
 
     def test_polynomial_endpoint_second_derivatives(self):
@@ -119,7 +117,7 @@ class TensorCurveTests(unittest.TestCase):
             )
             first = torch.autograd.grad(c(t).sum(), t, create_graph=True)[0]
             second = torch.autograd.grad(first.sum(), t)[0]
-            self.assertTrue(torch.isfinite(second).all())
+            assert torch.isfinite(second).all()
 
     def test_analytic_normal_loss_matches_autograd_reference(self):
         from scripts.train.training_common import boundary_normal_loss
@@ -171,16 +169,10 @@ class TensorCurveTests(unittest.TestCase):
                 jac = torch.autograd.grad(values.sum(), q, create_graph=True)[0]
                 loss = jac.square().mean() + values.square().mean()
                 loss.backward()
-                self.assertTrue(torch.isfinite(q.grad).all())
-                self.assertTrue(
-                    any(
-                        p.grad is not None
-                        and torch.isfinite(p.grad).all()
-                        and p.grad.abs().sum() > 0
-                        for p in model.parameters()
-                    )
+                assert torch.isfinite(q.grad).all()
+                assert any(
+                    p.grad is not None
+                    and torch.isfinite(p.grad).all()
+                    and p.grad.abs().sum() > 0
+                    for p in model.parameters()
                 )
-
-
-if __name__ == "__main__":
-    unittest.main()

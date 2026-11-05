@@ -1901,7 +1901,11 @@ def main(argv=None):
         config.setdefault("grid", {})["nx"] = args.nx
     if args.ny:
         config.setdefault("grid", {})["ny"] = args.ny
-    common_model = config.setdefault("model", {}).setdefault("common", {})
+    model_config = config.setdefault("model", {})
+    common_model = model_config.setdefault("common", {})
+    choice = args.model or model_config.get("name", "hmonet")
+    names = parse_model_selection(choice)
+    capacity_overrides = {}
     for option in (
         "branch_dim",
         "trunk_dim",
@@ -1921,6 +1925,12 @@ def main(argv=None):
             if value <= 0:
                 parser.error(f"--{option.replace('_', '-')} must be positive")
             common_model[option] = value
+            capacity_overrides[option] = value
+    # Explicit CLI capacity settings have the highest precedence.  Mirror them
+    # into the selected model block so an experiment can resize MeshONet or
+    # PI-MeshONet even when the baseline YAML declares model-specific widths.
+    for name in names:
+        model_config.setdefault(name, {}).update(capacity_overrides)
     if args.coordinate_lift_mode is not None:
         common_model["coordinate_lift_mode"] = args.coordinate_lift_mode
     overrides = {
@@ -2158,8 +2168,6 @@ def main(argv=None):
     )
     if not paths:
         raise ValueError("No dataset path supplied")
-    choice = args.model or config.get("model", {}).get("name", "hmonet")
-    names = parse_model_selection(choice)
     device_name = training.get("device", "auto")
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"

@@ -1,6 +1,5 @@
 """Direct evaluation has no optimization setup and preserves batch semantics."""
 
-import unittest
 from unittest.mock import patch
 import numpy as np
 import torch
@@ -9,9 +8,10 @@ from src.data.mesh.sampling import logical_grid
 from src.data.geometry.parametric_curve_2d import BoundaryCurveSet2D
 from src.evaluation.inference import predict, predict_batch
 from src.evaluation.configuration import load_configuration, evaluation_options
+import pytest
 
 
-class EvaluationOptimizationTests(unittest.TestCase):
+class TestEvaluationOptimization:
     def test_batched_predictions_equal_individual_results(self):
         options = dict(
             query_batch_size=11, inference_warmup_runs=1, inference_timing_repeats=2
@@ -37,13 +37,10 @@ class EvaluationOptimizationTests(unittest.TestCase):
                     np.testing.assert_allclose(
                         actual[i], expected, atol=2e-6, rtol=1e-5
                     )
-                self.assertEqual(timing["inference_batch_size"], 2)
-                self.assertEqual(
-                    timing["inference_time_basis"], "per_item_batch_average"
-                )
-                self.assertAlmostEqual(
-                    timing["batch_inference_seconds"],
-                    2 * timing["network_inference_seconds"],
+                assert (timing["inference_batch_size"]) == (2)
+                assert (timing["inference_time_basis"]) == ("per_item_batch_average")
+                assert (timing["batch_inference_seconds"]) == pytest.approx(
+                    2 * timing["network_inference_seconds"], abs=1e-7
                 )
 
     def test_no_preparation_or_graph_and_exact_warmup_count(self):
@@ -75,23 +72,17 @@ class EvaluationOptimizationTests(unittest.TestCase):
                         actual, timing = predict(
                             model, "HMONet", geometry, shape, query, device, options
                         )
-                    self.assertEqual(forward.call_count, 2)
-                    self.assertTrue(np.isfinite(actual).all())
-                    self.assertEqual(timing["effective_inference_warmup_runs"], 0)
-                    self.assertFalse(
-                        any(
-                            "setup" in k or "graph" in k or "preparation" in k
-                            for k in timing
-                        )
+                    assert (forward.call_count) == (2)
+                    assert np.isfinite(actual).all()
+                    assert (timing["effective_inference_warmup_runs"]) == (0)
+                    assert not any(
+                        "setup" in k or "graph" in k or "preparation" in k
+                        for k in timing
                     )
 
     def test_updated_configs_have_no_setup_options(self):
         for dimension in (2, 3):
             args, config = load_configuration(dimension, [])
             options = evaluation_options(config, {}, args)
-            self.assertNotIn("hmonet_geometry_mode", options)
-            self.assertNotIn("inference_cuda_graph", options)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert ("hmonet_geometry_mode") not in (options)
+            assert ("inference_cuda_graph") not in (options)

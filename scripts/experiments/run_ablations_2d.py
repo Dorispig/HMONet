@@ -7,8 +7,10 @@ import copy
 from datetime import datetime
 import json
 from pathlib import Path
+import re
 import sys
 import time
+import traceback
 
 import yaml
 
@@ -22,6 +24,14 @@ from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
 
 
 ALL_ABLATIONS = run_ablation_2d.ABLATIONS
+
+
+def _natural_experiment_key(path: Path):
+    """Sort e2 before e10 while retaining deterministic name ordering."""
+    return tuple(
+        int(part) if part.isdigit() else part
+        for part in re.split(r"(\d+)", path.name)
+    )
 
 
 def resolve_ablations(
@@ -227,6 +237,11 @@ def _run_dynamic_gpu_queue(args, selected):
     if not datasets or not seeds:
         raise ValueError("The GPU queue requires at least one dataset and one seed")
     tasks = []
+    phase_log_name = (
+        "training.log"
+        if args.train_only
+        else "evaluation.log" if args.evaluate_only else "train_evaluate.log"
+    )
     for ablation in selected:
         variants = _configured_variants(args, ablation)
         for dataset in datasets:
@@ -237,6 +252,11 @@ def _run_dynamic_gpu_queue(args, selected):
                     worker_args.seeds = [int(seed)]
                     worker_args.device = "cuda:0"
                     worker_args.gpus = None
+                    dataset_path = run_ablation_2d.resolve_dataset(str(dataset))
+                    dataset_label = run_ablation_2d.dataset_name(dataset_path)
+                    fingerprint, _ = run_ablation_2d.effective_training_identity(
+                        worker_args, dataset_path, variant, int(seed)
+                    )
                     command = [
                         sys.executable,
                         str(ROOT / "scripts/experiments/run_ablation_2d.py"),
@@ -248,14 +268,29 @@ def _run_dynamic_gpu_queue(args, selected):
                     tasks.append(
                         GpuTask(
                             name=(
-                                f"{ablation}__{Path(str(dataset)).name}__"
+                                f"{ablation}__{dataset_label}__"
                                 f"{variant.name}__seed_{seed}"
                             ),
                             command=command,
+                            log_relative_path=(
+                                Path(dataset_label)
+                                / variant.name
+                                / f"seed_{seed}"
+                                / args.run_tag
+                                / phase_log_name
+                            ),
+                            clear_log_directory=True,
+                            metadata={
+                                "dataset": dataset_label,
+                                "experiment": variant.name,
+                                "seed": int(seed),
+                                "run_tag": args.run_tag,
+                                "training_fingerprint": fingerprint,
+                            },
                         )
                     )
     log_root = args.queue_log_root or (
-        args.experiment_root / "queue_logs" / args.run_tag
+        args.experiment_root / "queue_logs"
     )
     records = run_gpu_queue(
         tasks,
@@ -315,7 +350,7 @@ def main(argv=None):
         raise ValueError("--train-only and --evaluate-only are mutually exclusive")
     available = tuple(
         path.name
-        for path in sorted(args.experiment_root.iterdir())
+        for path in sorted(args.experiment_root.iterdir(), key=_natural_experiment_key)
         if (
             path.is_dir()
             and path.name != run_ablation_2d.BASELINE_ABLATION
@@ -370,6 +405,7 @@ def main(argv=None):
                 "ablation": ablation,
                 "status": "failed",
                 "error": repr(error),
+                "traceback": traceback.format_exc(),
                 "elapsed_seconds": time.perf_counter() - begin,
                 "arguments": command,
             }

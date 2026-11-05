@@ -1,12 +1,11 @@
 """Comparison output paths remain compact and collision safe."""
 
 from pathlib import Path
-import unittest
 
 from scripts.evaluate.evaluation_common import comparison_directory
 
 
-class ComparisonDirectoryTests(unittest.TestCase):
+class TestComparisonDirectory:
     def options(self, pimeshonet_projection="none"):
         return {
             "hmonet_boundary_projection": "none",
@@ -27,32 +26,21 @@ class ComparisonDirectoryTests(unittest.TestCase):
             / "hmonet_none__meshonet_none"
             / "tfi_pde_meshonet_pimeshonet_hmonet"
         )
-        self.assertEqual(actual, expected)
-        self.assertNotIn("pimeshonet_none", actual.parts)
+        assert (actual) == (expected)
+        assert ("pimeshonet_none") not in (actual.parts)
 
     def test_nondefault_pi_projection_is_encoded_without_extra_level(self):
         names = ["TFI", "MeshONet", "PI-MeshONet", "HMONet"]
         actual = comparison_directory(
             Path("result"), "current", self.options("direct"), names
         )
-        self.assertEqual(
-            actual.parent.name,
-            "hmonet_none__meshonet_none__pimeshonet_direct",
-        )
-        self.assertEqual(actual.name, "tfi_meshonet_pimeshonet_hmonet")
+        assert (actual.parent.name) == ("hmonet_none__meshonet_none__pimeshonet_direct")
+        assert (actual.name) == ("tfi_meshonet_pimeshonet_hmonet")
 
     def test_pi_only_comparison_keeps_one_projection_directory(self):
         actual = comparison_directory(
             Path("result"), "current", self.options(), ["TFI", "PI-MeshONet"]
         )
-        self.assertEqual(
-            actual,
-            Path("result")
-            / "comparisons"
-            / "pimeshonet_none"
-            / "tfi_pimeshonet",
+        assert (actual) == (
+            Path("result") / "comparisons" / "pimeshonet_none" / "tfi_pimeshonet"
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
