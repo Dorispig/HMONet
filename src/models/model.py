@@ -44,6 +44,12 @@ from src.data.backend.parametric_torch import (
 # from .utils import helper_function
 import src.models.modules as modules
 from src.models.inference_optimizations import fuse_coordinates
+from src.models.mapping_modes import (
+    COONS_RESIDUAL,
+    CORNER_CORRECTED_AFFINE,
+    RATIONAL_AFFINE,
+    normalize_mapping_mode,
+)
 from src.data.backend.inference_options import ROUTES
 
 # ============================================================
@@ -74,7 +80,7 @@ def _rational_affine_weights_2d(xi, eta, coefficients):
     return 1.0 - boundary.sum(dim=-1), boundary
 
 
-def _corner_corrected_weights_2d(xi, eta, coefficients):
+def _corner_corrected_affine_weights_2d(xi, eta, coefficients):
     """Smooth, affine four-side/four-corner weights (scheme B).
 
     Corner weights can be negative; the map is not a convex combination.
@@ -167,6 +173,7 @@ class MeshONet2D(nn.Module):
         shared_branch_fusion_enabled=True,
         coordinate_lift_mode="legacy",
         coordinate_lift_max_power=1,
+        coordinate_lift_q=6,
     ):
         super().__init__()
         if branch_mlp_hidden_dim <= 0:
@@ -186,11 +193,13 @@ class MeshONet2D(nn.Module):
             coordinate_lift_mode
         )
         self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.coordinate_lift_q = int(coordinate_lift_q)
         self.trunk_dim = modules.coordinate_lift_input_dim(
             2,
             self.configured_trunk_dim,
             self.coordinate_lift_mode,
             self.coordinate_lift_max_power,
+            self.coordinate_lift_q,
         )
         self.enhance_dim = self.trunk_dim
         self.adjust_hidden_dim = adjust_hidden_dim
@@ -272,6 +281,8 @@ class MeshONet2D(nn.Module):
         )
 
     def data_enhance(self, xi_eta):
+        if self.coordinate_lift_mode == "paper":
+            return modules.paper_coordinate_lift(xi_eta, self.coordinate_lift_q)
         if self.coordinate_lift_mode == "power_fourier":
             return modules.power_fourier_lift(
                 xi_eta, self.coordinate_lift_max_power
@@ -336,7 +347,7 @@ class HMONet2D(nn.Module):
         output_dim=64,
         branch_mlp_hidden_dim=128,
         branch_mlp_hidden_layer_num=2,
-        hmonet_mapping_mode="current",
+        hmonet_mapping_mode=RATIONAL_AFFINE,
         trunk_projection_coefficients_enabled=True,
         boundary_self_attention_enabled=False,
         projection_mlp_hidden_dim=64,
@@ -353,6 +364,7 @@ class HMONet2D(nn.Module):
         weight_head_mlp_enabled=True,
         coordinate_lift_mode="legacy",
         coordinate_lift_max_power=1,
+        coordinate_lift_q=6,
         modified_mlp_enabled=False,
         query_boundary_cross_attention_enabled=False,
         boundary_layer_decoder_enabled=False,
@@ -369,9 +381,7 @@ class HMONet2D(nn.Module):
             raise ValueError("branch_mlp_hidden_dim must be positive")
         if branch_mlp_hidden_layer_num <= 0:
             raise ValueError("branch_mlp_hidden_layer_num must be positive")
-        hmonet_mapping_mode = str(hmonet_mapping_mode).strip().lower().replace("-", "_")
-        if hmonet_mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
-            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
+        hmonet_mapping_mode = normalize_mapping_mode(hmonet_mapping_mode)
         # The trunk flag is retained only to load archived branch-only
         # checkpoints. All current training entry points force it on.
         self.trunk_projection_coefficients_enabled = bool(
@@ -394,11 +404,13 @@ class HMONet2D(nn.Module):
             coordinate_lift_mode
         )
         self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.coordinate_lift_q = int(coordinate_lift_q)
         self.trunk_dim = modules.coordinate_lift_input_dim(
             2,
             self.configured_trunk_dim,
             self.coordinate_lift_mode,
             self.coordinate_lift_max_power,
+            self.coordinate_lift_q,
         )
         self.enhance_dim = self.trunk_dim
         self.adjust_hidden_dim = adjust_hidden_dim
@@ -559,6 +571,8 @@ class HMONet2D(nn.Module):
         )
 
     def data_enhance(self, xi_eta):
+        if self.coordinate_lift_mode == "paper":
+            return modules.paper_coordinate_lift(xi_eta, self.coordinate_lift_q)
         if self.coordinate_lift_mode == "power_fourier":
             return modules.power_fourier_lift(
                 xi_eta, self.coordinate_lift_max_power
@@ -779,8 +793,10 @@ class HMONet2D(nn.Module):
         raw_prediction = self._add_boundary_layer_residual(
             raw_prediction, h, trunk_out, xi_eta
         )
-        mapping_mode = getattr(self, "hmonet_mapping_mode", "current")
-        if mapping_mode == "coons_residual":
+        mapping_mode = normalize_mapping_mode(
+            getattr(self, "hmonet_mapping_mode", RATIONAL_AFFINE)
+        )
+        if mapping_mode == COONS_RESIDUAL:
             coons = self.evaluate_coons_points(
                 p_x,
                 p_y,
@@ -794,15 +810,15 @@ class HMONet2D(nn.Module):
             if return_displacement:
                 return result[..., 0:1], result[..., 1:2], displacement
             return result[..., 0:1], result[..., 1:2]
-        if mapping_mode not in {"current", "corner_corrected"}:
-            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
+        if mapping_mode not in {RATIONAL_AFFINE, CORNER_CORRECTED_AFFINE}:
+            raise ValueError(f"Unsupported HMONet mapping mode: {mapping_mode}")
 
         weight = self.projection_weights(h, trunk_out)
         projected = self.project(
             p_x, p_y, xi, eta, boundary_geometry=boundary_geometry
         )
-        if mapping_mode == "corner_corrected":
-            beta, boundary_weights, corner_weights = _corner_corrected_weights_2d(
+        if mapping_mode == CORNER_CORRECTED_AFFINE:
+            beta, boundary_weights, corner_weights = _corner_corrected_affine_weights_2d(
                 xi, eta, weight
             )
             # The sampled perimeter includes the four exact common endpoints.
@@ -867,6 +883,7 @@ class _OperatorNet3D(nn.Module):
         output_dim=128,
         coordinate_lift_mode="legacy",
         coordinate_lift_max_power=1,
+        coordinate_lift_q=6,
         **_,
     ):
         super().__init__()
@@ -915,11 +932,13 @@ class _OperatorNet3D(nn.Module):
             coordinate_lift_mode
         )
         self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.coordinate_lift_q = int(coordinate_lift_q)
         self.trunk_dim = modules.coordinate_lift_input_dim(
             3,
             self.configured_trunk_dim,
             self.coordinate_lift_mode,
             self.coordinate_lift_max_power,
+            self.coordinate_lift_q,
         )
         self.output_dim = int(output_dim)
         self.branch_hidden_dim = int(branch_hidden_dim)
@@ -945,6 +964,8 @@ class _OperatorNet3D(nn.Module):
         self.bias = nn.Parameter(torch.zeros(3))
 
     def data_enhance(self, coordinates):
+        if self.coordinate_lift_mode == "paper":
+            return modules.paper_coordinate_lift(coordinates, self.coordinate_lift_q)
         if self.coordinate_lift_mode == "power_fourier":
             return modules.power_fourier_lift(
                 coordinates, self.coordinate_lift_max_power
@@ -1067,7 +1088,7 @@ class HMONet3D(_OperatorNet3D):
     def __init__(
         self,
         *args,
-        hmonet_mapping_mode="current",
+        hmonet_mapping_mode=RATIONAL_AFFINE,
         trunk_projection_coefficients_enabled=True,
         boundary_self_attention_enabled=False,
         projection_mlp_hidden_dim=64,
@@ -1101,9 +1122,7 @@ class HMONet3D(_OperatorNet3D):
         if int(branch_mlp_hidden_layer_num) <= 0:
             raise ValueError("branch_mlp_hidden_layer_num must be positive")
         super().__init__(*args, **kwargs)
-        self.hmonet_mapping_mode = str(hmonet_mapping_mode).lower().replace("-", "_")
-        if self.hmonet_mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
-            raise ValueError("hmonet_mapping_mode must be current, coons_residual, or corner_corrected")
+        self.hmonet_mapping_mode = normalize_mapping_mode(hmonet_mapping_mode)
         # The trunk flag is retained only to load archived branch-only
         # checkpoints. All current training entry points force it on.
         self.trunk_projection_coefficients_enabled = bool(
@@ -1748,7 +1767,7 @@ class HMONet3D(_OperatorNet3D):
             p_x, p_y, p_z, xi, eta, zeta
         )
         raw = torch.cat(raw_parts, -1)
-        if self.hmonet_mapping_mode == "coons_residual":
+        if self.hmonet_mapping_mode == COONS_RESIDUAL:
             envelope = (64 * xi * (1 - xi) * eta * (1 - eta) * zeta * (1 - zeta))[
                 ..., None
             ]
@@ -1765,7 +1784,7 @@ class HMONet3D(_OperatorNet3D):
                 )
                 + displacement
             )
-        elif self.hmonet_mapping_mode == "corner_corrected":
+        elif self.hmonet_mapping_mode == CORNER_CORRECTED_AFFINE:
             coefficients = self.projection_coefficients(joint_geometry, trunk_features)
             result = self.evaluate_corner_corrected_points(
                 p_x, p_y, p_z, xi, eta, zeta, raw, coefficients,
@@ -1773,7 +1792,7 @@ class HMONet3D(_OperatorNet3D):
             )
             displacement = torch.zeros_like(result)
         else:
-            # The Coons branch evaluates its own faces; only current needs these.
+            # The Coons branch evaluates its own faces; only RAP needs these.
             f = self.project(
                 p_x, p_y, p_z, xi, eta, zeta, boundary_geometry=boundary_geometry
             )

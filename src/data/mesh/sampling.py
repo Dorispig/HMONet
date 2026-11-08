@@ -127,17 +127,38 @@ def sample_fixed_grid_interior_points(grid, nx, ny, count, batch_size, device=No
 
 
 def sample_uniform_global_interior_points(
-    batch_size, count, device=None, eps=1e-6, margin=0.0
+    batch_size,
+    count,
+    device=None,
+    eps=1e-6,
+    margin=0.0,
+    *,
+    dimension=2,
+    dtype=torch.float32,
 ):
-    """Sample uniform points in the open or inset unit square for a batch."""
+    """Sample uniform points in an open or inset unit box for a batch."""
     if int(count) < 1:
         raise ValueError("global random sample count must be positive")
-    margin = float(margin)
-    if not 0.0 <= margin < 0.5:
-        raise ValueError("margin must lie in [0, 0.5)")
-    lower = margin if margin > 0 else float(eps)
+    dimension = int(dimension)
+    if dimension not in (2, 3):
+        raise ValueError("dimension must be 2 or 3")
+    margins = torch.as_tensor(margin, dtype=dtype, device=device).flatten()
+    if margins.numel() == 1:
+        margins = margins.expand(dimension)
+    if margins.numel() != dimension or bool(
+        ((margins < 0) | (margins >= 0.5)).any()
+    ):
+        raise ValueError("margin must be scalar or contain one value per axis in [0, 0.5)")
+    lower = torch.where(
+        margins > 0,
+        margins,
+        torch.full_like(margins, float(eps)),
+    )
     upper = 1.0 - lower
-    return torch.empty(batch_size, int(count), 2, device=device).uniform_(lower, upper)
+    samples = torch.rand(
+        batch_size, int(count), dimension, device=device, dtype=dtype
+    )
+    return lower + (upper - lower) * samples
 
 
 def sample_inward_boundary_band_points_2d(
@@ -215,9 +236,15 @@ def sample_curvature_distance_adaptive_points(
     computational = torch.as_tensor(
         computational_boundary, dtype=curvature.dtype, device=curvature.device
     )
-    if curvature.ndim != 2 or computational.shape != (curvature.shape[1], 2):
+    if (
+        curvature.ndim != 2
+        or computational.ndim != 2
+        or computational.shape[0] != curvature.shape[1]
+        or computational.shape[1] not in (2, 3)
+    ):
         raise ValueError(
-            "boundary_curvature [B,P] and computational_boundary [P,2] must match"
+            "boundary_curvature [B,P] and computational_boundary [P,D] must "
+            "match for D=2 or D=3"
         )
     count = int(count)
     candidate_multiplier = int(candidate_multiplier)
@@ -227,7 +254,12 @@ def sample_curvature_distance_adaptive_points(
         raise ValueError("require 0 < sigma_min <= sigma_max")
     candidate_count = max(count, count * candidate_multiplier)
     candidates = sample_uniform_global_interior_points(
-        curvature.shape[0], candidate_count, device=curvature.device, margin=margin
+        curvature.shape[0],
+        candidate_count,
+        device=curvature.device,
+        margin=margin,
+        dimension=computational.shape[-1],
+        dtype=curvature.dtype,
     )
     distance_squared = (
         candidates[:, :, None, :] - computational[None, None, :, :]
@@ -240,7 +272,178 @@ def sample_curvature_distance_adaptive_points(
     ).sum(dim=-1)
     probabilities = scores / scores.sum(dim=1, keepdim=True)
     indices = torch.multinomial(probabilities, count, replacement=False)
-    return torch.gather(candidates, 1, indices[..., None].expand(-1, -1, 2))
+    return torch.gather(
+        candidates,
+        1,
+        indices[..., None].expand(-1, -1, computational.shape[-1]),
+    )
+
+
+def structured_boundary_surface_curvature(boundary, shape, quantile=0.95, eps=1e-8):
+    """Return curvature-like scores and logical samples for six 3-D faces.
+
+    The input boundary follows the flattened boundary-mask ordering used by
+    :class:`ParametricDataset3D`.  Each parameter line on every face uses the
+    same turning-angle-over-edge-length estimate as the 2-D boundary sampler.
+    The two face directions are combined by an Euclidean norm and normalized
+    independently for each geometry.  Shared edges are intentionally retained
+    once per incident face so sharp/high-curvature face junctions receive an
+    appropriate sampling emphasis.
+    """
+    points = torch.as_tensor(boundary)
+    if points.ndim != 3 or points.shape[-1] != 3:
+        raise ValueError("boundary must have shape [B,P,3]")
+    nx, ny, nz = map(int, shape)
+    if min(nx, ny, nz) < 3:
+        raise ValueError("3-D adaptive surface sampling requires at least 3 nodes per axis")
+    if not 0 < float(quantile) <= 1:
+        raise ValueError("quantile must lie in (0, 1]")
+
+    full_ids = torch.arange(nx * ny * nz, device=points.device).reshape(nz, ny, nx)
+    mask = torch.zeros((nz, ny, nx), dtype=torch.bool, device=points.device)
+    mask[[0, -1], :, :] = True
+    mask[:, [0, -1], :] = True
+    mask[:, :, [0, -1]] = True
+    boundary_ids = full_ids[mask]
+    if points.shape[1] != boundary_ids.numel():
+        raise ValueError("boundary point count does not match the supplied grid shape")
+    full_to_boundary = torch.full(
+        (nx * ny * nz,), -1, dtype=torch.long, device=points.device
+    )
+    full_to_boundary[boundary_ids] = torch.arange(
+        boundary_ids.numel(), device=points.device
+    )
+
+    axes = (
+        torch.linspace(0.0, 1.0, nx, device=points.device, dtype=points.dtype),
+        torch.linspace(0.0, 1.0, ny, device=points.device, dtype=points.dtype),
+        torch.linspace(0.0, 1.0, nz, device=points.device, dtype=points.dtype),
+    )
+
+    def line_curvature(values, axis):
+        moved = values.movedim(axis, 1)
+        previous = moved[:, 1:-1] - moved[:, :-2]
+        following = moved[:, 2:] - moved[:, 1:-1]
+        previous_length = torch.linalg.vector_norm(previous, dim=-1).clamp_min(eps)
+        following_length = torch.linalg.vector_norm(following, dim=-1).clamp_min(eps)
+        cross = torch.linalg.cross(previous, following, dim=-1)
+        angle = torch.atan2(
+            torch.linalg.vector_norm(cross, dim=-1),
+            (previous * following).sum(-1),
+        )
+        interior = 2.0 * angle / (previous_length + following_length)
+        result = moved.new_zeros(moved.shape[:-1])
+        result[:, 1:-1] = interior
+        result[:, 0] = interior[:, 0]
+        result[:, -1] = interior[:, -1]
+        return result.movedim(1, axis)
+
+    face_specs = (
+        (full_ids[:, :, 0], 0.0, axes[1], axes[2], 0),
+        (full_ids[:, :, -1], 1.0, axes[1], axes[2], 0),
+        (full_ids[:, 0, :], 0.0, axes[0], axes[2], 1),
+        (full_ids[:, -1, :], 1.0, axes[0], axes[2], 1),
+        (full_ids[0, :, :], 0.0, axes[0], axes[1], 2),
+        (full_ids[-1, :, :], 1.0, axes[0], axes[1], 2),
+    )
+    curvature_parts = []
+    logical_parts = []
+    for ids, fixed_value, u_axis, v_axis, fixed_axis in face_specs:
+        positions = full_to_boundary[ids.reshape(-1)]
+        face = points[:, positions].reshape(points.shape[0], *ids.shape, 3)
+        along_first = line_curvature(face, 1)
+        along_second = line_curvature(face, 2)
+        curvature_parts.append(
+            torch.sqrt(along_first.square() + along_second.square()).reshape(
+                points.shape[0], -1
+            )
+        )
+        vv, uu = torch.meshgrid(v_axis, u_axis, indexing="ij")
+        logical = points.new_zeros((*ids.shape, 3))
+        free_axes = [axis for axis in range(3) if axis != fixed_axis]
+        logical[..., fixed_axis] = float(fixed_value)
+        logical[..., free_axes[0]] = uu
+        logical[..., free_axes[1]] = vv
+        logical_parts.append(logical.reshape(-1, 3))
+
+    curvature = torch.cat(curvature_parts, dim=1)
+    scale = torch.quantile(curvature, float(quantile), dim=1, keepdim=True).clamp_min(eps)
+    curvature = (curvature / scale).clamp(0.0, 1.0)
+    return curvature, torch.cat(logical_parts, dim=0)
+
+
+def sample_surface_curvature_adaptive_points(
+    boundary_curvature,
+    computational_boundary,
+    count,
+    *,
+    curvature_power=1.0,
+    sigma_min=0.02,
+    sigma_max=0.10,
+    uniform_probability=0.05,
+    margin=0.0,
+    eps=1e-8,
+):
+    """Sample 3-D interior points around curvature-weighted face anchors.
+
+    Unlike the dense candidate-to-every-face distance matrix used by the 2-D
+    curve sampler, this surface sampler first draws a boundary anchor and then
+    applies a curvature-dependent local perturbation.  Its memory cost is
+    ``O(batch * count)`` rather than ``O(batch * candidates * face_points)``,
+    which keeps formal 3-D training practical for dense parameter surfaces.
+    """
+    curvature = torch.as_tensor(boundary_curvature)
+    computational = torch.as_tensor(
+        computational_boundary, device=curvature.device, dtype=curvature.dtype
+    )
+    count = int(count)
+    if curvature.ndim != 2 or computational.shape != (curvature.shape[1], 3):
+        raise ValueError(
+            "boundary_curvature [B,P] and computational_boundary [P,3] must match"
+        )
+    if count < 1:
+        raise ValueError("count must be positive")
+    if not 0 < float(sigma_min) <= float(sigma_max):
+        raise ValueError("require 0 < sigma_min <= sigma_max")
+    margins = torch.as_tensor(
+        margin, device=curvature.device, dtype=curvature.dtype
+    ).flatten()
+    if margins.numel() == 1:
+        margins = margins.expand(3)
+    if margins.numel() != 3 or bool(((margins < 0) | (margins >= 0.5)).any()):
+        raise ValueError("margin must be scalar or contain three values in [0, 0.5)")
+
+    weights = float(uniform_probability) + float(eps) + curvature.pow(
+        float(curvature_power)
+    )
+    probabilities = weights / weights.sum(dim=1, keepdim=True)
+    indices = torch.multinomial(
+        probabilities, count, replacement=count > computational.shape[0]
+    )
+    anchors = computational[indices]
+    selected_curvature = torch.gather(curvature, 1, indices)
+    sigma = float(sigma_max) - (
+        float(sigma_max) - float(sigma_min)
+    ) * selected_curvature
+    noise = torch.randn_like(anchors) * sigma[..., None]
+    samples = anchors + noise
+
+    tolerance = 4 * torch.finfo(curvature.dtype).eps
+    lower_face = anchors <= tolerance
+    upper_face = anchors >= 1.0 - tolerance
+    samples = torch.where(
+        lower_face,
+        margins + noise.abs(),
+        samples,
+    )
+    samples = torch.where(
+        upper_face,
+        1.0 - margins - noise.abs(),
+        samples,
+    )
+    return torch.maximum(
+        torch.minimum(samples, 1.0 - margins), margins
+    )
 
 
 def GenerateCustomGridPoints(x_points, y_points):

@@ -44,14 +44,241 @@ from src.engine.state import (
 )
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.data.parametric_dataset import ParametricDataset3D
+from src.data.mesh.sampling import (
+    sample_surface_curvature_adaptive_points,
+    structured_boundary_surface_curvature,
+)
+from src.losses.physics import (
+    elliptic_grid_pde_residual,
+    elliptic_grid_scale_invariant_pde_loss,
+    normalized_mapping_barriers,
+    stencil_queries as physics_stencil_queries,
+)
 from src.models import HMONet3D, MeshONet3D, QGHMONet3D
+from src.models.mapping_modes import mapping_mode_choices
 from src.data.mesh.topology import GenerateHexMeshBoundaryIndex
+
+
+def _train_hmonet_physics_3d(
+    model,
+    optimizer,
+    loader,
+    datasets,
+    config,
+    mode,
+    args,
+    device,
+    geometry_options,
+):
+    """Train a 3-D hard-boundary operator with the formal physics objective."""
+    training = config["training"]
+    sampling = config.get("hmonet_sampling", {})
+    learning_rate = geometry_options
+    shape = tuple(datasets[0].grid_shape)
+    sample_count = int(geometry_options.get("random_loss_sample_count", 400))
+    sampling_mode = str(
+        geometry_options.get("random_loss_sampling_mode", "uniform")
+    ).lower()
+    global_count = int(
+        geometry_options.get("random_loss_global_sample_count", sample_count)
+    )
+    adaptive_count = int(
+        geometry_options.get("random_loss_curvature_sample_count", 0)
+    )
+    boundary_band_count = int(
+        geometry_options.get("random_loss_boundary_band_sample_count", 0)
+    )
+    if sampling_mode not in {"uniform", "mixed_boundary"}:
+        raise ValueError(
+            "hmonet_training.random_loss_sampling_mode must be uniform or mixed_boundary"
+        )
+    if sampling_mode == "mixed_boundary":
+        counts = (global_count, adaptive_count, boundary_band_count)
+        if min(counts) < 0 or sum(counts) != sample_count:
+            raise ValueError(
+                "3-D mixed sampling counts must be nonnegative and sum to "
+                "random_loss_sample_count"
+            )
+        if boundary_band_count:
+            raise ValueError(
+                "Formal 3-D training currently supports global and curvature-adaptive "
+                "samples; boundary-band samples must be zero"
+            )
+    else:
+        global_count, adaptive_count = sample_count, 0
+
+    derivative_backend = str(
+        geometry_options.get("random_loss_derivative_backend", "finite_difference")
+    ).lower()
+    boundary_scheme = str(
+        geometry_options.get("random_loss_fd_boundary_scheme", "central")
+    ).lower()
+    if derivative_backend != "finite_difference" or boundary_scheme != "central":
+        raise ValueError(
+            "Formal 3-D HMONet currently requires central finite differences"
+        )
+    steps = torch.as_tensor(
+        geometry_options.get("pde_fd_step", [0.01, 0.01, 0.01]),
+        device=device,
+        dtype=torch.float32,
+    )
+    if steps.shape != (3,) or bool(((steps <= 0) | (steps >= 0.5)).any()):
+        raise ValueError("pde_fd_step must contain three values in (0, 0.5)")
+    keep_inside = bool(
+        geometry_options.get("random_loss_fd_stencil_inside", True)
+    )
+    margin = steps if keep_inside else torch.zeros_like(steps)
+
+    pde_weight = float(geometry_options.get("physics_pde_loss_weight", 1.0))
+    normalized_jacobian_weight = float(
+        geometry_options.get("physics_normalized_jacobian_loss_weight", 0.0)
+    )
+    singular_value_weight = float(
+        geometry_options.get("physics_singular_value_loss_weight", 0.0)
+    )
+    if min(pde_weight, normalized_jacobian_weight, singular_value_weight) < 0:
+        raise ValueError("Physics loss weights must be nonnegative")
+    if pde_weight + normalized_jacobian_weight + singular_value_weight <= 0:
+        raise ValueError("At least one formal 3-D physics loss must be active")
+    scale_invariant_pde = bool(
+        geometry_options.get("physics_scale_invariant_pde_enabled", False)
+    )
+    jacobian_minimum = float(
+        geometry_options.get("physics_normalized_jacobian_minimum", 0.02)
+    )
+    singular_minimum = float(
+        geometry_options.get("physics_singular_value_minimum", 0.05)
+    )
+    reduction = str(
+        geometry_options.get("physics_barrier_reduction", "all")
+    ).lower()
+    if reduction not in {"active", "all"}:
+        raise ValueError("physics_barrier_reduction must be active or all")
+
+    candidate_multiplier = int(sampling.get("candidate_multiplier", 10))
+    curvature_quantile = float(sampling.get("curvature_quantile", 0.95))
+    curvature_power = float(sampling.get("curvature_power", 1.0))
+    sigma_min = float(sampling.get("distance_sigma_min", 0.02))
+    sigma_max = float(sampling.get("distance_sigma_max", 0.10))
+    uniform_probability = float(sampling.get("uniform_probability", 0.05))
+    # Kept in the effective configuration for 2-D/3-D parity.  The 3-D anchor
+    # sampler is already linear-memory and therefore does not need candidates.
+    if candidate_multiplier < 1:
+        raise ValueError("hmonet_sampling.candidate_multiplier must be positive")
+
+    training["active_phase"] = "random_loss_combo"
+    state = TrainingState(model, optimizer, datasets, config, mode, args, device)
+    try:
+        for epoch in range(1, training["num_epochs"] + 1):
+            model.train()
+            epoch_lr = optimizer.param_groups[0]["lr"]
+            totals = BatchLossTotals()
+            progress = tqdm(
+                loader, desc=f"Epoch {epoch}/{training['num_epochs']}", leave=True
+            )
+            for batch in progress:
+                boundary = batch["boundary_points"].to(device)
+                geometries = batch["boundary"]
+                point_parts = []
+                if global_count:
+                    point_parts.append(
+                        sample_shared_random_points(
+                            len(boundary),
+                            global_count,
+                            3,
+                            device,
+                            margin=margin,
+                        ).to(dtype=boundary.dtype)
+                    )
+                if adaptive_count:
+                    curvature, computational_boundary = (
+                        structured_boundary_surface_curvature(
+                            boundary,
+                            shape,
+                            quantile=curvature_quantile,
+                        )
+                    )
+                    point_parts.append(
+                        sample_surface_curvature_adaptive_points(
+                            curvature,
+                            computational_boundary,
+                            adaptive_count,
+                            curvature_power=curvature_power,
+                            sigma_min=sigma_min,
+                            sigma_max=sigma_max,
+                            uniform_probability=uniform_probability,
+                            margin=margin,
+                        )
+                    )
+                centers = torch.cat(point_parts, dim=1)
+                queries = physics_stencil_queries(centers, steps)
+                values = predict_coordinates(
+                    model,
+                    boundary,
+                    queries.flatten(-3, -2),
+                    geometries,
+                ).reshape(*queries.shape)
+
+                if scale_invariant_pde:
+                    pde = elliptic_grid_scale_invariant_pde_loss(values, steps)
+                else:
+                    pde = elliptic_grid_pde_residual(values, steps).square().sum(-1).mean()
+                extents = boundary.amax(dim=-2) - boundary.amin(dim=-2)
+                characteristic_length = extents.prod(dim=-1).clamp_min(1e-12).pow(1.0 / 3.0)
+                normalized_jacobian, singular_value = normalized_mapping_barriers(
+                    values,
+                    steps,
+                    characteristic_length,
+                    jacobian_minimum=jacobian_minimum,
+                    singular_value_minimum=singular_minimum,
+                    reduction=reduction,
+                )
+                loss = (
+                    pde_weight * pde
+                    + normalized_jacobian_weight * normalized_jacobian
+                    + singular_value_weight * singular_value
+                )
+                if not safe_optimizer_step(
+                    loss,
+                    model,
+                    optimizer,
+                    training["gradient_clip_norm"],
+                    training["skip_nonfinite_loss"],
+                ):
+                    continue
+                totals.add(
+                    len(boundary),
+                    loss=loss,
+                    loss_pde=pde,
+                    normalized_jacobian=normalized_jacobian,
+                    singular_value=singular_value,
+                )
+                progress.set_postfix(
+                    loss=loss.item(),
+                    pde=pde.item(),
+                    norm_j=normalized_jacobian.item(),
+                    singular=singular_value.item(),
+                )
+            update_learning_rate(
+                optimizer,
+                epoch,
+                learning_rate["lr_warmup_epochs"],
+                learning_rate["lr_update_interval"],
+                learning_rate["lr_decay_gamma"],
+                learning_rate["lr_stop_below"],
+            )
+            if state.end_epoch(epoch, totals.means(), epoch_lr):
+                break
+        return state.finish()
+    finally:
+        if state.writer is not None:
+            state.writer.close()
 
 
 def train_hmonet(
     datasets, config, mode, args, device, *, model_name="hmonet", model_class=HMONet3D
 ):
-    """Train HMONet with batched boundary objects and weighted coordinate targets."""
+    """Train formal self-supervised or archived supervised 3-D HMONet."""
     config = prepare_training_config(config, model_name, args)
     training = config["training"]
     geometry_options = config[f"{model_name}_training"]
@@ -72,6 +299,26 @@ def train_hmonet(
     loader = make_data_loader(
         datasets, training["batch_size"], training["seed"], shuffle=True
     )
+    strategy = str(
+        geometry_options.get("training_strategy", "supervised")
+    ).lower()
+    if strategy == "random_loss_combo_from_start":
+        return _train_hmonet_physics_3d(
+            model,
+            optimizer,
+            loader,
+            datasets,
+            config,
+            mode,
+            args,
+            device,
+            geometry_options,
+        )
+    if strategy != "supervised":
+        raise ValueError(
+            "3-D HMONet training_strategy must be supervised or "
+            "random_loss_combo_from_start"
+        )
     use_jacobian = bool(geometry_options.get("jacobian_loss_enabled", False))
     jacobian_method = geometry_options.setdefault(
         "jacobian_method", "finite_difference"
@@ -84,7 +331,7 @@ def train_hmonet(
     use_fd_jacobian = use_jacobian and jacobian_method == "finite_difference"
     use_normal = bool(geometry_options.get("boundary_normal_loss_enabled", False))
     target_interpolation = str(
-        geometry_options.get("target_interpolation", "curved_boundary_cell")
+        geometry_options.get("target_interpolation", "bilinear")
     ).lower()
     if target_interpolation not in {"bilinear", "curved_boundary_cell"}:
         raise ValueError(
@@ -479,16 +726,21 @@ def main(argv=None):
     parser.add_argument("--nz", type=int)
     parser.add_argument(
         "--coordinate-lift-mode",
-        choices=["legacy", "power_fourier"],
-        help="Coordinate encoding: preserve the existing layout or use power-Fourier features.",
+        choices=["legacy", "paper", "power_fourier"],
+        help="Coordinate encoding: legacy, published paper Lift-Layer, or power-Fourier.",
     )
     parser.add_argument("--coordinate-lift-max-power", type=int)
+    parser.add_argument(
+        "--coordinate-lift-q",
+        type=int,
+        help="Highest polynomial order q in the published MeshONet Lift-Layer.",
+    )
     parser.add_argument("--lr", type=float)
     parser.add_argument("--num-epochs", type=int)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device")
     parser.add_argument("--best-model-metric", choices=["dataset_mse", "training_loss"])
-    parser.add_argument("--hmonet-mapping-mode", choices=["current", "coons_residual", "corner_corrected"])
+    parser.add_argument("--hmonet-mapping-mode", choices=mapping_mode_choices())
     parser.add_argument(
         "--boundary-self-attention-enabled",
         action=argparse.BooleanOptionalAction,
@@ -618,10 +870,10 @@ def main(argv=None):
     parser.add_argument("--pi-interior-sample-count", type=int)
     parser.add_argument("--pi-fd-step", type=float, nargs="+")
     parser.add_argument(
-        "--pihmonet-mapping-mode", choices=["current", "coons_residual"]
+        "--pihmonet-mapping-mode", choices=mapping_mode_choices()
     )
     parser.add_argument(
-        "--attentionpihmonet-mapping-mode", choices=["current", "coons_residual"]
+        "--attentionpihmonet-mapping-mode", choices=mapping_mode_choices()
     )
     for prefix in ("pimeshonet", "pihmonet"):
         parser.add_argument(f"--{prefix}-pde-loss-weight", type=float)
@@ -674,6 +926,10 @@ def main(argv=None):
         if args.coordinate_lift_max_power < 1:
             parser.error("--coordinate-lift-max-power must be at least 1")
         common_model["coordinate_lift_max_power"] = args.coordinate_lift_max_power
+    if args.coordinate_lift_q is not None:
+        if args.coordinate_lift_q < 1:
+            parser.error("--coordinate-lift-q must be at least 1")
+        common_model["coordinate_lift_q"] = args.coordinate_lift_q
     overrides = {
         "num_epochs": "num_epochs",
         "seed": "seed",
@@ -828,6 +1084,16 @@ def main(argv=None):
         raise ValueError("No dataset path supplied")
     choice = args.model or config.get("model", {}).get("name", "hmonet")
     names = parse_model_selection(choice)
+    # Explicit CLI lift settings override model-specific YAML values as well
+    # as the common block, matching the 2-D training entry point.
+    for name in names:
+        selected = config.setdefault("model", {}).setdefault(name, {})
+        if args.coordinate_lift_mode is not None:
+            selected["coordinate_lift_mode"] = args.coordinate_lift_mode
+        if args.coordinate_lift_max_power is not None:
+            selected["coordinate_lift_max_power"] = args.coordinate_lift_max_power
+        if args.coordinate_lift_q is not None:
+            selected["coordinate_lift_q"] = args.coordinate_lift_q
     device_name = training.get("device", "auto")
     if device_name == "auto":
         device_name = "cuda" if torch.cuda.is_available() else "cpu"

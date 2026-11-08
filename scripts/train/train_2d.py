@@ -13,11 +13,12 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import torch
-import yaml
 from src.utils.progress import training_progress as tqdm
+from src.utils.config import load_yaml_mapping
 
 from scripts.train.model_selection import parse_model_selection
 from src.losses.physics import (
+    elliptic_grid_boundary_aware_terms,
     elliptic_grid_pde_residual,
     jacobian_positive_loss as physics_jacobian_positive_loss,
     normalized_mapping_barriers,
@@ -26,7 +27,10 @@ from src.losses.physics import (
     stencil_queries as physics_stencil_queries,
     winslow_energy_and_jacobian_barrier,
 )
-from src.numerics.differential import autograd_differential_terms
+from src.numerics.differential import (
+    autograd_differential_terms,
+    boundary_aware_stencil_queries,
+)
 from scripts.train.pi_anchor import masked_anchor_mse, tfi_anchor_targets
 from src.engine.training import (
     BatchLossTotals,
@@ -55,6 +59,7 @@ from src.engine.state import (
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.data.parametric_dataset import ParametricDataset2D, uniformly_spaced_subset
 from src.models import HMONet2D, MeshONet2D, QGHMONet2D
+from src.models.mapping_modes import mapping_mode_choices
 from src.data.mesh.sampling import (
     sample_curvature_distance_adaptive_points,
     sample_inward_boundary_band_points_2d,
@@ -307,6 +312,7 @@ def _mixed_random_loss_points(
     boundary_max_step_multiple,
     boundary_min_distance,
     boundary_max_distance,
+    fd_stencil_inside,
 ):
     """Build one shared 200/100/100-style physics point set."""
     counts = tuple(map(int, (global_count, curvature_count, boundary_band_count)))
@@ -316,7 +322,7 @@ def _mixed_random_loss_points(
         raise ValueError("random-loss derivative backend must be finite_difference or autograd")
 
     finite_difference = derivative_backend == "finite_difference"
-    margin = steps if finite_difference else 0.0
+    margin = steps if finite_difference and fd_stencil_inside else 0.0
     parts = []
     if counts[0]:
         parts.append(
@@ -343,7 +349,7 @@ def _mixed_random_loss_points(
             step = float(torch.as_tensor(steps).max().item())
             minimum = float(boundary_min_step_multiple) * step
             maximum = float(boundary_max_step_multiple) * step
-            tangent_margin = step
+            tangent_margin = step if fd_stencil_inside else 0.0
         else:
             minimum = float(boundary_min_distance)
             maximum = float(boundary_max_distance)
@@ -402,6 +408,8 @@ def _random_loss_combo(
     boundary_max_step_multiple=4.0,
     boundary_min_distance=0.0,
     boundary_max_distance=4.0e-4,
+    fd_stencil_inside=True,
+    fd_boundary_scheme="central",
 ):
     """One-stage random-point MSE/PDE/Jacobian/Winslow ablation objective.
 
@@ -434,6 +442,10 @@ def _random_loss_combo(
         winslow_weight > 0 or winslow_barrier_weight > 0
     ):
         raise ValueError("Autograd random-loss mode does not support Winslow terms")
+    if fd_boundary_scheme not in {"central", "one_sided"}:
+        raise ValueError("random-loss FD boundary scheme must be central or one_sided")
+    if derivative_backend != "finite_difference" and fd_boundary_scheme != "central":
+        raise ValueError("one_sided FD boundary scheme requires finite_difference backend")
     components = {}
     loss = torch.zeros((), device=device)
     if mse_weight > 0:
@@ -482,11 +494,17 @@ def _random_loss_combo(
                 boundary_max_step_multiple=boundary_max_step_multiple,
                 boundary_min_distance=boundary_min_distance,
                 boundary_max_distance=boundary_max_distance,
+                fd_stencil_inside=fd_stencil_inside,
             )
         else:
             margin = (
                 torch.maximum(steps, torch.full_like(steps, float(winslow_fd_step)))
-                if has_winslow else (steps if derivative_backend == "finite_difference" else 0.0)
+                if has_winslow
+                else (
+                    steps
+                    if derivative_backend == "finite_difference" and fd_stencil_inside
+                    else 0.0
+                )
             )
             centers = sample_shared_random_points(
                 len(mesh), sample_count, 2, device, margin=margin
@@ -501,7 +519,12 @@ def _random_loss_combo(
             )
             values = None
         else:
-            queries = physics_stencil_queries(centers, steps)
+            boundary_aware = fd_boundary_scheme == "one_sided"
+            queries = (
+                boundary_aware_stencil_queries(centers, steps)
+                if boundary_aware
+                else physics_stencil_queries(centers, steps)
+            )
             if has_winslow:
                 geometry_queries = jacobian_finite_difference_queries(
                     centers, winslow_fd_step
@@ -516,6 +539,11 @@ def _random_loss_combo(
                 values = predict_coordinates(
                     model, boundary, queries.flatten(-3, -2), geometries
                 ).reshape(*queries.shape)
+        boundary_residual = boundary_first = None
+        if derivative_backend == "finite_difference" and boundary_aware:
+            boundary_residual, boundary_first = elliptic_grid_boundary_aware_terms(
+                values, centers, steps
+            )
         if pde_weight > 0:
             if derivative_backend == "autograd":
                 if not scale_invariant_pde:
@@ -524,11 +552,22 @@ def _random_loss_combo(
                     )
                 pde = autograd_pde
             else:
-                pde = (
-                    elliptic_grid_scale_invariant_pde_loss(values, steps)
-                    if scale_invariant_pde
-                    else elliptic_grid_pde_residual(values, steps).square().sum(-1).mean()
-                )
+                if boundary_aware:
+                    if scale_invariant_pde:
+                        metric_trace = boundary_first.square().sum(dim=(-2, -1))
+                        exponent = 2 * values.shape[-1] - 1
+                        denominator = metric_trace.pow(exponent).clamp_min(1.0e-18)
+                        pde = (
+                            boundary_residual.square().sum(-1) / denominator
+                        ).mean()
+                    else:
+                        pde = boundary_residual.square().sum(-1).mean()
+                else:
+                    pde = (
+                        elliptic_grid_scale_invariant_pde_loss(values, steps)
+                        if scale_invariant_pde
+                        else elliptic_grid_pde_residual(values, steps).square().sum(-1).mean()
+                    )
             loss = loss + float(pde_weight) * pde
             components["loss_pde"] = pde
         if jacobian_weight > 0:
@@ -538,9 +577,15 @@ def _random_loss_combo(
                     float(jacobian_minimum) - determinant
                 ).square().mean()
             else:
-                jacobian = physics_jacobian_positive_loss(
-                    values, steps, jacobian_minimum
-                )
+                if boundary_aware:
+                    determinant = torch.linalg.det(boundary_first)
+                    jacobian = torch.relu(
+                        float(jacobian_minimum) - determinant
+                    ).square().mean()
+                else:
+                    jacobian = physics_jacobian_positive_loss(
+                        values, steps, jacobian_minimum
+                    )
             loss = loss + float(jacobian_weight) * jacobian
             components["jacobian"] = jacobian
         if normalized_jacobian_weight > 0 or singular_value_weight > 0:
@@ -557,14 +602,25 @@ def _random_loss_combo(
                     )
                 )
             else:
-                normalized_jacobian, singular_value = normalized_mapping_barriers(
-                    values,
-                    steps,
-                    characteristic_length,
-                    jacobian_minimum=normalized_jacobian_minimum,
-                    singular_value_minimum=singular_value_minimum,
-                    reduction=barrier_reduction,
-                )
+                if boundary_aware:
+                    normalized_jacobian, singular_value = (
+                        normalized_mapping_barriers_from_jacobian(
+                            boundary_first,
+                            characteristic_length,
+                            jacobian_minimum=normalized_jacobian_minimum,
+                            singular_value_minimum=singular_value_minimum,
+                            reduction=barrier_reduction,
+                        )
+                    )
+                else:
+                    normalized_jacobian, singular_value = normalized_mapping_barriers(
+                        values,
+                        steps,
+                        characteristic_length,
+                        jacobian_minimum=normalized_jacobian_minimum,
+                        singular_value_minimum=singular_value_minimum,
+                        reduction=barrier_reduction,
+                    )
             if normalized_jacobian_weight > 0:
                 loss = loss + float(normalized_jacobian_weight) * normalized_jacobian
                 components["normalized_jacobian"] = normalized_jacobian
@@ -647,7 +703,7 @@ def train_hmonet(
         raise ValueError("pde_fd_step must contain two values in (0, 0.5)")
     use_normal = bool(geometry_options.get("boundary_normal_loss_enabled", False))
     target_interpolation = str(
-        geometry_options.get("target_interpolation", "curved_boundary_cell")
+        geometry_options.get("target_interpolation", "bilinear")
     ).lower()
     if target_interpolation not in {"bilinear", "curved_boundary_cell"}:
         raise ValueError(
@@ -703,7 +759,7 @@ def train_hmonet(
         geometry_options.setdefault("physics_jacobian_enabled", False)
     )
     physics_jacobian_weight = float(
-        geometry_options.setdefault("physics_jacobian_loss_weight", 0.1)
+        geometry_options.get("physics_jacobian_loss_weight", 0.0)
     )
     physics_jacobian_minimum = float(
         geometry_options.setdefault("physics_jacobian_minimum", 1e-3)
@@ -715,7 +771,7 @@ def train_hmonet(
         geometry_options.setdefault("fixed_mse_sample_count", 400)
     )
     fixed_mse_weight = float(geometry_options.get("fixed_mse_loss_weight", 1.0))
-    random_mse_weight = float(geometry_options.get("random_mse_loss_weight", 1.0))
+    random_mse_weight = float(geometry_options.get("random_mse_loss_weight", 0.0))
     random_loss_count = int(geometry_options.get("random_loss_sample_count", 400))
     random_loss_derivative_backend = str(
         geometry_options.get("random_loss_derivative_backend", "finite_difference")
@@ -744,6 +800,12 @@ def train_hmonet(
     random_loss_boundary_max_distance = float(
         geometry_options.get("random_loss_boundary_band_max_distance", 4.0e-4)
     )
+    random_loss_fd_stencil_inside = bool(
+        geometry_options.get("random_loss_fd_stencil_inside", True)
+    )
+    random_loss_fd_boundary_scheme = str(
+        geometry_options.get("random_loss_fd_boundary_scheme", "central")
+    ).lower()
     winslow_weight = float(geometry_options.get("physics_winslow_loss_weight", 0.0))
     winslow_barrier_weight = float(geometry_options.get("physics_winslow_jacobian_barrier_weight", 0.0))
     winslow_minimum = float(geometry_options.get("physics_winslow_jacobian_minimum", 1e-4))
@@ -769,6 +831,10 @@ def train_hmonet(
     if random_loss_derivative_backend not in {"finite_difference", "autograd"}:
         raise ValueError(
             "random_loss_derivative_backend must be finite_difference or autograd"
+        )
+    if random_loss_fd_boundary_scheme not in {"central", "one_sided"}:
+        raise ValueError(
+            "random_loss_fd_boundary_scheme must be central or one_sided"
         )
     if barrier_reduction not in {"active", "all"}:
         raise ValueError("physics_barrier_reduction must be active or all")
@@ -982,6 +1048,8 @@ def train_hmonet(
                             boundary_max_step_multiple=random_loss_boundary_max_steps,
                             boundary_min_distance=random_loss_boundary_min_distance,
                             boundary_max_distance=random_loss_boundary_max_distance,
+                            fd_stencil_inside=random_loss_fd_stencil_inside,
+                            fd_boundary_scheme=random_loss_fd_boundary_scheme,
                             target_interpolation=target_interpolation,
                             point_loss_weighting=point_loss_weighting,
                             idw_query_chunk_size=int(geometry_options.get("idw_query_chunk_size", 128)),
@@ -1604,10 +1672,15 @@ def main(argv=None):
     parser.add_argument("--trunk-dim", type=int)
     parser.add_argument(
         "--coordinate-lift-mode",
-        choices=["legacy", "power_fourier"],
-        help="Coordinate encoding: preserve the existing layout or use power-Fourier features.",
+        choices=["legacy", "paper", "power_fourier"],
+        help="Coordinate encoding: legacy, published paper Lift-Layer, or power-Fourier.",
     )
     parser.add_argument("--coordinate-lift-max-power", type=int)
+    parser.add_argument(
+        "--coordinate-lift-q",
+        type=int,
+        help="Highest polynomial order q in the published MeshONet Lift-Layer.",
+    )
     parser.add_argument("--adjust-hidden-dim", type=int)
     parser.add_argument("--adjust-hidden-layer-num", type=int)
     parser.add_argument("--branch-hidden-dim", type=int)
@@ -1622,7 +1695,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device")
     parser.add_argument("--best-model-metric", choices=["dataset_mse", "training_loss"])
-    parser.add_argument("--hmonet-mapping-mode", choices=["current", "coons_residual", "corner_corrected"])
+    parser.add_argument("--hmonet-mapping-mode", choices=mapping_mode_choices())
     parser.add_argument(
         "--boundary-self-attention-enabled",
         action=argparse.BooleanOptionalAction,
@@ -1741,6 +1814,24 @@ def main(argv=None):
     parser.add_argument("--hmonet-random-loss-boundary-band-min-distance", type=float)
     parser.add_argument("--hmonet-random-loss-boundary-band-max-distance", type=float)
     parser.add_argument(
+        "--hmonet-random-loss-fd-stencil-inside",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Keep finite-difference centers at least one PDE step inside the "
+            "logical domain. Disable to sample the complete open domain and "
+            "allow centered-difference queries outside [0, 1]."
+        ),
+    )
+    parser.add_argument(
+        "--hmonet-random-loss-fd-boundary-scheme",
+        choices=["central", "one_sided"],
+        help=(
+            "Use centered differences everywhere or switch to second-order "
+            "inward one-sided differences for centers within one PDE step of a face."
+        ),
+    )
+    parser.add_argument(
         "--pde-loss-enabled", action=argparse.BooleanOptionalAction, default=None
     )
     parser.add_argument("--pde-loss-weight", type=float)
@@ -1847,10 +1938,10 @@ def main(argv=None):
     parser.add_argument("--pi-interior-sample-count", type=int)
     parser.add_argument("--pi-fd-step", type=float, nargs="+")
     parser.add_argument(
-        "--pihmonet-mapping-mode", choices=["current", "coons_residual"]
+        "--pihmonet-mapping-mode", choices=mapping_mode_choices()
     )
     parser.add_argument(
-        "--attentionpihmonet-mapping-mode", choices=["current", "coons_residual"]
+        "--attentionpihmonet-mapping-mode", choices=mapping_mode_choices()
     )
     for prefix in ("pimeshonet", "pihmonet"):
         parser.add_argument(f"--{prefix}-pde-loss-weight", type=float)
@@ -1894,7 +1985,7 @@ def main(argv=None):
     parser.add_argument("--attentionpihmonet-boundary-physics-tangential-margin", type=float)
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[2]
-    config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    config = load_yaml_mapping(args.config)
     remove_deprecated_projection_config(config)
     training = config.setdefault("training", {})
     if args.nx:
@@ -1910,6 +2001,7 @@ def main(argv=None):
         "branch_dim",
         "trunk_dim",
         "coordinate_lift_max_power",
+        "coordinate_lift_q",
         "adjust_hidden_dim",
         "adjust_hidden_layer_num",
         "branch_hidden_dim",
@@ -2116,6 +2208,8 @@ def main(argv=None):
         "hmonet_random_loss_boundary_band_max_step_multiple": "random_loss_boundary_band_max_step_multiple",
         "hmonet_random_loss_boundary_band_min_distance": "random_loss_boundary_band_min_distance",
         "hmonet_random_loss_boundary_band_max_distance": "random_loss_boundary_band_max_distance",
+        "hmonet_random_loss_fd_stencil_inside": "random_loss_fd_stencil_inside",
+        "hmonet_random_loss_fd_boundary_scheme": "random_loss_fd_boundary_scheme",
         "hmonet_physics_jacobian_enabled": "physics_jacobian_enabled",
     }
     for source, target in hmonet_strategy_overrides.items():

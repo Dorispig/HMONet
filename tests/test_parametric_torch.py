@@ -257,7 +257,7 @@ class TestParametricTorch:
                 else [box_boundary(), cylindrical_domain_with_airfoil_hole()]
             )
             klass = HMONet2D if dimension == 2 else HMONet3D
-            for mode in ("current", "coons_residual"):
+            for mode in ("rational_affine", "coons_residual"):
                 model = klass(
                     *([3] * dimension),
                     trunk_dim=dimension,

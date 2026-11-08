@@ -122,7 +122,7 @@ class TestTensorCurve:
     def test_analytic_normal_loss_matches_autograd_reference(self):
         from scripts.train.training_common import boundary_normal_loss
 
-        model, shape = small_model(2, "current")
+        model, shape = small_model(2, "rational_affine")
         model = model.double().train()
         objects = [boundary(2, 0.2), boundary(2, 0.3)]
         packed = BoundaryCurveSet2D.batch(objects, dtype=torch.float64)
@@ -149,7 +149,7 @@ class TestTensorCurve:
         torch.testing.assert_close(old_gradient, new_gradient, rtol=1e-8, atol=1e-8)
 
     def test_four_formulas_bypass_grouping_and_train(self):
-        for mapping in ("current", "coons_residual"):
+        for mapping in ("rational_affine", "coons_residual"):
             model, shape = small_model(2, mapping)
             model = model.double().train()
             objects = [boundary(2, 0.2), boundary(2, 0.3)]

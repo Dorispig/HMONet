@@ -17,7 +17,7 @@ class TestEvaluationOptimization:
             query_batch_size=11, inference_warmup_runs=1, inference_timing_repeats=2
         )
         for dimension in (2, 3):
-            for mapping in ("current", "coons_residual"):
+            for mapping in ("rational_affine", "coons_residual"):
                 model, shape = small_model(dimension, mapping)
                 geometries = [boundary(dimension, t) for t in (0.2, 0.32)]
                 q = logical_grid((4,) * dimension)
@@ -48,7 +48,7 @@ class TestEvaluationOptimization:
         for device_name in devices:
             device = torch.device(device_name)
             for dimension in (2, 3):
-                for mapping in ("current", "coons_residual"):
+                for mapping in ("rational_affine", "coons_residual"):
                     model, shape = small_model(dimension, mapping)
                     model.to(device)
                     geometry = boundary(dimension, 0.3)

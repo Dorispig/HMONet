@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e2_4_jacobian_tau0_05
+variants: [{name: e2_4_jacobian_tau0_05, value: 0.05, overrides: [--hmonet-physics-normalized-jacobian-minimum, "0.05"]}]

@@ -6,7 +6,7 @@
 
 ```bash
 # 二维
-python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case air_t_ext_1_500_21_21 --values 0.52,0.55 --grid-shapes 101x101,201x201,401x401 --methods tfi,pde,meshonet,pimeshonet,hmonet
+python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case air_t_ext_1_500_21_21 --values 0.62,0.65 --grid-shapes 101x101,201x201,401x401 --methods tfi,pde,meshonet,pimeshonet,hmonet
 
 # 三维
 python scripts/evaluate/evaluate_3d.py --config configs/3D/evaluate.yaml --case sch_r_ext_0_1000_11_31_11 --grid-shapes 21x21x21 --methods tfi,pde,meshonet,hmonet

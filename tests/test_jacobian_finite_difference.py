@@ -126,7 +126,7 @@ class TestJacobianFiniteDifference:
                     f"scripts.train.train_{dim}d"
                 ).train_hmonet
                 for method in ("finite_difference", "autograd"):
-                    for mapping in ("current", "coons_residual"):
+                    for mapping in ("rational_affine", "coons_residual"):
                         config = dict(
                             model=dict(
                                 common={**SMALL_MODEL, "trunk_dim": dim},

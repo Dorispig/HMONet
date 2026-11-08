@@ -12,10 +12,41 @@ from itertools import combinations
 import torch
 
 from src.numerics.differential import (
+    boundary_aware_finite_difference_derivatives,
     finite_difference_derivatives,
     stencil_offsets as _stencil_offsets,
     stencil_queries as _stencil_queries,
 )
+
+
+def elliptic_grid_pde_residual_from_derivatives(first, second, mixed):
+    """Compute the inverse elliptic residual from precomputed derivatives."""
+    dimension = first.shape[-2]
+    if dimension not in (2, 3) or second.shape[-2] != dimension:
+        raise ValueError("first and second derivatives must describe a 2-D or 3-D map")
+    metric = first @ first.transpose(-1, -2)
+    if dimension == 2:
+        cofactors = torch.stack(
+            [
+                torch.stack([metric[..., 1, 1], -metric[..., 0, 1]], -1),
+                torch.stack([-metric[..., 0, 1], metric[..., 0, 0]], -1),
+            ],
+            -2,
+        )
+    else:
+        g11, g22, g33 = metric[..., 0, 0], metric[..., 1, 1], metric[..., 2, 2]
+        g12, g13, g23 = metric[..., 0, 1], metric[..., 0, 2], metric[..., 1, 2]
+        cofactors = torch.stack(
+            [
+                torch.stack([g22*g33-g23.square(), g13*g23-g12*g33, g12*g23-g13*g22], -1),
+                torch.stack([g13*g23-g12*g33, g11*g33-g13.square(), g12*g13-g11*g23], -1),
+                torch.stack([g12*g23-g13*g22, g12*g13-g11*g23, g11*g22-g12.square()], -1),
+            ], -2,
+        )
+    residual = (cofactors.diagonal(dim1=-2, dim2=-1).unsqueeze(-1) * second).sum(-2)
+    for value, (axis_i, axis_j) in zip(mixed, combinations(range(dimension), 2)):
+        residual = residual + 2 * cofactors[..., axis_i, axis_j, None] * value
+    return residual
 
 
 def stencil_offsets(dimension, *, device=None, dtype=None):
@@ -43,51 +74,34 @@ def elliptic_grid_pde_residual(values, steps):
     minus = values[..., 2 : 1 + 2 * dimension : 2, :]
     first = (plus - minus) / (2 * h[:, None])
     second = (plus - 2 * center.unsqueeze(-2) + minus) / h[:, None].square()
-    metric = first @ first.transpose(-1, -2)
-    if dimension == 2:
-        cofactors = torch.stack(
-            [
-                torch.stack([metric[..., 1, 1], -metric[..., 0, 1]], -1),
-                torch.stack([-metric[..., 0, 1], metric[..., 0, 0]], -1),
-            ],
-            -2,
-        )
-    else:
-        # Use the same metric-to-cofactor construction as in 2-D. The
-        # resulting matrix is adj(metric) and supplies the coefficients of
-        # the pure and mixed second derivatives.
-        g11 = metric[..., 0, 0]
-        g22 = metric[..., 1, 1]
-        g33 = metric[..., 2, 2]
-        g12 = metric[..., 0, 1]
-        g13 = metric[..., 0, 2]
-        g23 = metric[..., 1, 2]
-        cofactors = torch.stack(
-            [
-                torch.stack(
-                    [g22 * g33 - g23.square(), g13 * g23 - g12 * g33,
-                     g12 * g23 - g13 * g22], -1
-                ),
-                torch.stack(
-                    [g13 * g23 - g12 * g33, g11 * g33 - g13.square(),
-                     g12 * g13 - g11 * g23], -1
-                ),
-                torch.stack(
-                    [g12 * g23 - g13 * g22, g12 * g13 - g11 * g23,
-                     g11 * g22 - g12.square()], -1
-                ),
-            ],
-            -2,
-        )
-    residual = (cofactors.diagonal(dim1=-2, dim2=-1).unsqueeze(-1) * second).sum(-2)
+    mixed_values = []
     start = 1 + 2 * dimension
     for offset, (i, j) in enumerate(combinations(range(dimension), 2)):
         pp, pm, mp, mm = values[
             ..., start + 4 * offset : start + 4 * offset + 4, :
         ].unbind(-2)
         mixed = (pp - pm - mp + mm) / (4 * h[i] * h[j])
-        residual = residual + 2 * cofactors[..., i, j, None] * mixed
-    return residual
+        mixed_values.append(mixed)
+    return elliptic_grid_pde_residual_from_derivatives(first, second, mixed_values)
+
+
+def elliptic_grid_boundary_aware_terms(values, centers, steps):
+    """Return residual and derivatives for the inward boundary-aware stencil."""
+    first, second, mixed = boundary_aware_finite_difference_derivatives(
+        values, centers, steps
+    )
+    return elliptic_grid_pde_residual_from_derivatives(first, second, mixed), first
+
+
+def elliptic_grid_boundary_aware_scale_invariant_pde_loss(
+    values, centers, steps, epsilon=1e-18
+):
+    """Scale-invariant elliptic loss using inward one-sided boundary rules."""
+    residual, first = elliptic_grid_boundary_aware_terms(values, centers, steps)
+    metric_trace = first.square().sum(dim=(-2, -1))
+    exponent = 2 * values.shape[-1] - 1
+    denominator = metric_trace.pow(exponent).clamp_min(float(epsilon))
+    return (residual.square().sum(-1) / denominator).mean()
 
 
 def jacobian_positive_loss(values, steps, minimum=1e-4):

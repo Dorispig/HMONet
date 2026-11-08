@@ -18,6 +18,8 @@ import numpy as np
 import torch
 import yaml
 
+from src.models.mapping_modes import RATIONAL_AFFINE, normalize_mapping_mode
+
 from src.engine.training import (
     FIXED_GRID_MSE_SCALE,
     calculate_fixed_grid_metrics,
@@ -82,6 +84,12 @@ def prepare_training_config(config, name, args):
     if enabled is not None:
         training["plateau_enabled"] = enabled
     specific = config.setdefault(f"{name}_training", {})
+    # A shared training file can contain supervised and self-supervised models.
+    # Let each model select the metric appropriate to its own objective without
+    # changing the effective settings of the other models in the same run.
+    for key in ("best_model_metric", "plateau_metric"):
+        if key in specific:
+            training[key] = specific[key]
     for key in (
         "check_plateau_stability",
         "check_plateau_absolute_stability",
@@ -342,8 +350,10 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
         }[name]
     )
     if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
-        mapping = (
-            config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
+        mapping = normalize_mapping_mode(
+            config.get("model", {}).get(name, {}).get(
+                "hmonet_mapping_mode", RATIONAL_AFFINE
+            )
         )
         folder = folder / mapping
     return folder / (run_id or datetime.now().strftime("%Y%m%d_%H%M"))
@@ -361,8 +371,10 @@ def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
         / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
     )
     if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
-        folder = folder / config.get("model", {}).get(name, {}).get(
-            "hmonet_mapping_mode", "current"
+        folder = folder / normalize_mapping_mode(
+            config.get("model", {}).get(name, {}).get(
+                "hmonet_mapping_mode", RATIONAL_AFFINE
+            )
         )
     return folder / run_id
 
@@ -385,8 +397,10 @@ def config_archive_directory(args, config, name, run_id):
         }[name]
     )
     if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
-        directory /= (
-            config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
+        directory /= normalize_mapping_mode(
+            config.get("model", {}).get(name, {}).get(
+                "hmonet_mapping_mode", RATIONAL_AFFINE
+            )
         )
     return directory / run_id
 
@@ -431,8 +445,10 @@ def create_run_directories(args, config, mode, name, dimension):
         / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
     )
     if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
-        mapping = (
-            config.get("model", {}).get(name, {}).get("hmonet_mapping_mode", "current")
+        mapping = normalize_mapping_mode(
+            config.get("model", {}).get(name, {}).get(
+                "hmonet_mapping_mode", RATIONAL_AFFINE
+            )
         )
         output_parent = output_parent / mapping
     checkpoint_parent = checkpoint_directory(
@@ -1353,7 +1369,9 @@ class TrainingState:
         h = self.config.get(f"{self.name}_training", {})
         hmodel = self.config.get("model", {}).get(self.name, {})
         mapping = (
-            hmodel.get("hmonet_mapping_mode", "current")
+            normalize_mapping_mode(
+                hmodel.get("hmonet_mapping_mode", RATIONAL_AFFINE)
+            )
             if self.name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet")
             else None
         )
@@ -1452,7 +1470,7 @@ class TrainingState:
                     ("pde_loss_weight", 1e-4),
                     ("pde_interior_sample_count", 128),
                     ("pde_fd_step", None),
-                    ("target_interpolation", "curved_boundary_cell"),
+                    ("target_interpolation", "bilinear"),
                     ("idw_query_chunk_size", 512),
                     ("idw_support_chunk_size", 2048),
                     ("boundary_normal_loss_enabled", False),
@@ -1490,6 +1508,8 @@ class TrainingState:
                     ("random_loss_boundary_band_max_step_multiple", 4.0),
                     ("random_loss_boundary_band_min_distance", 0.0),
                     ("random_loss_boundary_band_max_distance", 4e-4),
+                    ("random_loss_fd_stencil_inside", True),
+                    ("random_loss_fd_boundary_scheme", "central"),
                 )
             },
             "dataset": self.mode,

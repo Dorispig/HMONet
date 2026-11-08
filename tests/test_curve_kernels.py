@@ -115,7 +115,7 @@ class TestCurveKernel:
                     for t in (0.2, 0.3)
                 ]
             )
-            for mapping in ("current", "coons_residual"):
+            for mapping in ("rational_affine", "coons_residual"):
                 model, shape = small_model(dimension, mapping)
                 model = model.cuda().train()
                 b = torch.tensor(
@@ -160,7 +160,7 @@ class TestCurveKernel:
                 if dimension == 2
                 else cylindrical_domain_with_airfoil_hole(thickness=0.3)
             )
-            model, shape = small_model(dimension, "current")
+            model, shape = small_model(dimension, "rational_affine")
             model = model.cuda()
             b = torch.tensor(
                 sample_boundary(geometry, shape), device="cuda", dtype=torch.float32

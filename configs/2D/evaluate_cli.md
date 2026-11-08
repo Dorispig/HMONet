@@ -113,9 +113,9 @@ python scripts/evaluate/evaluate_2d.py --case air_t_int_0_1000_21_20 --values 0.
 - `--hmonet-checkpoint "<HMONet checkpoint文件路径>"`：指定 HMONet 权重，覆盖 evaluation.hmonet_checkpoint。
 - `--meshonet-checkpoint "<MeshONet checkpoint文件路径>"`：指定 MeshONet 权重，覆盖 evaluation.meshonet_checkpoint。
 - `--checkpoint "<checkpoint文件路径>"`：给唯一选中的网络指定权重；可同时选择 TFI/PDE，但不能同时选择两个网络。
-- `--hmonet-mapping-mode current`：覆盖 evaluation.hmonet_mapping_mode；可选 current、coons_residual、corner_corrected、coons、both。
+- `--hmonet-mapping-mode rational_affine`：覆盖 evaluation.hmonet_mapping_mode；可选 rational_affine、coons_residual、corner_corrected_affine、coons、both。
 
-映射说明：coons 是 coons_residual 的别名；both 分别使用匹配的 current/coons_residual checkpoint 评估并输出。
+映射说明：coons 是 coons_residual 的别名；both 分别使用匹配的 rational_affine/coons_residual checkpoint 评估并输出。
 
 - `--hmonet-boundary-projection none`：覆盖 evaluation.hmonet_boundary_projection；可选 none、direct、inverse_distance、idw。
 - `--meshonet-boundary-projection none`：覆盖 evaluation.meshonet_boundary_projection；可选 none、direct、inverse_distance、idw，默认 none。
@@ -285,7 +285,7 @@ CLI 范围说明：以上涵盖当前二维解析器的全部显式参数及正/
 ## PI-HMONet 与四模型选择
 
 现支持 `attentionpihmonet`；`both` 保持 HMONet＋MeshONet，`all` 选择全部五种网络模型。
-PI-HMONet 训练使用 `--pihmonet-mapping-mode current/coons_residual`；评估还可设为 `both`。
+PI-HMONet 训练使用 `--pihmonet-mapping-mode rational_affine/coons_residual`；评估还可设为 `both`。
 PI-HMONet 专属覆盖包括 pihmonet-pde-loss-weight、
 pihmonet-interior-sample-count、pihmonet-fd-step、
 pihmonet-jacobian-loss-weight 和 pihmonet-jacobian-minimum。
@@ -294,6 +294,6 @@ PI-MeshONet 同样支持 `--pimeshonet-*` 前缀的前四项；专属覆盖优�
 
 Attention-PI-HMONet 使用 `--methods tfi,pde,attentionpihmonet`，可通过
 `--attentionpihmonet-checkpoint` 指定检查点，或通过
-`--attentionpihmonet-mapping-mode current/coons_residual` 选择内部映射。
+`--attentionpihmonet-mapping-mode rational_affine/coons_residual` 选择内部映射。
 训练评估串联时，模型和映射由 `--train-args` 指定，评估自动使用本次模型。
 完整流程、公式及二维三维命令示例见项目中的 `scripts/train/pi_models.md`。

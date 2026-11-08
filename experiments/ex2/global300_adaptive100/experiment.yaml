@@ -1,0 +1,16 @@
+schema_version: 1
+experiment: global300_adaptive100
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: global300_adaptive100
+    value: 300_uniform_plus_100_curvature_adaptive
+    overrides:
+      - --hmonet-random-loss-sampling-mode
+      - mixed_boundary
+      - --hmonet-random-loss-global-sample-count
+      - "300"
+      - --hmonet-random-loss-curvature-sample-count
+      - "100"
+      - --hmonet-random-loss-boundary-band-sample-count
+      - "0"

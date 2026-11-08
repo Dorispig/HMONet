@@ -36,7 +36,7 @@ solver:
 
 case_overrides:
   air_t_ext_1_500_21_21:
-    values: [0.52, 0.55]
+    values: [0.62, 0.65]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     # Optional [xmin, xmax, ymin, ymax] for the high-curvature error zoom.
     zoom_bounds: null

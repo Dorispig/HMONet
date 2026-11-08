@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e2_pde_jacobian
+variants: [{name: e2_pde_jacobian, value: normalized_pde_plus_jacobian, overrides: [--hmonet-physics-singular-value-loss-weight, "0"]}]

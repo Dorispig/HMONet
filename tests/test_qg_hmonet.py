@@ -1,4 +1,4 @@
-"""QG-HMONet and Ex11 architecture-switch regression tests."""
+"""QG-HMONet and architecture-switch regression tests."""
 
 from pathlib import Path
 
@@ -21,7 +21,7 @@ SMALL = dict(
     output_dim=16,
     branch_mlp_hidden_dim=8,
     branch_mlp_hidden_layer_num=1,
-    hmonet_mapping_mode="corner_corrected",
+    hmonet_mapping_mode="corner_corrected_affine",
 )
 
 
@@ -38,7 +38,7 @@ def perimeter(n):
     )
 
 
-def test_ex11_switches_change_graph_without_changing_contract():
+def test_architecture_switches_change_graph_without_changing_contract():
     boundary = perimeter(5).unsqueeze(0)
     query = torch.rand(1, 17)
     for option in (
@@ -94,11 +94,11 @@ def test_qg_hmonet_3d_forward_contract():
     )
 
 
-def test_ex11_declared_models_forward_and_backward_with_production_dimensions():
-    """Exercise every Ex11 architecture with its actual baseline dimensions."""
+def test_declared_models_forward_and_backward_with_production_dimensions():
+    """Exercise every retained architecture with its actual baseline dimensions."""
     root = Path(__file__).resolve().parents[1]
     config = yaml.safe_load(
-        (root / "experiments/ex11/baseline/experiment.yaml").read_text(encoding="utf-8")
+        (root / "experiments/ex3/baseline/experiment.yaml").read_text(encoding="utf-8")
     )
     options = dict(config["model"]["common"])
     options.update(config["model"]["hmonet"])

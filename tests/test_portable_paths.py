@@ -26,7 +26,7 @@ class TestPortableProjectPath:
                 / "checkpoints"
                 / "dataset"
                 / "HMONet"
-                / "current"
+                / "rational_affine"
                 / "best.pt"
             )
             assert (resolve_project_path(external)) == (external.resolve())

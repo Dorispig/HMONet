@@ -14,6 +14,7 @@ __all__ = [
     "BoundarySelfAttentionEncoder3D",
     "coordinate_lift_input_dim",
     "normalize_coordinate_lift_mode",
+    "paper_coordinate_lift",
     "power_fourier_lift",
     "ModifiedGatedMLP",
     "QueryBoundaryCrossAttention",
@@ -21,7 +22,7 @@ __all__ = [
 ]
 
 
-COORDINATE_LIFT_MODES = frozenset({"legacy", "power_fourier"})
+COORDINATE_LIFT_MODES = frozenset({"legacy", "paper", "power_fourier"})
 
 
 def normalize_coordinate_lift_mode(mode):
@@ -33,7 +34,9 @@ def normalize_coordinate_lift_mode(mode):
     return normalized
 
 
-def coordinate_lift_input_dim(dimension, configured_dim, mode, max_power):
+def coordinate_lift_input_dim(
+    dimension, configured_dim, mode, max_power, paper_q=None
+):
     """Resolve the trunk input width without changing the legacy encoding."""
     normalized = normalize_coordinate_lift_mode(mode)
     power = int(max_power)
@@ -41,7 +44,34 @@ def coordinate_lift_input_dim(dimension, configured_dim, mode, max_power):
         raise ValueError("coordinate_lift_max_power must be at least 1")
     if normalized == "legacy":
         return int(configured_dim)
+    if normalized == "paper":
+        q = int(max_power if paper_q is None else paper_q)
+        if q < 1:
+            raise ValueError("coordinate_lift_q must be at least 1")
+        # Per coordinate: sin(s), cos(s), s, s^2, ..., s^q.
+        return int(dimension) * (q + 2)
     return 3 * int(dimension) * power
+
+
+def paper_coordinate_lift(coordinates, q):
+    """MeshONet/PI-MeshONet Lift-Layer from the published formula.
+
+    For coordinates ``(xi, eta)`` this returns
+    ``[sin(xi), cos(xi), sin(eta), cos(eta), xi, eta, ..., xi^q, eta^q]``.
+    The same axis-wise construction extends directly to three dimensions.
+    """
+    order = int(q)
+    if order < 1:
+        raise ValueError("coordinate_lift_q must be at least 1")
+    trigonometric = []
+    for axis in coordinates.unbind(dim=-1):
+        trigonometric.extend((torch.sin(axis), torch.cos(axis)))
+    polynomial = [
+        coordinates[..., axis].pow(degree)
+        for degree in range(1, order + 1)
+        for axis in range(coordinates.shape[-1])
+    ]
+    return torch.stack((*trigonometric, *polynomial), dim=-1)
 
 
 def power_fourier_lift(coordinates, max_power):

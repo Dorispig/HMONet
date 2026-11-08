@@ -150,10 +150,14 @@ def evaluation_identity_from_record(record, options):
         "grid_shape": record.get("grid_shape"),
         "requested_methods": record.get("requested_methods"),
         "skipped_methods": record.get("skipped_methods", []),
-        "hmonet_mapping_mode": record.get("hmonet_mapping_mode", "current"),
-        "pihmonet_mapping_mode": record.get("pihmonet_mapping_mode", "current"),
+        "hmonet_mapping_mode": record.get(
+            "hmonet_mapping_mode", "rational_affine"
+        ),
+        "pihmonet_mapping_mode": record.get(
+            "pihmonet_mapping_mode", "rational_affine"
+        ),
         "attentionpihmonet_mapping_mode": record.get(
-            "attentionpihmonet_mapping_mode", "current"
+            "attentionpihmonet_mapping_mode", "rational_affine"
         ),
         "checkpoint_sha256": checkpoint_sha256,
         "quality_revision": "endpoint-contact-v2",
@@ -235,9 +239,9 @@ def mapping_combinations(options):
         value = options[key]
         if value == "both":
             return (
-                ("current", "coons_residual")
+                ("rational_affine", "coons_residual")
                 if method in options["methods"]
-                else ("current",)
+                else ("rational_affine",)
             )
         return (value,)
 

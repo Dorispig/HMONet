@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e4_1_svd_tau0_001
+variants: [{name: e4_1_svd_tau0_001, value: 0.001, overrides: [--hmonet-physics-singular-value-minimum, "0.001"]}]

@@ -1,14 +1,14 @@
-# ex4：精简 HMONet 的训练策略组合消融
+# PDE求导区域与求导方式消融
 
-本套实验以 ex5 的 compact_178k 结构为基础，将四组隐藏层宽度统一为64；
-在41x20输入下共有152522个可训练参数。普通双线性结果由只读基线提供；
-实验只运行Jacobian损失、曲边目标插值以及二者同时启用。网络容量固定，其他训练和评估
-参数继承 `baseline/experiment.yaml` 与 `baseline/evaluate.yaml`。
+基线直接继承当前正式二维配置（CCAP、归一化 PDE/Jacobian/SVD 损失及 200 个全局均匀点 + 200 个曲率—边界距离自适应点）。三个变体只覆盖求导区域或求导后端；旧监督训练与曲边插值字段已移除。
 
-```powershell
-python scripts/experiments/run.py ex4 baseline --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 401 --tag paper_v1
-python scripts/experiments/run.py ex4 jacobian_interpolation --dataset air_t_ext_0_1000_41_20 --seed 20260802 20260917 20261031 --grids 101 201 401 --tag paper_v1
+- `baseline`：中心限制在距逻辑边界至少一个差分步长处；
+- `e1_fd_full_open_domain`：中心覆盖整个开域，中心差分查询允许越界；
+- `e2_autograd`：使用自动微分；
+- `e3_fd_one_sided_boundary`：边界一个步长内使用向内二阶单边差分。
+
+```bash
+python scripts/experiments/run.py ex4 baseline e1_fd_full_open_domain e2_autograd e3_fd_one_sided_boundary --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
 ```
 
-也可合并为 `python scripts/experiments/run.py ex4 baseline jacobian_interpolation ...`。未显式写 `baseline` 时不会自动运行基线。相同配置
-和随机种子再次运行时会复用完整训练与评估，不会重复训练。
+运行全部变体时将实验列表替换为`baseline all`。

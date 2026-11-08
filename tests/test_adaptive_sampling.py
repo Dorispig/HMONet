@@ -5,6 +5,8 @@ import torch
 from src.data.mesh.sampling import (
     sample_curvature_distance_adaptive_points,
     sample_inward_boundary_band_points_2d,
+    sample_surface_curvature_adaptive_points,
+    structured_boundary_surface_curvature,
 )
 from src.utils.math import compute_discrete_boundary_curvature
 
@@ -69,3 +71,39 @@ class TestAdaptiveSampling:
         assert bool(((points >= 0.01) & (points <= 0.99)).all())
         distance = torch.minimum(points, 1.0 - points).amin(dim=-1)
         assert bool(((distance >= 0.01) & (distance <= 0.04)).all())
+
+    def test_3d_surface_sampler_is_batched_and_respects_fd_margin(self):
+        nx, ny, nz = 4, 5, 3
+        zeta, eta, xi = torch.meshgrid(
+            torch.linspace(0, 1, nz),
+            torch.linspace(0, 1, ny),
+            torch.linspace(0, 1, nx),
+            indexing="ij",
+        )
+        full = torch.stack((xi, eta, zeta), -1)
+        mask = torch.zeros((nz, ny, nx), dtype=torch.bool)
+        mask[[0, -1], :, :] = True
+        mask[:, [0, -1], :] = True
+        mask[:, :, [0, -1]] = True
+        boundary = full[mask].unsqueeze(0).repeat(2, 1, 1)
+        curvature, computational = structured_boundary_surface_curvature(
+            boundary, (nx, ny, nz)
+        )
+        assert curvature.shape[0] == 2
+        assert computational.shape == (curvature.shape[1], 3)
+        torch.testing.assert_close(curvature, torch.zeros_like(curvature))
+
+        torch.manual_seed(23)
+        points = sample_surface_curvature_adaptive_points(
+            curvature,
+            computational,
+            64,
+            margin=torch.tensor([0.02, 0.03, 0.04]),
+        )
+        assert points.shape == (2, 64, 3)
+        assert bool((points[..., 0] >= 0.02).all())
+        assert bool((points[..., 0] <= 0.98).all())
+        assert bool((points[..., 1] >= 0.03).all())
+        assert bool((points[..., 1] <= 0.97).all())
+        assert bool((points[..., 2] >= 0.04).all())
+        assert bool((points[..., 2] <= 0.96).all())

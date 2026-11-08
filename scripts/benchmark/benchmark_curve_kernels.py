@@ -65,14 +65,14 @@ def main():
                 Path(parameters["checkpoints"]["HMONet"]),
                 "HMONet",
                 2,
-                "current",
+                "rational_affine",
                 device,
             )
             meshonet, _, _ = load_network(
                 Path(parameters["checkpoints"]["MeshONet"]),
                 "MeshONet",
                 2,
-                "current",
+                "rational_affine",
                 device,
             )
             geometry = to_computational_boundary(
@@ -128,7 +128,7 @@ def main():
                 lambda: current.project(*arguments, boundary_geometry=geometry),
             ),
             (
-                "current",
+                "rational_affine",
                 lambda: torch.cat(current(*arguments, boundary_geometry=geometry), -1),
             ),
             (

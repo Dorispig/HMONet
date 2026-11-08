@@ -465,9 +465,9 @@ class TestTrainingIntegration:
                 (3, p3, ParametricDataset3D, train_3d),
             ):
                 for name, mapping in (
-                    ("hmonet", "current"),
+                    ("hmonet", "rational_affine"),
                     ("hmonet", "coons_residual"),
-                    ("meshonet", "current"),
+                    ("meshonet", "rational_affine"),
                 ):
                     config = {
                         "model": {

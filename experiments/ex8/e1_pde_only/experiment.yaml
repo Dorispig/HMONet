@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e1_pde_only
+variants: [{name: e1_pde_only, value: normalized_pde_only, overrides: [--hmonet-physics-normalized-jacobian-loss-weight, "0", --hmonet-physics-singular-value-loss-weight, "0"]}]

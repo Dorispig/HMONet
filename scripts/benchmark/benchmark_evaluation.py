@@ -98,7 +98,9 @@ def main(argv=None):
                     (ROOT / "outputs/checkpoints/2D" / args.dataset).rglob("best.pt"),
                     key=lambda p: p.stat().st_mtime if name in p.parts else -1,
                 )
-                model, shape, metadata = load_network(path, name, 2, "current", device)
+                model, shape, metadata = load_network(
+                    path, name, 2, "rational_affine", device
+                )
                 models[name] = model
                 report.setdefault("checkpoints", {})[name] = metadata
             geometry = to_computational_boundary(circle_airfoil_boundary(t=0.3))

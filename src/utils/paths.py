@@ -32,7 +32,7 @@ def _legacy_relative(value) -> Path | None:
         if name == LEGACY_PROJECT_NAME:
             return Path(*remainder)
         # The renamed project root is ``HMONet``, which is also a model output
-        # directory name (for example ``checkpoints/.../HMONet/current``).
+        # directory name (for example ``checkpoints/.../HMONet/rational_affine``).
         # Rebase it only when the following component looks like a project
         # top-level entry; otherwise preserve the external absolute path.
         if name == PROJECT_NAME and (

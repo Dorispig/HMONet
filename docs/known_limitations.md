@@ -1,7 +1,7 @@
 # 已知限制与结果解释
 
 - HMONet 的精确硬边界约束保证参数边界点来自给定曲线/曲面，但不单独保证内部映射为一一映射；仍需检查翻转、自相交和最差 Jacobian。
-- `current`、`corner_corrected` 和 `coons_residual` 的边界附近导数性质不同，checkpoint 与映射方式必须成对报告。
+- `rational_affine`、`corner_corrected_affine` 和 `coons_residual` 的边界附近导数性质不同，checkpoint 与映射方式必须成对报告。
 - MeshONet 与 PI-MeshONet 的加密查询边界可能偏离精确参数边界；边界后处理会改变质量和推理成本，原始结果与后处理结果不能混合比较。
 - 数据集 PDE 真值并非天然合法。生成器警告、非正 Jacobian 或未收敛样本应在训练前处理，不能把非法真值当成网络失败。
 - 紧凑评估默认删除网格数组，只保留汇总和图片；需要下游数值求解时必须保留或重新生成网格。

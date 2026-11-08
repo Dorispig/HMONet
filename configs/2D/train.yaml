@@ -44,33 +44,37 @@ model:  # 模型与网络结构配置
 
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # Adjust + Modified MLP分支 + Lift/Modified MLP共享主干
-    # 默认宽度和深度与ex4精简HMONet保持一致。
-    branch_dim: 32  # Adjust Layer输出维度
-    trunk_dim: 16  # Lift Layer输出维度
-    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
+    coordinate_lift_mode: paper  # 论文公式(10)：sin/cos原坐标 + 1至q次幂
+    coordinate_lift_q: 6  # 二维Lift维度4+2q=16，与原trunk_dim规模一致
+    # 采用架构消融中已经验证的近20万参数配置。
+    branch_dim: 40  # Adjust Layer输出维度
+    trunk_dim: 16  # legacy兼容值；paper模式实际维度由q决定
+    adjust_hidden_dim: 80  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
-    branch_hidden_dim: 64  # Modified MLP分支隐藏宽度
+    branch_hidden_dim: 80  # Modified MLP分支隐藏宽度
     branch_hidden_layer_num: 4  # Modified MLP分支门控层数
-    trunk_hidden_dim: 64  # Modified MLP主干隐藏宽度
+    trunk_hidden_dim: 80  # Modified MLP主干隐藏宽度
     trunk_hidden_layer_num: 4  # Modified MLP主干门控层数
-    output_dim: 64  # 分支与主干点积的潜在维度
+    output_dim: 80  # 分支与主干点积的潜在维度
 
   meshonet:  # MeshONet专属网络结构；覆盖common且不影响HMONet
-    branch_dim: 32  # Adjust Layer输出维度，与ex4精简HMONet一致
-    trunk_dim: 16  # 计算坐标增强后的主干输入维度
-    adjust_hidden_dim: 64  # Adjust Layer隐藏宽度
+    coordinate_lift_mode: paper  # 论文公式(8)：sin/cos原坐标 + 1至q次幂
+    coordinate_lift_q: 6  # 二维Lift维度4+2q=16
+    branch_dim: 40  # Adjust Layer输出维度；采用已验证的近20万参数配置
+    trunk_dim: 16  # legacy兼容值；paper模式实际维度由q决定
+    adjust_hidden_dim: 80  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
-    branch_hidden_dim: 64  # Branch网络隐藏宽度
+    branch_hidden_dim: 80  # Branch网络隐藏宽度
     branch_hidden_layer_num: 4  # Branch网络隐藏层数
-    trunk_hidden_dim: 64  # Trunk网络隐藏宽度
+    trunk_hidden_dim: 80  # Trunk网络隐藏宽度
     trunk_hidden_layer_num: 4  # Trunk网络隐藏层数
-    output_dim: 64  # 分支和主干点积的潜在维度
+    output_dim: 80  # 分支和主干点积的潜在维度
     shared_branch_fusion_enabled: true  # 拼接两个Branch特征后使用一个共享Fusion MLP
-    branch_mlp_hidden_dim: 64  # 共享Fusion MLP隐藏宽度
+    branch_mlp_hidden_dim: 80  # 共享Fusion MLP隐藏宽度
     branch_mlp_hidden_layer_num: 4  # 共享Fusion MLP隐藏层数
 
   hmonet:  # HMONet模型配置
-    hmonet_mapping_mode: current  # 内部硬边界映射：current、coons_residual或corner_corrected
+    hmonet_mapping_mode: corner_corrected_affine  # 正式默认：CCAP；另可选rational_affine、coons_residual
     # 几何系数固定为 Branch Sigmoid × Trunk Sigmoid，不再提供关闭位置调制或Softplus选项。
     boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；正式实验默认关闭
     weight_head_mlp_enabled: true  # true默认使用与Location MLP相同宽度、Tanh激活的单隐藏层MLP；false兼容原Linear
@@ -83,7 +87,7 @@ model:  # 模型与网络结构配置
     residual_regularization_weight: 0.0  # 仅coons_residual使用；0表示关闭
 
   qghmonet:  # Query--Geometry Gated Hard-Boundary Mesh Operator Network
-    hmonet_mapping_mode: corner_corrected
+    hmonet_mapping_mode: corner_corrected_affine
     query_boundary_cross_attention_enabled: true
     boundary_layer_decoder_enabled: true
     decoupled_weight_decoder_enabled: true
@@ -98,7 +102,7 @@ model:  # 模型与网络结构配置
 
 training:  # 公共训练设置
   # 可选：interpolation、extrapolation、both。
-  dataset: both  # 训练数据模式
+  dataset: extrapolation  # 正式默认训练外推数据集；命令行仍可改为interpolation或both
   num_epochs: 50000  # 最大训练轮数
   batch_size: 64  # 批大小
   seed: 20261030  # 随机种子
@@ -170,46 +174,47 @@ training:  # 公共训练设置
 # HMONet
 # =============================================================================
 
-hmonet_training: &hard_operator_training  # HMONet训练参数
-  # Adam 与学习率调度。四个模型均使用相同默认值，可分别覆盖。
-  learning_rate: 0.0002  # 初始学习率
+hmonet_training: &hard_operator_training  # HMONet纯自监督训练参数
+  # HMONet按自监督总损失选模和判断平台；MeshONet仍按监督MSE选模。
+  best_model_metric: training_loss
+  plateau_metric: train_loss
+
+  learning_rate: 0.0004  # 与保留的差分策略基线一致
   lr_warmup_epochs: 1000  # 学习率预热轮数
   lr_update_interval: 1000  # 学习率更新间隔
   lr_decay_gamma: 0.9  # 学习率每次调度更新后的乘法衰减系数
   lr_stop_below: 1.0e-5  # 学习率低于此值时停止继续衰减
 
-  # 随机点监督值插值：bilinear 为普通双线性；curved_boundary_cell 为全局边界位移 IDW。
-  # IDW 将每段边界网格参数区间四等分，只取1/4、1/2、3/4三个新增点，不重复原始边界点。
-  target_interpolation: curved_boundary_cell  # 训练目标插值方式
-  idw_query_chunk_size: 128  # 二维实测最优查询分块；支持点仍由一个大块完成累计
-  idw_support_chunk_size: 2048  # IDW边界支持点分块；增大后减少Python循环和GPU启动次数
-  point_loss_weighting: position  # 采样点损失权重：position为边界增强，uniform为全1
+  # 从头进行纯物理自监督训练，不读取PDE网格坐标作为监督目标。
+  training_strategy: random_loss_combo_from_start
+  random_loss_sample_count: 400
+  pde_fd_step: [0.01, 0.01]
+  random_loss_derivative_backend: finite_difference
+  random_loss_fd_stencil_inside: true
+  random_loss_fd_boundary_scheme: central
 
-  # Jacobian 方法：finite_difference 或 autograd。
-  jacobian_loss_enabled: true  # 是否启用Jacobian损失
-  jacobian_method: finite_difference  # Jacobian计算方法
-  jacobian_fd_step: 0.0001  # 有限差分步长
-  jacobian_loss_weight: 1.0e-4  # Jacobian损失权重
-  jacobian_minimum: 1.0e-4  # 最小允许Jacobian
+  # L = L_PDE,norm + 0.01 L_J,norm + 0.05 L_sigma,norm。
+  physics_pde_loss_weight: 1.0
+  physics_scale_invariant_pde_enabled: true
+  physics_normalized_jacobian_loss_weight: 0.01
+  physics_normalized_jacobian_minimum: 0.02
+  physics_singular_value_loss_weight: 0.05
+  physics_singular_value_minimum: 0.05
+  physics_barrier_reduction: all
 
-  # 非归一化椭圆PDE残差；默认关闭，仅在监督HMONet的相关消融中启用。
-  pde_loss_enabled: false  # 是否启用非归一化PDE损失
-  pde_loss_weight: 1.0e-4  # 非归一化PDE损失权重
-  pde_interior_sample_count: 128  # 每批用于PDE残差的内部采样点数
-  pde_fd_step: [0.01, 0.01]  # PDE有限差分步长，分别对应xi和eta方向
-
-  # 法向损失默认关闭；开启后以下三个参数生效。
-  boundary_normal_loss_enabled: false  # 是否启用边界法向损失
-  boundary_normal_loss_weight: 0.001  # 边界法向损失权重
-  boundary_normal_sample_count: 64  # 法向采样点数
-  boundary_normal_offset: 0.01  # 法向内部偏移
+  # 200个全局均匀点 + 200个曲率—边界距离自适应点。
+  # 三类计数之和必须等于random_loss_sample_count。
+  random_loss_sampling_mode: mixed_boundary
+  random_loss_global_sample_count: 200
+  random_loss_curvature_sample_count: 200
+  random_loss_boundary_band_sample_count: 0
 
 hmonet_sampling:  # HMONet采样参数
   # 可选：uniform、adaptive。
-  mode: uniform  # 内部采样方式
+  mode: adaptive  # 正式默认：200个全局均匀点 + 200个曲率-距离自适应点
   fixed_grid_count: 0  # 固定网格采样点数
-  global_random_count: 400  # 全局随机采样点数
-  curvature_adaptive_count: 400  # 曲率自适应采样点数
+  global_random_count: 200  # 全局均匀随机点数
+  curvature_adaptive_count: 200  # 曲率自适应采样点数
 
   # 仅 adaptive 使用。
   candidate_multiplier: 10  # 自适应候选点倍数

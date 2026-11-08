@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e3_1_svd_w100
+variants: [{name: e3_1_svd_w100, value: 100.0, overrides: [--hmonet-physics-singular-value-loss-weight, "100"]}]

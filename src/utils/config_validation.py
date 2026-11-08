@@ -6,6 +6,8 @@ import numpy as np
 
 import warnings
 
+from src.models.mapping_modes import normalize_mapping_mode
+
 
 def remove_deprecated_projection_config(config):
     """Accept saved legacy options while keeping new model settings unambiguous."""
@@ -48,25 +50,31 @@ def validate_train_config(config: dict) -> None:
         .lower()
         .replace("-", "_")
     )
-    if lift_mode not in {"legacy", "power_fourier"}:
+    if lift_mode not in {"legacy", "paper", "power_fourier"}:
         raise ValueError(
-            "model.common.coordinate_lift_mode must be legacy or power_fourier"
+            "model.common.coordinate_lift_mode must be legacy, paper or power_fourier"
         )
     if int(common_model.get("coordinate_lift_max_power", 1)) < 1:
         raise ValueError(
             "model.common.coordinate_lift_max_power must be at least 1"
         )
+    for model_name in ("hmonet", "qghmonet", "meshonet", "pimeshonet"):
+        options = dict(common_model)
+        options.update(config["model"].get(model_name, {}))
+        mode = str(options.get("coordinate_lift_mode", "legacy")).lower()
+        if mode not in {"legacy", "paper", "power_fourier"}:
+            raise ValueError(
+                f"model.{model_name}.coordinate_lift_mode must be legacy, "
+                "paper or power_fourier"
+            )
+        if int(options.get("coordinate_lift_q", 6)) < 1:
+            raise ValueError(
+                f"model.{model_name}.coordinate_lift_q must be at least 1"
+            )
     hmonet = config["model"].get("hmonet", {})
-    mapping_mode = (
-        str(hmonet.get("hmonet_mapping_mode", "current"))
-        .strip()
-        .lower()
-        .replace("-", "_")
+    normalize_mapping_mode(
+        hmonet.get("hmonet_mapping_mode", "rational_affine")
     )
-    if mapping_mode not in {"current", "coons_residual", "corner_corrected"}:
-        raise ValueError(
-            "model.hmonet.hmonet_mapping_mode must be current, coons_residual, or corner_corrected"
-        )
     if float(hmonet.get("residual_regularization_weight", 0.0)) < 0:
         raise ValueError(
             "model.hmonet.residual_regularization_weight must be non-negative"
@@ -88,20 +96,15 @@ def validate_train_config(config: dict) -> None:
     if int(hmonet.get("attention_layers", 2)) <= 0:
         raise ValueError("model.hmonet.attention_layers must be positive")
     pi_mapping = (
-        config["model"].get("pihmonet", {}).get("hmonet_mapping_mode", "current")
-    )
-    if pi_mapping not in {"current", "coons_residual"}:
-        raise ValueError(
-            "model.pihmonet.hmonet_mapping_mode must be current or coons_residual"
+        config["model"].get("pihmonet", {}).get(
+            "hmonet_mapping_mode", "rational_affine"
         )
+    )
+    normalize_mapping_mode(pi_mapping)
     attention_mapping = config["model"].get("attentionpihmonet", {}).get(
-        "hmonet_mapping_mode", "current"
+        "hmonet_mapping_mode", "rational_affine"
     )
-    if attention_mapping not in {"current", "coons_residual"}:
-        raise ValueError(
-            "model.attentionpihmonet.hmonet_mapping_mode must be current or "
-            "coons_residual"
-        )
+    normalize_mapping_mode(attention_mapping)
     if min(int(config["grid"]["nx"]), int(config["grid"]["ny"])) < 2:
         raise ValueError("grid.nx and grid.ny must be at least 2")
     metric = config["training"].get("best_model_metric", "dataset_mse")
@@ -208,7 +211,7 @@ def validate_train_config(config: dict) -> None:
         )
     if not 0 < float(hmonet_training.get("jacobian_fd_step", 1e-3)) <= 1 / 3:
         raise ValueError("hmonet_training.jacobian_fd_step must be in (0, 1/3]")
-    if hmonet_training.get("target_interpolation", "curved_boundary_cell") not in {
+    if hmonet_training.get("target_interpolation", "bilinear") not in {
         "bilinear",
         "curved_boundary_cell",
     }:
@@ -233,6 +236,7 @@ def validate_train_config(config: dict) -> None:
         "jacobian_loss_enabled",
         "boundary_normal_loss_enabled",
         "physics_scale_invariant_pde_enabled",
+        "random_loss_fd_stencil_inside",
     ):
         if name in hmonet_training and not isinstance(hmonet_training[name], bool):
             raise ValueError(f"hmonet_training.{name} must be true or false")
@@ -258,6 +262,27 @@ def validate_train_config(config: dict) -> None:
         raise ValueError(
             "hmonet_training.random_loss_derivative_backend must be "
             "finite_difference or autograd"
+        )
+    if "pde_fd_step" in hmonet_training:
+        dimension = 3 if "nz" in config.get("grid", {}) else 2
+        pde_steps = np.asarray(hmonet_training["pde_fd_step"], dtype=float)
+        if pde_steps.shape != (dimension,) or not np.all(
+            (pde_steps > 0) & (pde_steps < 0.5)
+        ):
+            raise ValueError(
+                f"hmonet_training.pde_fd_step must contain {dimension} values "
+                "in (0, 0.5)"
+            )
+    random_fd_scheme = str(
+        hmonet_training.get("random_loss_fd_boundary_scheme", "central")
+    ).lower()
+    if random_fd_scheme not in {"central", "one_sided"}:
+        raise ValueError(
+            "hmonet_training.random_loss_fd_boundary_scheme must be central or one_sided"
+        )
+    if random_backend != "finite_difference" and random_fd_scheme != "central":
+        raise ValueError(
+            "one_sided random-loss FD boundary scheme requires finite_difference backend"
         )
     random_sampling = str(
         hmonet_training.get("random_loss_sampling_mode", "uniform")
@@ -464,24 +489,14 @@ def validate_evaluate_config(config: dict) -> None:
             "evaluation.hmonet_sampling_mode must be "
             "adaptive/adp, non_adaptive/non_adp, or both"
         )
-    if evaluation.get("hmonet_mapping_mode", "current") not in {
-        "current",
-        "coons_residual",
-        "corner_corrected",
-        "both",
-    }:
-        raise ValueError(
-            "evaluation.hmonet_mapping_mode must be current, coons_residual, corner_corrected, or both"
-        )
-    if evaluation.get("attentionpihmonet_mapping_mode", "current") not in {
-        "current",
-        "coons_residual",
-        "both",
-    }:
-        raise ValueError(
-            "evaluation.attentionpihmonet_mapping_mode must be current, "
-            "coons_residual, or both"
-        )
+    normalize_mapping_mode(
+        evaluation.get("hmonet_mapping_mode", "rational_affine"),
+        allow_both=True,
+    )
+    normalize_mapping_mode(
+        evaluation.get("attentionpihmonet_mapping_mode", "rational_affine"),
+        allow_both=True,
+    )
     if not isinstance(evaluation.get("include_tfi", True), bool):
         raise ValueError("evaluation.include_tfi must be true or false")
     for key, default in (

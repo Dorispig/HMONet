@@ -21,8 +21,8 @@ def _method_group(parts) -> str:
         "pihmonet": "PI-HMONet",
     }
     ignored = {
-        "grid", "quality", "none", "raw", "direct", "idw", "current",
-        "corner", "corrected", "coons", "residual",
+        "grid", "quality", "none", "raw", "direct", "idw", "rational",
+        "affine", "corner", "corrected", "coons", "residual",
     }
     for part in reversed(tuple(parts)):
         methods = []

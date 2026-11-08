@@ -1,0 +1,11 @@
+schema_version: 1
+experiment: e3_fd_one_sided_boundary
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e3_fd_one_sided_boundary
+    value: inward_second_order_one_sided_boundary_stencil
+    overrides:
+      - --no-hmonet-random-loss-fd-stencil-inside
+      - --hmonet-random-loss-fd-boundary-scheme
+      - one_sided

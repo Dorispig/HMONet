@@ -44,10 +44,10 @@ python scripts/train/train_2d.py --config configs/2D/train.yaml
 python scripts/train/train_2d.py --model both --dataset-mode both
 ```
 
-只训练内插 HMONet，使用 current 内部映射。
+只训练内插 HMONet，使用 rational_affine 内部映射。
 
 ```powershell
-python scripts/train/train_2d.py --model hmonet --dataset-mode interpolation --hmonet-mapping-mode current --epochs 100000 --batch-size 64 --seed 20260802 --device cuda
+python scripts/train/train_2d.py --model hmonet --dataset-mode interpolation --hmonet-mapping-mode rational_affine --epochs 100000 --batch-size 64 --seed 20260802 --device cuda
 ```
 
 只训练外推 MeshONet，修改内部随机点数及内点/边界损失权重。
@@ -111,6 +111,7 @@ python scripts/train/train_2d.py --model both --dataset-mode interpolation --epo
 - `--sampling-mode uniform|adaptive`：选择全局均匀随机采样或曲率-边界距离自适应采样。
 - `--global-random-count 400`：uniform 模式的点数；同一 batch 共享一组随机点。
 - `--curvature-adaptive-count 400`：adaptive 模式中每个几何样本的点数。
+- `--[no-]hmonet-random-loss-fd-stencil-inside`：自监督有限差分默认将中心点限制在距参数边界至少一个PDE步长处；关闭后中心点覆盖整个开参数域，差分查询允许越过 `[0,1]^2`。自动微分模式不构造该差分模板。
 - `--adaptive-candidate-multiplier 10`：自适应候选点数相对最终点数的倍数。
 - `--adaptive-curvature-quantile 0.95`、`--adaptive-curvature-power 1.0`：曲率归一化分位数和曲率权重指数。
 - `--adaptive-distance-sigma-min 0.02`、`--adaptive-distance-sigma-max 0.10`：高、低曲率边界点的距离核宽度。
@@ -119,7 +120,7 @@ python scripts/train/train_2d.py --model both --dataset-mode interpolation --epo
 - `--interior-sample-count 400`：覆盖 `meshonet_training.interior_sample_count`，修改 MeshONet 每个样本的内部随机点数；必须大于 0，同一 batch 共享一组随机点。
 - `--alpha 1.0`：覆盖 `meshonet_training.alpha`，修改 MeshONet 内部坐标损失权重。
 - `--beta 5.0`：覆盖 `meshonet_training.beta`，修改 MeshONet 边界坐标损失权重。
-- `--hmonet-mapping-mode current`：覆盖 `model.hmonet.hmonet_mapping_mode`；训练入口支持 `current`、`coons_residual`、`corner_corrected`。依次使用当前投影映射、Coons 基础映射加网络残差、角点校正加权映射。
+- `--hmonet-mapping-mode corner_corrected_affine`：覆盖 `model.hmonet.hmonet_mapping_mode`；正式训练默认使用CCAP，另支持 `rational_affine` 与 `coons_residual`。
 - `--residual-regularization-weight 0.0`：覆盖 `model.hmonet.residual_regularization_weight`，修改 Coons 残差位移的正则权重；0 关闭，值必须非负，仅 Coons 残差模式具有对应位移项。
 - `--target-interpolation curved_boundary_cell`：使用精确参数边界位移的 IDW 修正训练目标；也可设为 `bilinear`。
 - 曲边目标修正固定使用全部边界支持点的全局 IDW，不再提供局部近邻模式。
@@ -221,7 +222,7 @@ MSE、最大点误差和 P99 点误差中，所有已启用的条件共同达标
 - `--tensorboard-enabled`：设置 `training.tensorboard_enabled=true`，启用训练目录内日志及独立目录中的 TensorBoard 镜像。
 - `--no-tensorboard-enabled`：设置 `training.tensorboard_enabled=false`，关闭这两处 TensorBoard 写入，不影响其他训练文件。
 
-默认输出位置如下。数据集名称本身包含 `_int` 或 `_ext`，所以不再增加 `interpolation` 或 `extrapolation` 目录；`<映射>` 为 `current` 或 `coons_residual`。HMONet 的映射目录位于日期之前，MeshONet 没有映射目录；日期格式为 `YYYYMMDD_HHMM`，同一分钟重复训练使用 `_02`、`_03` 等后缀。
+默认输出位置如下。数据集名称本身包含 `_int` 或 `_ext`，所以不再增加 `interpolation` 或 `extrapolation` 目录；`<映射>` 为 `rational_affine` 或 `coons_residual`。HMONet 的映射目录位于日期之前，MeshONet 没有映射目录；日期格式为 `YYYYMMDD_HHMM`，同一分钟重复训练使用 `_02`、`_03` 等后缀。
 
 ```text
 outputs/
@@ -278,7 +279,7 @@ python scripts/train/train_2d.py --help
 
 网络层数、隐藏层宽度、特征维度等结构参数在 YAML 的 `model.common` 和各模型段中修改，没有逐项命令行覆盖。两个数据集的默认路径在 YAML 的 `datasets` 修改。不要把评估入口的 `--grid-shapes`、`--methods`、`--checkpoint`、`--curve-kernel-backend` 等选项追加到训练命令中；当前训练解析器不支持这些选项。
 
-训练映射模式不接受评估入口中的 `both` 或 `coons` 别名。若要训练两种 HMONet 映射，应分别执行 `--hmonet-mapping-mode current` 和 `--hmonet-mapping-mode coons_residual`。
+训练映射模式不接受评估入口中的 `both` 或 `coons` 别名。若要训练两种 HMONet 映射，应分别执行 `--hmonet-mapping-mode rational_affine` 和 `--hmonet-mapping-mode coons_residual`。
 
 
 ## Train followed by evaluation
@@ -316,7 +317,7 @@ The same entry supports --dimension 3 with the 3D configuration files.
 ## PI-HMONet 与四模型选择
 
 现支持 `attentionpihmonet`；`both` 保持 HMONet＋MeshONet，`pi` 依次训练三个 PI 模型，`all` 选择全部五个模型。
-PI-HMONet 训练使用 `--pihmonet-mapping-mode current/coons_residual`；评估还可设为 `both`。
+PI-HMONet 训练使用 `--pihmonet-mapping-mode rational_affine/coons_residual`；评估还可设为 `both`。
 PI-HMONet 专属覆盖包括 pihmonet-pde-loss-weight、
 pihmonet-interior-sample-count、pihmonet-fd-step、
 pihmonet-jacobian-loss-weight 和 pihmonet-jacobian-minimum。

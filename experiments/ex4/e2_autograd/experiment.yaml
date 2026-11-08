@@ -1,0 +1,10 @@
+schema_version: 1
+experiment: e2_autograd
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e2_autograd
+    value: automatic_differentiation
+    overrides:
+      - --hmonet-random-loss-derivative-backend
+      - autograd

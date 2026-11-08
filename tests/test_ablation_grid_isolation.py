@@ -37,7 +37,7 @@ class TestGridIsolation:
     def test_per_grid_manifest_entries_are_reused_independently(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
-            run = root / "jacobian_enabled/dataset/jac_on/seed_1/paper"
+            run = root / "rational_affine/dataset/rap/seed_1/paper"
             result_51 = root / "raw/51x51/results.json"
             result_101 = root / "raw/101x101/results.json"
             result_51.parent.mkdir(parents=True)

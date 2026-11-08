@@ -1,6 +1,5 @@
 import torch
 
-from scripts.experiments.run_ablation_2d import run_target_interpolation_experiment
 from scripts.train.training_common import (
     interpolate_pde_mesh,
     third_refined_surface_parameters,
@@ -96,17 +95,6 @@ class TestGlobalBoundaryIDWInterpolation:
             mesh, query, (4, 4), "curved_boundary_cell", self.Geometry()
         )
         assert (adjusted[0, 0, 1]) < (linear[0, 0, 1])
-
-    def test_ablation_keeps_the_backward_compatible_mode_name(self):
-        variants = run_target_interpolation_experiment({})
-        assert ([item.name for item in variants]) == (
-            ["bilinear", "curved_boundary_cell"]
-        )
-        assert (variants[1].overrides) == (
-            "--target-interpolation",
-            "curved_boundary_cell",
-        )
-
 
 class TestGlobalBoundarySurfaceIDWInterpolation:
     def test_third_refined_surface_excludes_original_nodes(self):

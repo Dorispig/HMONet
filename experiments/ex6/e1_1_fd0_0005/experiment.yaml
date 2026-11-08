@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e1_1_fd0_0005
+variants: [{name: e1_1_fd0_0005, value: 0.0005, overrides: [--pde-fd-step, "0.0005", "0.0005", --jacobian-fd-step, "0.0005"]}]

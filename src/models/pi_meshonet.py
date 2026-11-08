@@ -66,6 +66,7 @@ class _PIMeshONet(nn.Module):
         output_dim=64,
         coordinate_lift_mode="legacy",
         coordinate_lift_max_power=1,
+        coordinate_lift_q=6,
         **_,
     ):
         super().__init__()
@@ -79,6 +80,7 @@ class _PIMeshONet(nn.Module):
             coordinate_lift_mode
         )
         self.coordinate_lift_max_power = int(coordinate_lift_max_power)
+        self.coordinate_lift_q = int(coordinate_lift_q)
         self.configured_trunk_dim = int(trunk_dim)
         minimum_lift = 3 * self.dimension
         if (
@@ -96,6 +98,7 @@ class _PIMeshONet(nn.Module):
             self.configured_trunk_dim,
             self.coordinate_lift_mode,
             self.coordinate_lift_max_power,
+            self.coordinate_lift_q,
         )
         self.boundary_point_count = self._boundary_point_count()
         adjust_layers = [int(adjust_hidden_dim)] * int(adjust_hidden_layer_num)
@@ -135,6 +138,10 @@ class _PIMeshONet(nn.Module):
 
     def lift(self, coordinates):
         """Apply the trigonometric/polynomial Lift Layer in equation (10)."""
+        if self.coordinate_lift_mode == "paper":
+            return modules.paper_coordinate_lift(
+                coordinates, self.coordinate_lift_q
+            )
         if self.coordinate_lift_mode == "power_fourier":
             return modules.power_fourier_lift(
                 coordinates, self.coordinate_lift_max_power

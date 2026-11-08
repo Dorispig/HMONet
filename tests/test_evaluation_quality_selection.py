@@ -306,7 +306,7 @@ class TestQualitySelection:
             group = Path(result["comparison_directory"])
             root = group.parents[3]
             for stage in ("raw", "none"):
-                folder = root / "HMONet/current" / stage
+                folder = root / "HMONet/rational_affine" / stage
                 assert (folder / "mesh.npy").is_file()
                 assert (folder / "boundary_error_summary.json").is_file()
                 assert not (folder / "grid_quality/quality_data.npz").exists()

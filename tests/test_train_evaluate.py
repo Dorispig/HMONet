@@ -66,7 +66,7 @@ class TestPipeline:
                             dataset_name=name,
                             model=model,
                             best_checkpoint=str(path),
-                            hmonet_mapping_mode="current",
+                            hmonet_mapping_mode="rational_affine",
                         )
                     )
             cases = {item["dataset_name"]: {} for item in summaries}
@@ -112,7 +112,7 @@ class TestEvaluationSubset:
                     dataset_name="air",
                     model=model,
                     best_checkpoint=str(path),
-                    hmonet_mapping_mode="current",
+                    hmonet_mapping_mode="rational_affine",
                 )
                 for model in ("hmonet", "meshonet", "pimeshonet", "qghmonet")
             ]

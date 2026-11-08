@@ -10,7 +10,7 @@
 # cases.<name>.grid_shape 指定默认网格规模 [nx, ny, nz]；命令行覆盖示例：
 #   --grid-shapes 11x11x11,21x21x21
 # evaluation.methods 可选择 tfi、pde、meshonet、pimeshonet、hmonet 的任意子集。
-# hmonet_mapping_mode 指定内部映射：current、coons_residual、corner_corrected；both仍表示前两种。
+# hmonet_mapping_mode：rational_affine、coons_residual、corner_corrected_affine。
 # 各模型的 *_boundary_projection 可设为 none、direct 或 inverse_distance。
 # inverse_distance_power 为 IDW 距离权重指数，必须为正数。
 # winslow_* 参数控制 PDE 最大迭代次数和收敛容差。
@@ -41,7 +41,7 @@ cases:
 evaluation:
   default_cases: [sch_r_int_0_1000_11_31_11, sch_r_ext_0_1000_11_31_11]
   methods: [tfi, pde, meshonet, hmonet]
-  hmonet_mapping_mode: current
+  hmonet_mapping_mode: corner_corrected_affine
   # 适用于拉伸曲面、端面使用的参数曲线，也适用于二维参数曲线。
   # 设备或几何类型不支持加速路径，或需要坐标梯度时，使用 Torch 公式。
   curve_kernel_backend: auto

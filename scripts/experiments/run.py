@@ -2,9 +2,9 @@
 
 Examples::
 
-    python scripts/experiments/run.py ex9 e9_1
-    python scripts/experiments/run.py ex9 baseline e9_1 e9_2 e9_3 e9_4 --grids 101 201 401
-    python scripts/experiments/run.py ex9 all --dataset run_ext_0_1000_61_21
+    python scripts/experiments/run.py ex1 rational_affine
+    python scripts/experiments/run.py ex1 baseline rational_affine coons_residual --grids 101 201 401
+    python scripts/experiments/run.py ex2 all --dataset air_t_ext_1_500_21_21
 
 Dataset, seeds and evaluation grids fall back to the selected suite configs.
 """
@@ -39,7 +39,7 @@ def _grid_name(value: str) -> str:
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("suite", help="Experiment suite, for example ex3 or ex9")
+    parser.add_argument("suite", help="Experiment suite, for example ex1 through ex8")
     parser.add_argument(
         "experiments",
         nargs="*",

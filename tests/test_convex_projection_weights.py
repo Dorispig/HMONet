@@ -21,7 +21,7 @@ SMALL = dict(
 class TestHMONetProjectionConfiguration:
     def test_corner_corrected_mode_preserves_2d_edges_and_3d_faces(self):
         model2 = HMONet2D(
-            3, 3, hmonet_mapping_mode="corner_corrected", **{**SMALL, "trunk_dim": 2}
+            3, 3, hmonet_mapping_mode="corner_corrected_affine", **{**SMALL, "trunk_dim": 2}
         ).eval()
         boundary2 = torch.tensor(
             [
@@ -57,7 +57,7 @@ class TestHMONetProjectionConfiguration:
         assert bool(torch.isfinite(query2.grad).all())
 
         model3 = HMONet3D(
-            3, 3, 3, hmonet_mapping_mode="corner_corrected", **SMALL
+            3, 3, 3, hmonet_mapping_mode="corner_corrected_affine", **SMALL
         ).eval()
         z, y, x = torch.meshgrid(
             *(torch.linspace(0, 1, 3) for _ in range(3)), indexing="ij"

@@ -47,7 +47,7 @@ cases:
     boundary_type: circle_airfoil_t
     split: extrapolation
     parameter: t
-    values: [0.52, 0.55]
+    values: [0.62, 0.65]
     train_grid: [21, 21]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters:
@@ -296,8 +296,8 @@ evaluation:
   # 不指定 --case 时评估这些案例。
   default_cases: [air_t_int_0_1000_41_20, air_t_ext_0_1000_41_20]
 
-  # HMONet内部映射：current、coons_residual、corner_corrected；both仍表示前两种。
-  hmonet_mapping_mode: current
+  # HMONet硬边界映射：rational_affine、coons_residual、corner_corrected_affine。
+  hmonet_mapping_mode: corner_corrected_affine
 
   # 边界后处理：none、direct、inverse_distance。
   hmonet_boundary_projection: none

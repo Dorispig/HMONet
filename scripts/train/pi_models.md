@@ -11,7 +11,7 @@ PI-HMONet 复用 HMONet2D/3D，额外输入二维四条参数边界曲线或三�
 批量边界输入形状为 `[B, Nb, d]`，查询为 `[B, Nq, d]`，输出为 `[B, Nq, d]`。
 网络内部按各坐标分量传参，训练辅助函数将输出拼接为上述张量。
 
-PI-HMONet 的 `current` 直接使用参数几何投影点进行硬约束；`coons_residual` 使用精确 TFI 基础坐标加网络残差。
+PI-HMONet 的 `rational_affine` 直接使用参数几何投影点进行硬约束；`coons_residual` 使用精确 TFI 基础坐标加网络残差。
 二维残差包络为 `16*xi*(1-xi)*eta*(1-eta)`；三维为 `64*xi*(1-xi)*eta*(1-eta)*zeta*(1-zeta)`。
 包络在边界为零，因此输出符合给定参数边界。三维 TFI 的面、边和角点均由参数几何精确求值。
 
@@ -89,15 +89,15 @@ python scripts/train/train_3d.py --model pihmonet --pihmonet-mapping-mode coons_
 # 四种模型分别训练
 python scripts/train/train_2d.py --model all
 # PI-HMONet 专属覆盖；同名专属参数优先于 --pi-* 公共覆盖，最后使用 YAML
-python scripts/train/train_2d.py --model pihmonet --pihmonet-mapping-mode current --pihmonet-pde-loss-weight 1 --pihmonet-interior-sample-count 128 --pihmonet-fd-step 0.02 0.02
+python scripts/train/train_2d.py --model pihmonet --pihmonet-mapping-mode rational_affine --pihmonet-pde-loss-weight 1 --pihmonet-interior-sample-count 128 --pihmonet-fd-step 0.02 0.02
 # PI-MeshONet 对应专属参数
 python scripts/train/train_2d.py --model pimeshonet --pimeshonet-pde-loss-weight 1e-4 --pimeshonet-boundary-loss-weight 1 --pimeshonet-interior-sample-count 128 --pimeshonet-fd-step 0.02 0.02
 # 评估指定模型（路径替换成实际检查点）
-python scripts/evaluate/evaluate_2d.py --case rse_ext_0_1000_20_20 --methods tfi,pde,pihmonet --pihmonet-checkpoint outputs/checkpoints/2D/rse_ext_0_1000_20_20/PI-HMONet/current/<日期_时分>/best.pt --pihmonet-mapping-mode current --pihmonet-boundary-projection none
+python scripts/evaluate/evaluate_2d.py --case rse_ext_0_1000_20_20 --methods tfi,pde,pihmonet --pihmonet-checkpoint outputs/checkpoints/2D/rse_ext_0_1000_20_20/PI-HMONet/rational_affine/<日期_时分>/best.pt --pihmonet-mapping-mode rational_affine --pihmonet-boundary-projection none
 # 自动选择对应数据集最新检查点；both 同时评估两种 PI-HMONet 映射
 python scripts/evaluate/evaluate_2d.py --case rse_ext_0_1000_20_20 --model pihmonet --pihmonet-mapping-mode both
 # 串联训练与评估，自动传递本次检查点和映射
-python scripts/train/train_evaluate.py --dimension 2 --train-args "--model pihmonet --pihmonet-mapping-mode current"
+python scripts/train/train_evaluate.py --dimension 2 --train-args "--model pihmonet --pihmonet-mapping-mode rational_affine"
 ```
 
 `--hmonet-mapping-mode` 只覆盖 HMONet，`--pihmonet-mapping-mode` 只覆盖 PI-HMONet。

@@ -8,7 +8,6 @@ import csv
 import json
 import re
 import hashlib
-import math
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +26,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.utils.paths import portable_project_path, resolve_project_path
+from src.utils.config import load_yaml_mapping
+from src.models.mapping_modes import fingerprint_mapping_mode
 from scripts.experiments.evaluation_paths import (
     evaluation_experiment_root,
     evaluation_result_root,
@@ -35,41 +36,12 @@ from scripts.experiments.evaluation_paths import (
 )
 
 ABLATIONS = (
-    "initial_learning_rate",
-    "jacobian_enabled",
-    "jacobian_weight",
-    "mapping_mode",
-    "normal_loss",
-    "point_weighting",
-    "sampling_mode",
-    "target_interpolation",
-    "training_sample_count",
-    "boundary_self_attention",
-    "trunk_geometry_coefficients",
-    "jacobian_interpolation",
-    "model_capacity",
-    "dataset_size",
-    "pde_jacobian",
-    "physics_training_strategy",
-    "e1_mse_pde",
-    "e2_pde_jac",
-    "e3_jac_pde",
-    "e4_mse_pde_jac",
-    "e5_staged_mse_pde_jac",
-    "e6_pde_fixed_mse",
-    "e7_pde_winslow_jac",
-    "e8_pde_only",
-    "e9_norm_pde_jac_svd",
-    "e9_1",
-    "e9_2",
-    "e9_3",
-    "e9_4",
+    "rational_affine",
+    "coons_residual",
     "uniform_400",
     "adaptive_400",
-    "global200_adaptive200",
-    "global200_boundary200",
-    "pimeshonet",
-    "meshonet",
+    "global300_adaptive100",
+    "global100_adaptive300",
     "e1_modified_mlp",
     "e2_cross_attention",
     "e3_boundary_decoder",
@@ -81,199 +53,59 @@ ABLATIONS = (
     "e9_meshonet_200k",
     "e10_pimeshonet_200k",
     "e11_raw_pde",
+    "e1_fd_full_open_domain",
+    "e2_autograd",
+    "e3_fd_one_sided_boundary",
+    "e1_1_jacobian_w100",
+    "e1_2_jacobian_w10",
+    "e1_3_jacobian_w1",
+    "e1_4_jacobian_w0_1",
+    "e1_5_jacobian_w0_001",
+    "e1_6_jacobian_w0_0001",
+    "e2_1_jacobian_tau0_001",
+    "e2_2_jacobian_tau0_005",
+    "e2_3_jacobian_tau0_01",
+    "e2_4_jacobian_tau0_05",
+    "e2_5_jacobian_tau0_1",
+    "e2_6_jacobian_tau0_2",
+    "e3_1_svd_w100",
+    "e3_2_svd_w10",
+    "e3_3_svd_w1",
+    "e3_4_svd_w0_1",
+    "e3_5_svd_w0_01",
+    "e3_6_svd_w0_001",
+    "e4_1_svd_tau0_001",
+    "e4_2_svd_tau0_005",
+    "e4_3_svd_tau0_01",
+    "e4_4_svd_tau0_1",
+    "e4_5_svd_tau0_2",
+    "e1_1_fd0_0005",
+    "e1_2_fd0_001",
+    "e1_3_fd0_005",
+    "e1_4_fd0_05",
+    "e1_5_fd0_1",
+    "e1_1_power1",
+    "e1_2_power3",
+    "e1_3_power4",
+    "e1_4_power5",
+    "e1_pde_only",
+    "e2_pde_jacobian",
+    "e3_pde_svd",
 )
 BASELINE_ABLATION = "baseline"
-DEFAULT_LEARNING_RATES = (0.0001, 0.0002, 0.0004, 0.0008, 0.001)
-DEFAULT_WEIGHTS = (0.0, 0.0001, 0.001, 0.01, 0.1)
-DEFAULT_SAMPLE_COUNTS = (50, 100, 200, 400, 800, 1200)
 EVALUATION_IMAGE_SUFFIXES = {".jpeg", ".jpg", ".pdf", ".png", ".svg", ".webp"}
 TRAINING_IDENTITY_SCHEMA_VERSION = 4
 DEFAULT_EXPERIMENT_SET = "ex1"
 DEFAULT_BASELINE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/experiment.yaml"
 DEFAULT_EVALUATE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/evaluate.yaml"
-EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*(?:_[1-9][0-9]*)*")
+EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*")
 
 
 class BaselineCompatibilityError(RuntimeError):
     """Raised after all runnable work when baseline comparison is invalid."""
 
 
-# Each experiment answers a different scientific question, so its primary and
-# secondary tables intentionally contain different metrics. Any remaining
-# numeric result is retained under other_metrics rather than discarded.
-METRIC_PROFILES = {
-    "baseline": {
-        "important": (
-            "fixed_grid_best_mse",
-            "fixed_grid_final_mse",
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "scaled_jacobian__minimum",
-            "network_inference_seconds",
-            "total_model_seconds",
-        ),
-        "secondary": (
-            "jacobian__minimum",
-            "skewness__mean",
-            "orthogonality__mean",
-            "boundary_max_error",
-            "boundary_mean_error",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-    },
-    "initial_learning_rate": {
-        "important": (
-            "fixed_grid_best_mse",
-            "fixed_grid_final_mse",
-            "completed_epochs",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-        "secondary": (
-            "invalid_cell_fraction",
-            "scaled_jacobian__minimum",
-        ),
-    },
-    "jacobian_enabled": {
-        "important": (
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "flipping_cell__affected_cell_fraction",
-            "jacobian__minimum",
-            "scaled_jacobian__minimum",
-        ),
-        "secondary": (
-            "fixed_grid_best_mse",
-            "fixed_grid_final_mse",
-        ),
-    },
-    "jacobian_weight": {
-        "important": (
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "jacobian__minimum",
-            "scaled_jacobian__minimum",
-            "fixed_grid_best_mse",
-        ),
-        "secondary": (
-            "skewness__mean",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-    },
-    "mapping_mode": {
-        "important": (
-            "fixed_grid_best_mse",
-            "invalid_cell_fraction",
-            "scaled_jacobian__minimum",
-            "network_inference_seconds",
-            "total_model_seconds",
-        ),
-        "secondary": (
-            "skewness__mean",
-            "orthogonality__mean",
-            "training_seconds",
-            "boundary_max_error",
-            "boundary_mean_error",
-            "boundary_rms_error",
-        ),
-    },
-    "normal_loss": {
-        "important": (
-            "boundary_layer_orthogonality__minimum",
-            "boundary_layer_orthogonality__mean",
-            "orthogonality__mean",
-            "fixed_grid_best_mse",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-        "secondary": (
-            "skewness__mean",
-            "invalid_cell_fraction",
-            "scaled_jacobian__minimum",
-        ),
-    },
-    "point_weighting": {
-        "important": (
-            "fixed_grid_best_mse",
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "scaled_jacobian__minimum",
-            "boundary_layer_orthogonality__minimum",
-            "boundary_layer_orthogonality__mean",
-        ),
-        "secondary": (
-            "jacobian__minimum",
-            "orthogonality__mean",
-            "skewness__mean",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-    },
-    "sampling_mode": {
-        "important": (
-            "fixed_grid_best_mse",
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "flipping_cell__affected_cell_fraction",
-            "jacobian__minimum",
-            "scaled_jacobian__minimum",
-        ),
-        "secondary": (
-            "skewness__mean",
-            "orthogonality__mean",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-    },
-    "target_interpolation": {
-        "important": (
-            "fixed_grid_best_mse",
-            "invalid_cell_fraction",
-            "self_intersection__affected_cell_fraction",
-            "scaled_jacobian__minimum",
-            "boundary_layer_orthogonality__minimum",
-            "boundary_layer_orthogonality__mean",
-        ),
-        "secondary": (
-            "orthogonality__mean",
-            "skewness__mean",
-            "training_seconds",
-            "average_epoch_seconds",
-        ),
-    },
-    "training_sample_count": {
-        "important": (
-            "fixed_grid_best_mse",
-            "invalid_cell_fraction",
-            "average_epoch_seconds",
-            "training_seconds",
-            "completed_epochs",
-        ),
-        "secondary": (
-            "scaled_jacobian__minimum",
-            "self_intersection__affected_cell_fraction",
-            "fixed_grid_final_mse",
-        ),
-    },
-}
-
-# Architecture ablations use the mapping profile; the combined training-policy
-# ablation emphasizes legality and approximation error.
-for _name in ("boundary_self_attention", "trunk_geometry_coefficients"):
-    METRIC_PROFILES[_name] = METRIC_PROFILES["mapping_mode"]
-METRIC_PROFILES["jacobian_interpolation"] = METRIC_PROFILES["jacobian_enabled"]
-METRIC_PROFILES["pde_jacobian"] = METRIC_PROFILES["jacobian_enabled"]
-for _name in (
-    "e1_mse_pde", "e2_pde_jac", "e3_jac_pde", "e4_mse_pde_jac",
-    "e5_staged_mse_pde_jac", "e6_pde_fixed_mse", "e7_pde_winslow_jac",
-    "e8_pde_only",
-    "e9_norm_pde_jac_svd",
-    "e9_1", "e9_2", "e9_3", "e9_4",
-):
-    METRIC_PROFILES[_name] = METRIC_PROFILES["pde_jacobian"]
-METRIC_PROFILES["physics_training_strategy"] = {
+_SUMMARY_METRICS = {
     "important": (
         "fixed_grid_best_mse",
         "fixed_grid_final_mse",
@@ -295,41 +127,8 @@ METRIC_PROFILES["physics_training_strategy"] = {
         "completed_epochs",
     ),
 }
-METRIC_PROFILES["model_capacity"] = {
-    "important": (
-        "fixed_grid_best_mse",
-        "fixed_grid_final_mse",
-        "invalid_cell_fraction",
-        "self_intersection__affected_cell_fraction",
-        "scaled_jacobian__minimum",
-        "training_seconds",
-        "average_epoch_seconds",
-        "network_inference_seconds",
-    ),
-    "secondary": (
-        "jacobian__minimum",
-        "skewness__mean",
-        "orthogonality__mean",
-        "completed_epochs",
-    ),
-}
-METRIC_PROFILES["dataset_size"] = {
-    "important": (
-        "fixed_grid_best_mse",
-        "fixed_grid_final_mse",
-        "invalid_cell_fraction",
-        "self_intersection__affected_cell_fraction",
-        "scaled_jacobian__minimum",
-        "training_seconds",
-        "average_epoch_seconds",
-    ),
-    "secondary": (
-        "jacobian__minimum",
-        "skewness__mean",
-        "orthogonality__mean",
-        "completed_epochs",
-        "network_inference_seconds",
-    ),
+METRIC_PROFILES = {
+    name: _SUMMARY_METRICS for name in (BASELINE_ABLATION, *ABLATIONS)
 }
 
 
@@ -342,13 +141,7 @@ class Variant:
 
 def _load_yaml_mapping(path: Path) -> dict:
     """Load one YAML mapping and report malformed experiment files clearly."""
-    path = Path(path).resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
-    value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(value, dict):
-        raise TypeError(f"Expected a YAML mapping in {path}")
-    return value
+    return load_yaml_mapping(path)
 
 
 def default_experiment_config(ablation: str, experiment_root: Path | None = None) -> Path:
@@ -358,11 +151,10 @@ def default_experiment_config(ablation: str, experiment_root: Path | None = None
 
 
 def validate_experiment_set_name(value: str) -> str:
-    """Accept numbered suites and numbered sub-suites such as ``ex8_1``."""
+    """Accept consecutively numbered experiment suites such as ``ex1``."""
     if not EXPERIMENT_SET_PATTERN.fullmatch(value):
         raise ValueError(
-            "--experiment-set must use the form ex1, ex2, ... or a numbered "
-            "sub-suite such as ex8_1"
+            "--experiment-set must use the form ex1, ex2, ..."
         )
     return value
 
@@ -415,191 +207,6 @@ def reject_embedded_baseline_variants(variants: list[Variant], definition_path: 
             "Ablation commands never train or evaluate baselines; keep the canonical "
             "baseline only in the suite baseline/ directory and remove this variant."
         )
-
-
-def _weight_name(value: float) -> str:
-    if value == 0:
-        return "jac_w_0"
-    exponent = int(math.floor(math.log10(abs(value))))
-    coefficient = value / (10**exponent)
-    if abs(coefficient - 1.0) < 1e-12:
-        return f"jac_w_1e{exponent:+d}".replace("+", "")
-    return f"jac_w_{value:g}".replace(".", "p")
-
-
-def _learning_rate_name(value: float) -> str:
-    """Return a compact, path-safe name for one initial learning rate."""
-    exponent = int(math.floor(math.log10(abs(value))))
-    coefficient = value / (10**exponent)
-    if abs(coefficient - 1.0) < 1e-12:
-        return f"lr_1e{exponent:+d}".replace("+", "")
-    return f"lr_{value:g}".replace(".", "p")
-
-
-def run_initial_learning_rate_experiment(config: dict, learning_rates=None) -> list[Variant]:
-    """Scan initial rates while retaining the configured learning-rate schedule."""
-    values = (
-        learning_rates
-        if learning_rates is not None
-        else config.get("initial_learning_rates", DEFAULT_LEARNING_RATES)
-    )
-    variants = []
-    for raw in values:
-        learning_rate = float(raw)
-        if learning_rate <= 0 or not np.isfinite(learning_rate):
-            raise ValueError("Initial learning rates must be finite and positive")
-        variants.append(
-            Variant(
-                _learning_rate_name(learning_rate),
-                learning_rate,
-                ("--lr", str(learning_rate)),
-            )
-        )
-    if not variants:
-        raise ValueError("At least one initial learning rate is required")
-    return variants
-
-
-def run_jacobian_enabled_experiment(config: dict) -> list[Variant]:
-    """Compare identical HMONet runs with the Jacobian loss disabled/enabled."""
-    weight = float(config.get("jacobian_enabled_weight", 0.01))
-    return [
-        Variant("jac_off", 0.0, ("--no-jacobian-loss-enabled",)),
-        Variant(
-            "jac_on",
-            weight,
-            ("--jacobian-loss-enabled", "--jacobian-loss-weight", str(weight)),
-        ),
-    ]
-
-
-def run_jacobian_weight_experiment(config: dict, weights=None) -> list[Variant]:
-    """Build one HMONet variant for every requested Jacobian loss weight."""
-    values = weights or config.get("jacobian_weights", DEFAULT_WEIGHTS)
-    variants = []
-    for raw in values:
-        weight = float(raw)
-        if weight < 0 or not np.isfinite(weight):
-            raise ValueError("Jacobian weights must be finite and nonnegative")
-        flags = (
-            ("--no-jacobian-loss-enabled", "--jacobian-loss-weight", "0")
-            if weight == 0
-            else ("--jacobian-loss-enabled", "--jacobian-loss-weight", str(weight))
-        )
-        variants.append(Variant(_weight_name(weight), weight, flags))
-    if not variants:
-        raise ValueError("At least one Jacobian weight is required")
-    return variants
-
-
-def run_sampling_mode_experiment(config: dict) -> list[Variant]:
-    """Compare uniform sampling with curvature-distance adaptive sampling."""
-    return [
-        Variant("uniform", "uniform", ("--sampling-mode", "uniform")),
-        Variant("adaptive", "adaptive", ("--sampling-mode", "adaptive")),
-    ]
-
-
-def run_point_weighting_experiment(config: dict) -> list[Variant]:
-    """Compare boundary-enhanced loss weights with equal point weights."""
-    return [
-        Variant(
-            "position_weighted",
-            "position",
-            (),
-        ),
-        Variant(
-            "uniform_weight",
-            "uniform",
-            ("--point-loss-weighting", "uniform"),
-        ),
-    ]
-
-
-def run_target_interpolation_experiment(config: dict) -> list[Variant]:
-    """Compare straight-cell targets with exact curved boundary-cell targets."""
-    return [
-        Variant(
-            "bilinear",
-            "bilinear",
-            ("--target-interpolation", "bilinear"),
-        ),
-        Variant(
-            "curved_boundary_cell",
-            "curved_boundary_cell",
-            ("--target-interpolation", "curved_boundary_cell"),
-        ),
-    ]
-
-
-def run_training_sample_count_experiment(
-    config: dict, sample_counts=None
-) -> list[Variant]:
-    """Compare HMONet with different uniformly random points per training batch."""
-    values = (
-        sample_counts
-        if sample_counts is not None
-        else config.get("training_sample_counts", DEFAULT_SAMPLE_COUNTS)
-    )
-    variants = []
-    for raw in values:
-        count = int(raw)
-        if count != raw or count <= 0:
-            raise ValueError("Training sample counts must be positive integers")
-        variants.append(
-            Variant(
-                f"samples_{count}",
-                count,
-                ("--global-random-count", str(count)),
-            )
-        )
-    if not variants:
-        raise ValueError("At least one training sample count is required")
-    if len({item.value for item in variants}) != len(variants):
-        raise ValueError("Training sample counts must not contain duplicates")
-    return variants
-
-
-def run_mapping_mode_experiment(config: dict) -> list[Variant]:
-    """Compare current and Coons-residual hard-constraint mappings."""
-    return [
-        Variant("current", "current", ("--hmonet-mapping-mode", "current")),
-        Variant(
-            "coons_residual",
-            "coons_residual",
-            ("--hmonet-mapping-mode", "coons_residual"),
-        ),
-    ]
-
-
-def run_normal_loss_experiment(config: dict) -> list[Variant]:
-    """Compare identical HMONet runs with the boundary-normal loss off/on."""
-    weight = float(config.get("normal_loss_weight", 0.01))
-    return [
-        Variant("normal_off", 0.0, ("--no-boundary-normal-loss-enabled",)),
-        Variant(
-            "normal_on",
-            weight,
-            (
-                "--boundary-normal-loss-enabled",
-                "--boundary-normal-loss-weight",
-                str(weight),
-            ),
-        ),
-    ]
-
-
-VARIANT_BUILDERS = {
-    "initial_learning_rate": run_initial_learning_rate_experiment,
-    "jacobian_enabled": run_jacobian_enabled_experiment,
-    "jacobian_weight": run_jacobian_weight_experiment,
-    "mapping_mode": run_mapping_mode_experiment,
-    "normal_loss": run_normal_loss_experiment,
-    "point_weighting": run_point_weighting_experiment,
-    "sampling_mode": run_sampling_mode_experiment,
-    "target_interpolation": run_target_interpolation_experiment,
-    "training_sample_count": run_training_sample_count_experiment,
-}
 
 
 def resolve_dataset(value: str) -> Path:
@@ -827,6 +434,11 @@ def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
     normalized = copy.deepcopy(snapshot)
     mode = dataset_mode(dataset_name(dataset))
     normalized["datasets"] = {mode: dataset_name(dataset)}
+    # ``uniform_index`` has always been the semantic default. Keeping it explicit
+    # preserves completed-run fingerprints created before the config refactor.
+    normalized.setdefault("training", {}).setdefault(
+        "dataset_subset_mode", "uniform_index"
+    )
     # Explicit default Linear is equivalent to legacy snapshots without this option.
     for block in normalized.get("model", {}).values():
         if not isinstance(block, dict):
@@ -837,6 +449,7 @@ def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
         if lift_mode == "legacy":
             block.pop("coordinate_lift_mode", None)
             block.pop("coordinate_lift_max_power", None)
+            block.pop("coordinate_lift_q", None)
         elif block.get("coordinate_lift_max_power") == 1:
             block.pop("coordinate_lift_max_power")
     return normalized
@@ -849,7 +462,14 @@ def _legacy_dataset_identity(value):
     sizes or parameter-range versions use their canonical names directly.
     """
     if isinstance(value, dict):
-        return {key: _legacy_dataset_identity(item) for key, item in value.items()}
+        return {
+            key: (
+                fingerprint_mapping_mode(item)
+                if key.endswith("mapping_mode") and item != "both"
+                else _legacy_dataset_identity(item)
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_legacy_dataset_identity(item) for item in value]
     if isinstance(value, str):
@@ -891,6 +511,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
             "trunk_dim",
             "coordinate_lift_mode",
             "coordinate_lift_max_power",
+            "coordinate_lift_q",
             "adjust_hidden_dim",
             "adjust_hidden_layer_num",
             "branch_hidden_dim",
@@ -958,6 +579,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "trunk_dim",
         "coordinate_lift_mode",
         "coordinate_lift_max_power",
+        "coordinate_lift_q",
         "adjust_hidden_dim",
         "adjust_hidden_layer_num",
         "branch_hidden_dim",
@@ -1005,6 +627,8 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "hmonet_random_loss_boundary_band_max_step_multiple": "random_loss_boundary_band_max_step_multiple",
         "hmonet_random_loss_boundary_band_min_distance": "random_loss_boundary_band_min_distance",
         "hmonet_random_loss_boundary_band_max_distance": "random_loss_boundary_band_max_distance",
+        "hmonet_random_loss_fd_stencil_inside": "random_loss_fd_stencil_inside",
+        "hmonet_random_loss_fd_boundary_scheme": "random_loss_fd_boundary_scheme",
         "hmonet_physics_jacobian_minimum": "physics_jacobian_minimum",
         "hmonet_physics_interior_sample_count": "physics_interior_sample_count",
         "hmonet_physics_winslow_loss_weight": "physics_winslow_loss_weight",
@@ -1028,6 +652,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "branch_dim",
         "trunk_dim",
         "coordinate_lift_max_power",
+        "coordinate_lift_q",
         "adjust_hidden_dim",
         "adjust_hidden_layer_num",
         "branch_hidden_dim",
@@ -1064,6 +689,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "save_phase_best_checkpoints",
         "reset_optimizer_on_phase_transition",
         "physics_scale_invariant_pde_enabled",
+        "random_loss_fd_stencil_inside",
     }
     string_keys = {
         "hmonet_mapping_mode",
@@ -1075,6 +701,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "training_strategy",
         "random_loss_derivative_backend",
         "random_loss_sampling_mode",
+        "random_loss_fd_boundary_scheme",
         "physics_barrier_reduction",
         "best_model_metric",
         "plateau_metric",
@@ -1121,26 +748,6 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         fingerprint_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), payload
-
-
-def hmonet_parameter_count(identity: dict) -> int:
-    """Instantiate the resolved 2-D HMONet and return its exact trainable size."""
-    from src.models import HMONet2D
-
-    snapshot = identity["effective_training_config"]
-    grid = snapshot["grid"]
-    model_config = snapshot["model"]
-    options = dict(model_config.get("common", {}))
-    options.update(model_config.get("hmonet", {}))
-    options.pop("residual_regularization_weight", None)
-    options.pop("projection_softplus_enabled", None)
-    options["trunk_projection_coefficients_enabled"] = True
-    model = HMONet2D(int(grid["nx"]), int(grid["ny"]), **options)
-    return sum(
-        parameter.numel()
-        for parameter in model.parameters()
-        if parameter.requires_grad
-    )
 
 
 _FILE_DIGEST_CACHE = {}
@@ -1297,7 +904,9 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
         "grid_shapes": [list(shape) for shape in settings["grid_shapes"]],
         "model": evaluated_model(summary),
         "methods": evaluated_methods(settings, summary),
-        "hmonet_mapping_mode": summary.get("hmonet_mapping_mode", "current"),
+        "hmonet_mapping_mode": summary.get(
+            "hmonet_mapping_mode", "rational_affine"
+        ),
         "hmonet_boundary_projection": settings["hmonet_boundary_projection"],
         "quality_metrics": settings["quality_metrics"],
         "device": args.device,
@@ -1309,7 +918,12 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
     # remains reusable without rewriting completed experiment records.
     if settings["values"] is not None:
         payload["values"] = settings["values"]
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    encoded = json.dumps(
+        _legacy_dataset_identity(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest(), payload
 
 
@@ -1700,7 +1314,7 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
     if model in {"hmonet", "qghmonet"}:
         command += [
             "--hmonet-mapping-mode",
-            summary.get("hmonet_mapping_mode", "current"),
+            summary.get("hmonet_mapping_mode", "rational_affine"),
         ]
     if args.device:
         command += ["--device", args.device]
@@ -1811,7 +1425,8 @@ def _comparison_method_group(parts) -> str:
         "raw",
         "direct",
         "idw",
-        "current",
+        "rational",
+        "affine",
         "corner",
         "corrected",
         "coons",
@@ -2117,6 +1732,7 @@ def result_rows(manifest: dict, summary: dict, result_path: Path):
     result = json.loads(result_path.read_text(encoding="utf-8"))
     method = {
         "hmonet": "HMONet",
+        "qghmonet": "QG-HMONet",
         "meshonet": "MeshONet",
         "pimeshonet": "PI-MeshONet",
     }[evaluated_model(summary)]
@@ -2754,11 +2370,7 @@ def execute(args, config, variants: list[Variant]):
                 fingerprint, identity = effective_training_identity(
                     args, dataset, variant, seed
                 )
-                variant_value = (
-                    hmonet_parameter_count(identity)
-                    if args.ablation == "model_capacity"
-                    else variant.value
-                )
+                variant_value = variant.value
                 baseline_fingerprint, baseline_identity = effective_training_identity(
                     args, dataset, Variant("baseline", "baseline", ()), seed
                 )
@@ -3256,9 +2868,6 @@ def build_parser():
         action="append",
         help="Dataset name/path; repeat for multiple datasets. Config defaults apply when omitted.",
     )
-    parser.add_argument("--initial-learning-rates", nargs="+", type=float)
-    parser.add_argument("--jacobian-weights", nargs="+", type=float)
-    parser.add_argument("--training-sample-counts", nargs="+", type=int)
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument(
         "--evaluation-grid-shapes",
@@ -3289,7 +2898,7 @@ def build_parser():
     parser.add_argument(
         "--variants",
         nargs="+",
-        help="Run only the named ablation variants, for example jac_off or jac_on.",
+        help="Run only the named YAML variants for the selected experiment.",
     )
     parser.add_argument(
         "--experiment-set", default=DEFAULT_EXPERIMENT_SET,
@@ -3363,7 +2972,11 @@ def main(argv=None):
     args.evaluate_config = (
         args.evaluate_config
         or declared_evaluation
-        or suite_root / "baseline/evaluate.yaml"
+        or (
+            suite_root / "baseline/evaluate.yaml"
+            if (suite_root / "baseline/evaluate.yaml").is_file()
+            else ROOT / "configs/2D/evaluate.yaml"
+        )
     ).resolve()
     args.baseline_experiment_root = baseline_experiment_root(
         args.baseline_config, args.experiment_root
@@ -3404,20 +3017,12 @@ def main(argv=None):
         reject_embedded_baseline_variants(configured_variants, definition_path)
     if args.ablation == BASELINE_ABLATION:
         variants = [Variant("baseline", "baseline", ())]
-    elif args.ablation == "initial_learning_rate" and args.initial_learning_rates:
-        variants = run_initial_learning_rate_experiment(
-            config, args.initial_learning_rates
-        )
-    elif args.ablation == "jacobian_weight" and args.jacobian_weights:
-        variants = run_jacobian_weight_experiment(config, args.jacobian_weights)
-    elif args.ablation == "training_sample_count" and args.training_sample_counts:
-        variants = run_training_sample_count_experiment(
-            config, args.training_sample_counts
-        )
     elif configured_variants:
         variants = configured_variants
     else:
-        variants = VARIANT_BUILDERS[args.ablation](config)
+        raise ValueError(
+            f"{definition_path} does not declare any variants for {args.ablation!r}"
+        )
     if args.variants:
         requested = set(args.variants)
         available = {variant.name for variant in variants}

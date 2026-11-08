@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import torch
 
-from .model import HMONet2D, HMONet3D, _corner_corrected_weights_2d
+from .mapping_modes import CORNER_CORRECTED_AFFINE
+from .model import HMONet2D, HMONet3D, _corner_corrected_affine_weights_2d
 
 __all__ = ["QGHMONet2D", "QGHMONet3D"]
 
@@ -106,7 +107,7 @@ class QGHMONet2D(HMONet2D):
         self, p_x, p_y, xi, eta, raw_coordinates, mapping_weights, projections
     ):
         """Stage 6: apply the corner-corrected exact-boundary formula."""
-        beta, boundary_weights, corner_weights = _corner_corrected_weights_2d(
+        beta, boundary_weights, corner_weights = _corner_corrected_affine_weights_2d(
             xi, eta, mapping_weights
         )
         boundary = torch.stack((p_x, p_y), dim=-1)
@@ -137,7 +138,7 @@ class QGHMONet2D(HMONet2D):
         boundary_geometry=None,
     ):
         """Run the six explicit QG-HMONet stages and return physical coordinates."""
-        if self.hmonet_mapping_mode != "corner_corrected":
+        if self.hmonet_mapping_mode != CORNER_CORRECTED_AFFINE:
             return super().forward(
                 p_x, p_y, xi, eta,
                 return_displacement=return_displacement,

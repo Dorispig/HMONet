@@ -1,0 +1,10 @@
+schema_version: 1
+experiment: coons_residual
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: coons_residual
+    value: coons_residual_projection
+    overrides:
+      - --hmonet-mapping-mode
+      - coons_residual

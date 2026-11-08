@@ -1,0 +1,9 @@
+schema_version: 1
+experiment: e1_fd_full_open_domain
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: e1_fd_full_open_domain
+    value: finite_difference_centers_over_full_open_domain
+    overrides:
+      - --no-hmonet-random-loss-fd-stencil-inside

@@ -86,7 +86,7 @@ class TestInferenceGeometry:
             query_batch_size=11, inference_warmup_runs=2, inference_timing_repeats=3
         )
         for dimension in (2, 3):
-            for mapping in ("current", "coons_residual"):
+            for mapping in ("rational_affine", "coons_residual"):
                 model, shape = small_model(dimension, mapping)
                 geometry = boundary(dimension, 0.3)
                 query = logical_grid((4,) * dimension)
@@ -122,7 +122,7 @@ class TestInferenceGeometry:
 
     def test_batched_training_with_exact_geometry_and_linear_fallback(self):
         for dimension in (2, 3):
-            for mapping in ("current", "coons_residual"):
+            for mapping in ("rational_affine", "coons_residual"):
                 model, shape = small_model(dimension, mapping)
                 model.train()
                 geometries = [boundary(dimension, t) for t in (0.2, 0.32)]

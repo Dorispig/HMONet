@@ -37,7 +37,7 @@ python scripts/train/train_evaluate.py `
   --train-config configs/2D/train.yaml `
   --evaluate-config configs/2D/evaluate.yaml `
   --checkpoint best `
-  --train-args "--model all --dataset-mode both --jacobian-method finite_difference --jacobian-fd-step 0.001 --num-epochs 100000 --batch-size 64 --lr 0.0004 --seed 20260802 --device cuda --hmonet-mapping-mode current" `
+  --train-args "--model all --dataset-mode both --jacobian-method finite_difference --jacobian-fd-step 0.001 --num-epochs 100000 --batch-size 64 --lr 0.0004 --seed 20260802 --device cuda --hmonet-mapping-mode rational_affine" `
   --evaluate-args "--model both --inference-warmup-runs 3 --inference-timing-repeats 10 --compute-grid-quality --quality-metrics both"
 ```
 
@@ -78,7 +78,7 @@ datasets:
 | `--device cuda` | 使用 CUDA 训练；也可以选择 `cpu` 或 `auto`。 |
 | `--jacobian-method finite_difference` | HMONet 的 Jacobian 损失采用有限差分；可改为 `autograd`。仅在该损失开启时生效。 |
 | `--jacobian-fd-step 0.001` | Jacobian 有限差分的计算域步长。 |
-| `--hmonet-mapping-mode current` | HMONet 内部映射方式；也可以选择 `coons_residual` 或 `corner_corrected`。 |
+| `--hmonet-mapping-mode rational_affine` | HMONet 内部映射方式；也可以选择 `coons_residual` 或 `corner_corrected_affine`。 |
 
 训练损失、收敛条件、学习率调度等未在示例中覆盖的参数，继续使用训练 YAML 的设置。其他训练命令行参数也可以放入 `--train-args`，完整列表可查看：
 
@@ -285,7 +285,7 @@ python scripts/train/train_evaluate.py --train-args "--no-plateau-enabled"
 ## PI-HMONet 与四模型选择
 
 新增 `pihmonet`，`both` 保持 HMONet＋MeshONet，`all` 现在选择四种模型。
-PI-HMONet 训练使用 `--pihmonet-mapping-mode current/coons_residual`；评估还可设为 `both`。
+PI-HMONet 训练使用 `--pihmonet-mapping-mode rational_affine/coons_residual`；评估还可设为 `both`。
 PI-HMONet 专属覆盖包括 pihmonet-pde-loss-weight、
 pihmonet-interior-sample-count、pihmonet-fd-step、
 pihmonet-jacobian-loss-weight 和 pihmonet-jacobian-minimum。

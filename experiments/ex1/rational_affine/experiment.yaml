@@ -1,0 +1,10 @@
+schema_version: 1
+experiment: rational_affine
+baseline_config: ../baseline/experiment.yaml
+evaluation_config: ../baseline/evaluate.yaml
+variants:
+  - name: rational_affine
+    value: rational_affine_projection
+    overrides:
+      - --hmonet-mapping-mode
+      - rational_affine

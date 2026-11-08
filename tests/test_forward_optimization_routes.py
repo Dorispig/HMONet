@@ -38,7 +38,7 @@ class TestForwardOptimization:
 
     def test_training_first_and_second_derivatives_unchanged(self):
         for device in (["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]):
-            model, shape = small_model(2, "current")
+            model, shape = small_model(2, "rational_affine")
             model = model.to(device=device, dtype=torch.float64).train()
             weight_parameter = next(model.weight_head.parameters())
             g = boundary(2, 0.3)
@@ -67,7 +67,7 @@ class TestForwardOptimization:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
     def test_all_routes_batched_and_unbatched_both_mappings(self):
         for dtype in (torch.float32, torch.float64):
-            for mapping in ("current", "coons_residual"):
+            for mapping in ("rational_affine", "coons_residual"):
                 model, shape = small_model(2, mapping)
                 model = model.to(device="cuda", dtype=dtype)
                 g = boundary(2, 0.3)

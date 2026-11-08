@@ -11,7 +11,7 @@
 ## 二维生成
 
 ```bash
-python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.52 0.55 --workers 4
+python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.055 0.6 --workers 4
 ```
 
 主要参数：

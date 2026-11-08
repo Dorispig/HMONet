@@ -144,7 +144,7 @@ class TestProjectionJacobian:
             for dimension in (2, 3):
                 thicknesses = (0.62, 0.65) if dimension == 2 else (0.12, 0.15)
                 geometries = [boundary(dimension, t) for t in thicknesses]
-                for mapping in ("current", "coons_residual"):
+                for mapping in ("rational_affine", "coons_residual"):
                     model, shape = small_model(dimension, mapping)
                     model = model.to(device=device, dtype=torch.float64).train()
                     b = torch.tensor(
@@ -234,7 +234,7 @@ class TestProjectionJacobian:
     def test_jacobian_loss_parameter_gradient_and_optimization(self):
         for device in self.devices():
             for dimension in (2, 3):
-                for mapping in ("current", "coons_residual"):
+                for mapping in ("rational_affine", "coons_residual"):
                     model, shape = small_model(dimension, mapping)
                     model = model.to(device=device, dtype=torch.float64).train()
                     thicknesses = (0.62, 0.65) if dimension == 2 else (0.12, 0.15)

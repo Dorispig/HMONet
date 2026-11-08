@@ -31,12 +31,13 @@ python scripts/train/train_3d.py --dataset data/raw/3D/sch_r_ext_0_1000_11_31_11
 ## 三维专有参数
 
 - `--nx/--ny/--nz`：只校验数据集内的训练点数，不重采样数据集。
-- `--sample-count`：每批共享的三维随机查询点数。
+- 正式 HMONet 配置与二维一致，使用 `200` 个全局均匀点和 `200` 个曲率自适应点；三维自适应点通过“曲率加权参数面锚点 + 向域内局部扰动”生成，避免构造候选点到全部面点的巨大距离矩阵。
+- 正式 HMONet 从头采用归一化椭圆网格 PDE、归一化 Jacobian 屏障和最小奇异值屏障进行自监督训练，不读取 PDE 网格作为坐标监督目标。
 - `--pi-fd-step HX HY HZ`：PI 模型三个计算坐标方向的有限差分步长。
-- `--jacobian-fd-step`：HMONet Jacobian 正则的有限差分步长；三个方向使用同一标量。
-- `--hmonet-mapping-mode`：`current`、`coons_residual` 或 `corner_corrected`。
-- `--target-interpolation`：`bilinear` 或 `curved_boundary_cell`；三维实现沿用参数曲面边界修正逻辑。
+- `--hmonet-mapping-mode`：正式训练默认 `corner_corrected_affine`（CCAP），另可选 `rational_affine` 或 `coons_residual`。
 - `--boundary-self-attention-enabled`：启用三维六面联合边界注意力编码。
+
+`--sample-count`、`--jacobian-fd-step` 和 `--target-interpolation` 仅用于兼容旧的监督式 HMONet 配置，不改变当前正式自监督配置中的 `random_loss_*` 与 `pde_fd_step`。
 
 模型别名：`both` 为 HMONet 与 MeshONet，`pi` 为三个 PI 模型，`all` 为五种神经网络；也可以传逗号分隔的任意列表。
 

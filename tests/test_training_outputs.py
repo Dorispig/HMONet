@@ -49,7 +49,7 @@ class TestConfigArchive:
                 "training": {"dataset": "both", "learning_rate": 0.0007},
                 "model": {
                     "name": "hmonet",
-                    "hmonet": {"hmonet_mapping_mode": "current"},
+                    "hmonet": {"hmonet_mapping_mode": "rational_affine"},
                 },
             }
             with patch("scripts.train.training_state.datetime") as clock:
@@ -61,7 +61,7 @@ class TestConfigArchive:
                     assert (run) == (expected)
                     directory = config_archive_directory(args, config, "hmonet", run)
                     assert (directory) == (
-                        root / "configs/2D/sample/HMONet/current" / run
+                        root / "configs/2D/sample/HMONet/rational_affine" / run
                     )
                     path = save_training_snapshot(
                         directory, config, root / "data/sample", "interpolation"
@@ -95,9 +95,9 @@ class TestTrainingRunDirectory:
                 clock.now.return_value.strftime.return_value = "20260915_0807"
                 for dimension in (2, 3):
                     for name, mapping in (
-                        ("hmonet", "current"),
+                        ("hmonet", "rational_affine"),
                         ("hmonet", "coons_residual"),
-                        ("meshonet", "current"),
+                        ("meshonet", "rational_affine"),
                     ):
                         args = SimpleNamespace(
                             output_root=root / "training" / f"{dimension}D" / "sample",
@@ -179,7 +179,7 @@ class TestTrainingRunDirectory:
                 dataset_name="sample",
                 mode="interpolation",
             )
-            config = {"model": {"hmonet": {"hmonet_mapping_mode": "current"}}}
+            config = {"model": {"hmonet": {"hmonet_mapping_mode": "rational_affine"}}}
             with patch("scripts.train.training_state.datetime") as clock:
                 clock.now.return_value.strftime.return_value = "20260915_0807"
                 old = checkpoint_directory(args, config, "hmonet", "2D")

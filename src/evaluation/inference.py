@@ -17,6 +17,11 @@ from src.models import (
     PIMeshONet2D, PIMeshONet3D,
     QGHMONet2D, QGHMONet3D,
 )
+from src.models.mapping_modes import (
+    RATIONAL_AFFINE,
+    fingerprint_mapping_mode,
+    normalize_mapping_mode,
+)
 
 
 def resolve_device(value):
@@ -35,7 +40,10 @@ def find_checkpoint(dimension, dataset, method, mapping, options, split=None):
         f"{method.lower().replace('-', '')}_checkpoint"
     ) or options.get("checkpoint")
     if isinstance(explicit, dict):
-        explicit = explicit.get(mapping)
+        canonical_mapping = normalize_mapping_mode(mapping)
+        explicit = explicit.get(canonical_mapping) or explicit.get(
+            fingerprint_mapping_mode(canonical_mapping)
+        )
     if explicit:
         path = resolve_path(explicit)
         if not path.is_file():
@@ -47,8 +55,16 @@ def find_checkpoint(dimension, dataset, method, mapping, options, split=None):
         parts = path.relative_to(root).parts
         if method not in parts:
             continue
-        if method in ("HMONet", "QG-HMONet") and mapping not in parts:
-            continue
+        if method in ("HMONet", "QG-HMONet"):
+            canonical_mapping = normalize_mapping_mode(mapping)
+            compatible_parts = []
+            for part in parts:
+                try:
+                    compatible_parts.append(normalize_mapping_mode(part))
+                except ValueError:
+                    pass
+            if canonical_mapping not in compatible_parts:
+                continue
         candidates.append(path)
     return (
         max(candidates, key=lambda p: (p.parent.name, p.stat().st_mtime_ns))
@@ -95,11 +111,15 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
         **model_config.get(method.lower().replace("-", ""), {}),
     }
     if method in ("HMONet", "QG-HMONet"):
-        stored_mapping = kwargs.get("hmonet_mapping_mode", "current")
-        if stored_mapping != mapping:
+        stored_mapping = normalize_mapping_mode(
+            kwargs.get("hmonet_mapping_mode", RATIONAL_AFFINE)
+        )
+        requested_mapping = normalize_mapping_mode(mapping)
+        if stored_mapping != requested_mapping:
             raise ValueError(
-                f"Checkpoint mapping is {stored_mapping}, requested {mapping}: {path}"
+                f"Checkpoint mapping is {stored_mapping}, requested {requested_mapping}: {path}"
             )
+        kwargs["hmonet_mapping_mode"] = stored_mapping
     state_dict = payload.get("model_state_dict", payload)
     if (
         method == "HMONet"

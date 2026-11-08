@@ -8,6 +8,11 @@ import numpy as np
 import yaml
 
 from .method_order import ordered_methods
+from src.models.mapping_modes import (
+    RATIONAL_AFFINE,
+    mapping_mode_choices,
+    normalize_mapping_mode,
+)
 from src.utils.quality_selection import ALL_METRICS, QUAD_METRICS, quality_settings
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,9 +30,9 @@ METHODS = {
 DEFAULTS = dict(
     methods=["tfi", "pde", "meshonet", "hmonet"],
     include_tfi=True,
-    hmonet_mapping_mode="current",
-    pihmonet_mapping_mode="current",
-    attentionpihmonet_mapping_mode="current",
+    hmonet_mapping_mode=RATIONAL_AFFINE,
+    pihmonet_mapping_mode=RATIONAL_AFFINE,
+    attentionpihmonet_mapping_mode=RATIONAL_AFFINE,
     pihmonet_boundary_projection="none",
     attentionpihmonet_boundary_projection="none",
     hmonet_boundary_projection="none",
@@ -155,7 +160,7 @@ def build_parser(dimension):
     parser.add_argument("--pimeshonet-checkpoint", type=Path)
     parser.add_argument("--curve-kernel-backend", choices=["auto", "torch"])
     parser.add_argument(
-        "--hmonet-mapping-mode", choices=["current", "coons", "coons_residual", "corner_corrected", "both"]
+        "--hmonet-mapping-mode", choices=mapping_mode_choices(allow_both=True)
     )
     for model in ("hmonet", "qghmonet", "meshonet", "pimeshonet"):
         parser.add_argument(
@@ -307,11 +312,7 @@ def evaluation_options(config, case, args):
         "pihmonet_mapping_mode",
         "attentionpihmonet_mapping_mode",
     ):
-        if result[key] == "coons":
-            result[key] = "coons_residual"
-        allowed = ("current", "coons_residual", "corner_corrected", "both") if key == "hmonet_mapping_mode" else ("current", "coons_residual", "both")
-        if result[key] not in allowed:
-            raise ValueError(f"Invalid {key}: {result[key]}")
+        result[key] = normalize_mapping_mode(result[key], allow_both=True)
     for key in (
         "hmonet_boundary_projection",
         "qghmonet_boundary_projection",

@@ -67,7 +67,7 @@ class TestEvaluationPipeline:
                 ["--config", str(path), *args]
             )
 
-    def checkpoint(self, dimension, method, mapping="current", bare=False):
+    def checkpoint(self, dimension, method, mapping="rational_affine", bare=False):
         torch.manual_seed(39)
         shape = (5, 4) if dimension == 2 else (4, 3, 5)
         common = dict(
@@ -205,10 +205,10 @@ class TestEvaluationPipeline:
             assert (item["boundary_mean_error"]) == pytest.approx(
                 expected.mean(), abs=1e-7
             )
-            assert (root / "HMONet/current/raw/boundary_error_data.csv").is_file()
+            assert (root / "HMONet/rational_affine/raw/boundary_error_data.csv").is_file()
             np.testing.assert_array_equal(
-                np.load(root / "HMONet/current/none/mesh.npy"),
-                np.load(root / "HMONet/current/raw/mesh.npy"),
+                np.load(root / "HMONet/rational_affine/none/mesh.npy"),
+                np.load(root / "HMONet/rational_affine/raw/mesh.npy"),
             )
             assert (record["timings"]["HMONet"]["boundary_projection_seconds"]) == (0.0)
             assert ("hmonet_none__meshonet_direct") in (str(group))
@@ -334,7 +334,7 @@ class TestEvaluationPipeline:
         from src.evaluation.inference import find_checkpoint
 
         for model, mapping in (
-            ("HMONet", "current"),
+            ("HMONet", "rational_affine"),
             ("HMONet", "coons_residual"),
             ("MeshONet", ""),
         ):
@@ -346,9 +346,9 @@ class TestEvaluationPipeline:
             (folder / "best.pt").write_bytes(b"selection fixture")
         with patch("src.evaluation.inference.ROOT", self.root):
             for model, mapping in (
-                ("HMONet", "current"),
+                ("HMONet", "rational_affine"),
                 ("HMONet", "coons_residual"),
-                ("MeshONet", "current"),
+                ("MeshONet", "rational_affine"),
             ):
                 selected = find_checkpoint(
                     2, "test", model, mapping, {}, "interpolation"

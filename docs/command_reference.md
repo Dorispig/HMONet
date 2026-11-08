@@ -24,13 +24,13 @@ python scripts/evaluate/evaluate_2d.py --case run_ext_0_1000_61_21 --values 1.52
 
 ```bash
 # 单个实验
-python scripts/experiments/run.py ex9 e9_3 --dataset run_ext_0_1000_61_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
+python scripts/experiments/run.py ex1 rational_affine --dataset run_ext_0_1000_61_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
 
 # 基线和套件内全部实验
-python scripts/experiments/run.py ex10 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
 
 # 只评估且不生成图片
-python scripts/experiments/run.py ex9 e9_3 --evaluate-only --grids 101 201 --no-plots
+python scripts/experiments/run.py ex1 rational_affine --evaluate-only --grids 101 201 --no-plots
 ```
 
 `all` 不包含基线，只有显式写出 `baseline` 才运行基线。`--force` 会替换所选任务的既有运行；使用前应先执行 `--dry-run`。`--train-only` 与 `--evaluate-only` 互斥。
@@ -41,7 +41,7 @@ python scripts/experiments/run.py ex9 e9_3 --evaluate-only --grids 101 201 --no-
 
 ```bash
 # 消融实验
-python scripts/experiments/run.py ex10 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1 --gpus 0 1 2 3
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1 --gpus 0 1 2 3
 
 # 正式实验
 python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/train.yaml --evaluate-config configs/2D/evaluate.yaml --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet --train-args "--model hmonet,meshonet,pimeshonet --dataset-mode both" --gpus 0 1 2 3
@@ -62,7 +62,7 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 ## 数据、测试和可视化
 
 ```bash
-python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.52 0.55
+python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.055 0.6
 python src/data/generation/make_dataset_parametric_3d.py --family sch_r --split extrapolation --version 1 --size 500 --grid-shape 11x31x11
 python -m unittest discover -s tests -p "test_*.py" -v
 python -m pytest tests -q

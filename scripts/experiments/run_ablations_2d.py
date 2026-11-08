@@ -220,10 +220,11 @@ def _configured_variants(args, ablation: str):
     definition_path = args.experiment_root / ablation / "experiment.yaml"
     definition = run_ablation_2d._load_yaml_mapping(definition_path)
     variants = run_ablation_2d.variants_from_definition(definition)
-    if variants:
-        return variants
-    config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
-    return run_ablation_2d.VARIANT_BUILDERS[ablation](config)
+    if not variants:
+        raise ValueError(
+            f"{definition_path} must explicitly declare at least one variant"
+        )
+    return variants
 
 
 def _run_dynamic_gpu_queue(args, selected):
@@ -377,7 +378,11 @@ def main(argv=None):
         or _shared_declared_config(
             args.experiment_root, selected, "evaluation_config"
         )
-        or suite_root / "baseline/evaluate.yaml"
+        or (
+            suite_root / "baseline/evaluate.yaml"
+            if (suite_root / "baseline/evaluate.yaml").is_file()
+            else ROOT / "configs/2D/evaluate.yaml"
+        )
     ).resolve()
     if args.gpus:
         return _run_dynamic_gpu_queue(args, selected)

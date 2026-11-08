@@ -134,7 +134,7 @@ class TestPhysics:
                 assert ("PI-MeshONet") in (checkpoint.parts)
                 assert ("PI-MeshONet") in (Path(args.training_output_dir).parts)
                 model, _, _ = load_network(
-                    checkpoint, "PI-MeshONet", dim, "current", torch.device("cpu")
+                    checkpoint, "PI-MeshONet", dim, "rational_affine", torch.device("cpu")
                 )
                 saved = torch.load(checkpoint, weights_only=False)
                 assert (saved["config"]["training"]["best_model_metric"]) == (

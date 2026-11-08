@@ -286,7 +286,9 @@ def main():
     )
     parser.add_argument("--dimension", choices=["2D", "3D", "both"], default="both")
     parser.add_argument(
-        "--mapping", choices=["current", "coons_residual", "corner_corrected"], default="current"
+        "--mapping",
+        choices=["rational_affine", "coons_residual", "corner_corrected_affine"],
+        default="rational_affine",
     )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--points", type=int, default=400)

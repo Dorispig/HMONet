@@ -1,0 +1,3 @@
+schema_version: 1
+experiment: e1_4_power5
+variants: [{name: e1_4_power5, value: 5, overrides: [--coordinate-lift-max-power, "5"]}]

@@ -25,7 +25,7 @@ class TestAblationTrainingReuse:
         project = Path(__file__).resolve().parents[1]
         return SimpleNamespace(
             experiment_root=Path(root),
-            ablation="training_sample_count",
+            ablation="rational_affine",
             dataset=["air_t_int_0_1000_21_20"],
             seeds=[7],
             run_tag=tag,
@@ -57,7 +57,7 @@ class TestAblationTrainingReuse:
             "training_loss_history": [1.0, 0.5],
             "dataset_mse_epochs": [1, 2],
             "dataset_mse_history": [2.0, 1.0],
-            "hmonet_mapping_mode": "current",
+            "hmonet_mapping_mode": "rational_affine",
         }
         (training / "training_summary.json").write_text(
             json.dumps(summary), encoding="utf-8"
@@ -67,7 +67,7 @@ class TestAblationTrainingReuse:
     def test_same_training_is_reused_across_tags_and_changes_retrain(self):
         config = {"datasets": [], "seeds": [7]}
         base = Variant("samples", 100, ("--global-random-count", "100"))
-        changed = Variant("samples", 200, ("--global-random-count", "200"))
+        changed = Variant("samples", 300, ("--global-random-count", "300"))
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary, patch(
             "scripts.experiments.run_ablation_2d.train_one",
             side_effect=self.fake_train,
@@ -81,7 +81,7 @@ class TestAblationTrainingReuse:
             assert (train.call_count) == (1)
             second = (
                 Path(temporary)
-                / "training_sample_count/air_t_int_0_1000_21_20/samples/seed_7/second/run_manifest.json"
+                / "rational_affine/air_t_int_0_1000_21_20/samples/seed_7/second/run_manifest.json"
             )
             manifest = json.loads(second.read_text(encoding="utf-8"))
             assert manifest["training_reused"]
@@ -121,7 +121,7 @@ class TestAblationTrainingReuse:
                 encoding="utf-8",
             )
 
-            alias = root / "jacobian_enabled/dataset/jac_on/seed_7/paper"
+            alias = root / "rational_affine/dataset/rap/seed_7/paper"
             alias.mkdir(parents=True)
             alias_manifest = alias / "run_manifest.json"
             alias_manifest.write_text(
@@ -189,12 +189,12 @@ class TestAblationTrainingReuse:
                 if item.is_file()
             }
             args = self.args(root, "paper")
-            args.ablation = "jacobian_enabled"
+            args.ablation = "rational_affine"
             args.dataset = [str(dataset)]
             args.train_only = False
             variants = [
-                Variant("jac_off", 0.0, ("--no-jacobian-loss-enabled",)),
-                Variant("jac_on", 0.01, ("--jacobian-loss-enabled",)),
+                Variant("rap_a", 0.0, ("--no-jacobian-loss-enabled",)),
+                Variant("rap_b", 0.01, ("--jacobian-loss-enabled",)),
             ]
 
             def fake_identity(args, dataset, variant, seed):
@@ -249,7 +249,7 @@ class TestAblationTrainingReuse:
                 if item.is_file()
             }
             assert (baseline_after) == (baseline_before)
-            report = root / "jacobian_enabled/baseline_compatibility_errors.json"
+            report = root / "rational_affine/baseline_compatibility_errors.json"
             assert report.is_file()
             issue = json.loads(report.read_text(encoding="utf-8"))[0]
             assert (issue["status"]) == ("baseline_parameter_mismatch")
@@ -299,7 +299,7 @@ class TestAblationTrainingReuse:
                 "final_checkpoint": str(final_checkpoint.resolve()),
                 "completed_epochs": 2,
                 "stop_reason": "max_epochs",
-                "hmonet_mapping_mode": "current",
+                "hmonet_mapping_mode": "rational_affine",
             }
             summary_path = training / "training_summary.json"
             summary_path.write_text(json.dumps(summary), encoding="utf-8")
@@ -401,7 +401,7 @@ class TestAblationTrainingReuse:
             result = root / "evaluation/case/51x51/results.json"
             result.parent.mkdir(parents=True)
             result.write_text("{}", encoding="utf-8")
-            run = root / "jacobian_weight/dataset/jac_w_0p01/seed_7/paper"
+            run = root / "coons_residual/dataset/coons/seed_7/paper"
             run.mkdir(parents=True)
             manifest = {
                 "status": "completed",
@@ -420,7 +420,7 @@ class TestAblationTrainingReuse:
     def test_incomplete_or_missing_evaluation_is_not_reused(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
-            run = root / "sampling_mode/dataset/uniform/seed_7/paper"
+            run = root / "coons_residual/dataset/coons/seed_7/paper"
             run.mkdir(parents=True)
             (run / "run_manifest.json").write_text(
                 json.dumps(
