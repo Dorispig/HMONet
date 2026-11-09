@@ -34,6 +34,42 @@ def _natural_experiment_key(path: Path):
     )
 
 
+def _experiment_aliases(experiment_root: Path, available: tuple[str, ...]) -> dict[str, str]:
+    """Return stable short CLI aliases without renaming result directories.
+
+    ``e1_2_fd0_001`` is addressed as ``e1_2``.  Definitions whose directory
+    names predate the numbered convention can declare ``cli_alias`` in their
+    local YAML file.  The canonical directory name remains the storage and
+    fingerprint identity, preserving all existing results.
+    """
+    aliases: dict[str, str] = {}
+    for canonical in available:
+        definition = experiment_root / canonical / "experiment.yaml"
+        declared = run_ablation_2d._load_yaml_mapping(definition).get("cli_alias")
+        if declared:
+            alias = str(declared)
+        else:
+            match = re.match(r"^(e\d+(?:_\d+)?)(?:_|$)", canonical)
+            if not match:
+                continue
+            alias = match.group(1)
+        if alias in aliases and aliases[alias] != canonical:
+            raise ValueError(
+                f"Duplicate short experiment alias {alias!r}: "
+                f"{aliases[alias]!r}, {canonical!r}"
+            )
+        aliases[alias] = canonical
+    return aliases
+
+
+def resolve_experiment_aliases(
+    values: list[str], experiment_root: Path, available: tuple[str, ...]
+) -> list[str]:
+    """Translate documented short aliases to canonical experiment directories."""
+    aliases = _experiment_aliases(experiment_root, available)
+    return [aliases.get(value, value) for value in values]
+
+
 def resolve_ablations(
     values: list[str], available: tuple[str, ...] | list[str] | None = None
 ) -> list[str]:
@@ -94,7 +130,7 @@ def build_parser():
         nargs="+",
         default=["all"],
         help=(
-            "Experiments to run, 'all', or an explicit 'baseline' followed by "
+            "Short experiment aliases or canonical names, 'all', or an explicit 'baseline' followed by "
             "one or more experiments/'all'. Available experiments: "
             + ", ".join(ALL_ABLATIONS)
         ),
@@ -359,6 +395,7 @@ def main(argv=None):
             and (path / "experiment.yaml").is_file()
         )
     )
+    args.ablations = resolve_experiment_aliases(args.ablations, args.experiment_root, available)
     selected = resolve_ablations(args.ablations, available)
     if (
         run_ablation_2d.BASELINE_ABLATION in selected

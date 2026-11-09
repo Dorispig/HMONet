@@ -1,4 +1,5 @@
 schema_version: 1
+cli_alias: e1_3
 experiment: global100_adaptive300
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml

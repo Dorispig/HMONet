@@ -1,4 +1,5 @@
 schema_version: 1
+cli_alias: e1_1
 experiment: rational_affine
 baseline_config: ../baseline/experiment.yaml
 evaluation_config: ../baseline/evaluate.yaml

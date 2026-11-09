@@ -44,7 +44,10 @@ def build_parser():
         "experiments",
         nargs="*",
         default=["all"],
-        help="Experiment names, baseline, or all",
+        help=(
+            "Experiment aliases (for example e1_6), canonical names "
+            "(for example e1_6_fd0_008), baseline, or all"
+        ),
     )
     parser.add_argument("--dataset", action="append")
     parser.add_argument("--seed", "--seeds", dest="seeds", nargs="+", type=int)

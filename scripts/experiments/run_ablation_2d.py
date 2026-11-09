@@ -2193,7 +2193,7 @@ def write_profiled_metric_outputs(rows: list[dict], experiment_root: Path, run_t
     if not rows:
         return
     ablation = rows[0]["ablation"]
-    profile = METRIC_PROFILES[ablation]
+    profile = METRIC_PROFILES.get(ablation, _SUMMARY_METRICS)
     metadata = (
         "ablation",
         "dataset",
@@ -2944,7 +2944,8 @@ def execute(args, config, variants: list[Variant]):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--ablation", required=True, choices=ABLATIONS + (BASELINE_ABLATION,)
+        "--ablation", required=True,
+        help="Canonical experiment directory name or 'baseline'.",
     )
     parser.add_argument(
         "--dataset",
@@ -3028,6 +3029,13 @@ def main(argv=None):
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()
+    if args.ablation != BASELINE_ABLATION and not default_experiment_config(
+        args.ablation, args.experiment_root
+    ).is_file():
+        raise ValueError(
+            f"Unknown ablation {args.ablation!r} in {args.experiment_root}; "
+            "expected experiments/<suite>/<name>/experiment.yaml"
+        )
     definition = {}
     definition_path = None
     if args.ablation != BASELINE_ABLATION:

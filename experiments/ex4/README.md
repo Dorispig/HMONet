@@ -1,14 +1,30 @@
-# PDE求导区域与求导方式消融
+# PDE 求导区域与求导方式消融
 
-基线直接继承当前正式二维配置（CCAP、归一化 PDE/Jacobian/SVD 损失及 200 个全局均匀点 + 200 个曲率—边界距离自适应点）。三个变体只覆盖求导区域或求导后端；旧监督训练与曲边插值字段已移除。
+基线继承正式二维 HMONet 配置。变体仅覆盖有限差分中心的合法域限制或导数后端。
 
-- `baseline`：中心限制在距逻辑边界至少一个差分步长处；
-- `e1_fd_full_open_domain`：中心覆盖整个开域，中心差分查询允许越界；
-- `e2_autograd`：使用自动微分；
-- `e3_fd_one_sided_boundary`：边界一个步长内使用向内二阶单边差分。
+| 名称 | 内容 |
+| --- | --- |
+| `baseline` | 中心差分；中心距逻辑边界至少一个差分步长 |
+| `e1` | 中心覆盖整个开域，中心差分查询可越界 |
+| `e2` | 自动微分替代有限差分 |
+| `e3` | 边界一个步长内采用向内二阶单边差分 |
+
+## 命令
+
+完整训练并评估：
 
 ```bash
-python scripts/experiments/run.py ex4 baseline e1_fd_full_open_domain e2_autograd e3_fd_one_sided_boundary --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
+python scripts/experiments/run.py ex4 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
 ```
 
-运行全部变体时将实验列表替换为`baseline all`。
+只训练边界差分变体：
+
+```bash
+python scripts/experiments/run.py ex4 e1 e3 --dataset air_t_ext_1_500_21_21 --seed 20261030 --tag v1 --train-only
+```
+
+只评估自动微分变体：
+
+```bash
+python scripts/experiments/run.py ex4 e2 --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1 --evaluate-only
+```

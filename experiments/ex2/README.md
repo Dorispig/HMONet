@@ -1,15 +1,32 @@
 # 物理采样策略消融
 
-本套件的基线直接继承当前正式二维 HMONet 配置（CCAP、归一化 PDE/Jacobian/SVD 损失及其余正式超参数）。每个变体仅改变 400 个物理中心的组成。默认数据集为 `air_t_ext_1_500_21_21`。
+基线继承正式二维 HMONet 配置，即 200 个全局均匀点与 200 个曲率--边界距离自适应点。所有变体只改变每批 400 个物理中心的组成。
 
-- `uniform_400`：400个全局均匀点；
-- `adaptive_400`：400个曲率—边界距离自适应点；
-- `global300_adaptive100`：300个全局均匀点 + 100个曲率—距离自适应点；
-- `global100_adaptive300`：100个全局均匀点 + 300个曲率—距离自适应点；
+| 名称 | 内容 |
+| --- | --- |
+| `baseline` | 200 均匀 + 200 自适应（正式默认） |
+| `e1_1` | 400 个均匀点 |
+| `e1_2` | 300 均匀 + 100 自适应 |
+| `e1_3` | 100 均匀 + 300 自适应 |
+| `e1_4` | 400 个自适应点 |
+
+## 命令
+
+完整训练并评估：
 
 ```bash
-python scripts/experiments/run.py ex2 baseline uniform_400 global300_adaptive100 global100_adaptive300 adaptive_400 --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
 ```
 
-四卡动态运行时追加`--gpus 0 1 2 3`。如需测试其他数据集，请显式传入对应的 `--dataset` 和 `--values`。
+只训练指定策略：
+
+```bash
+python scripts/experiments/run.py ex2 e1_1 e1_4 --dataset air_t_ext_1_500_21_21 --seed 20261030 --tag v1 --train-only
+```
+
+只评估指定策略：
+
+```bash
+python scripts/experiments/run.py ex2 e1_1 e1_4 --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1 --evaluate-only
+```
 
