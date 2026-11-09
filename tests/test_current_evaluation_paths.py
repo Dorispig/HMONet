@@ -30,5 +30,5 @@ def test_longest_retained_variant_fits_windows_path_budget():
         dataset_root, "e7_modified_cross_boundary", 20261030,
         "physics_v1", "401x401", 1.55,
     )
-    longest = result / "plots/PI-MeshONet/processed/quality/quality_scaled_jacobian.png"
+    longest = result / "p/pi/p/q/q_sj.png"
     assert len(str(longest.resolve())) <= EVALUATION_PATH_LIMIT

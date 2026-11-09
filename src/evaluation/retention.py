@@ -12,13 +12,13 @@ IMAGE_SUFFIXES = {".jpeg", ".jpg", ".pdf", ".png", ".svg", ".webp"}
 
 def _method_group(parts) -> str:
     aliases = {
-        "tfi": "TFI",
-        "pde": "PDE",
-        "meshonet": "MeshONet",
-        "pimeshonet": "PI-MeshONet",
-        "hmonet": "HMONet",
-        "qghmonet": "QG-HMONet",
-        "pihmonet": "PI-HMONet",
+        "tfi": "t",
+        "pde": "p",
+        "meshonet": "m",
+        "pimeshonet": "pi",
+        "hmonet": "h",
+        "qghmonet": "qg",
+        "pihmonet": "pih",
     }
     ignored = {
         "grid", "quality", "none", "raw", "direct", "idw", "rational",
@@ -37,37 +37,49 @@ def _method_group(parts) -> str:
     return "methods"
 
 
+def _short_filename(filename: str) -> str:
+    """Keep public image paths short enough for nested cross-platform checkouts."""
+    stem, suffix = Path(filename).stem, Path(filename).suffix
+    for old, new in (
+        ("comparison_quality_", "q_"), ("quality_", "q_"),
+        ("self_intersection", "sx"), ("affected_cell_fraction", "acf"),
+        ("flipping_cell", "flip"), ("invalid_cell", "inv"),
+        ("scaled_jacobian", "sj"), ("jacobian", "jac"),
+        ("singular_value", "sv"), ("aspect_ratio", "ar"),
+        ("maximum_angle", "maxang"), ("minimum_angle", "minang"),
+        ("orthogonality", "ortho"), ("distribution", "dist"),
+    ):
+        stem = stem.replace(old, new)
+    return f"{stem}{suffix}"
+
+
 def compact_image_path(root: Path, relative: Path) -> Path:
     """Map evaluator-internal image paths to the public compact plot tree."""
     parts = list(relative.parts)
-    filename = parts[-1]
+    filename = _short_filename(parts[-1])
     lowered = [part.lower() for part in parts]
     if len(parts) == 1:
-        return root / "plots" / filename
+        return root / "p" / filename
     if parts[0].lower() == "grid_quality":
-        return root / "plots" / "quality" / filename
-    if parts[0].lower() == "comparisons":
-        category = ["comparison", _method_group(parts[1:-1])]
-        if "grid_quality" in lowered:
-            category.append("quality")
-        return root / "plots" / Path(*category) / filename
+        return root / "p" / "q" / filename
+    if parts[0].lower() in {"comparisons", "comparison"}:
+        category = ["p", "c", _method_group(parts[1:-1])]
+        if "grid_quality" in lowered or "quality" in lowered:
+            category.append("q")
+        return root / Path(*category) / filename
     aliases = {
-        "pde_winslow": "PDE",
-        "tfi": "TFI",
-        "hmonet": "HMONet",
-        "qg-hmonet": "QG-HMONet",
-        "meshonet": "MeshONet",
-        "pi-meshonet": "PI-MeshONet",
+        "pde_winslow": "pde", "tfi": "tfi", "hmonet": "hm",
+        "qg-hmonet": "qg", "meshonet": "mo", "pi-meshonet": "pi",
     }
     method = aliases.get(parts[0].lower(), re.sub(r"[^A-Za-z0-9._+-]+", "_", parts[0]))
-    category = [method]
+    category = ["p", method]
     if "raw" in lowered:
-        category.append("raw")
-    elif method in {"HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"}:
-        category.append("processed")
-    if "grid_quality" in lowered:
-        category.append("quality")
-    return root / "plots" / Path(*category) / filename
+        category.append("r")
+    elif method in {"hm", "qg", "mo", "pi"}:
+        category.append("p")
+    if "grid_quality" in lowered or "quality" in lowered:
+        category.append("q")
+    return root / Path(*category) / filename
 
 
 def reorganize_evaluation_images(directory: Path) -> int:
@@ -81,9 +93,16 @@ def reorganize_evaluation_images(directory: Path) -> int:
     moved = 0
     for child in images:
         relative = child.relative_to(directory)
-        if relative.parts and relative.parts[0] == "plots":
+        if relative.parts and relative.parts[0] == "p":
             continue
-        destination = compact_image_path(directory, relative)
+        # Older retained outputs used ``plots/...``.  Drop that obsolete root
+        # and pass the remaining semantic path through the compact mapper.
+        source_relative = (
+            Path(*relative.parts[1:])
+            if relative.parts and relative.parts[0] == "plots"
+            else relative
+        )
+        destination = compact_image_path(directory, source_relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             stem, suffix = destination.stem, destination.suffix

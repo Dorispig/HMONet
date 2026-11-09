@@ -20,6 +20,6 @@ class TestFormalEvaluationRetention:
             compact_evaluation_directory(root)
 
             assert (root / "results.json").is_file()
-            assert (root / "plots/TFI/quality/quality_scaled_jacobian.png").is_file()
+            assert (root / "p/tfi/q/q_sj.png").is_file()
             assert not (root / "generated_meshes.npz").exists()
             assert not (detail / "quality_summary.csv").exists()

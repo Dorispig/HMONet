@@ -9,6 +9,7 @@ from scripts.experiments.run_ablation_2d import (
     aggregate_experiment,
     compact_evaluation_result_directory,
     find_reusable_evaluation,
+    migrate_evaluation_image_paths,
     read_results,
 )
 
@@ -29,10 +30,24 @@ class TestGridIsolation:
 
             assert (result) == (root / "results.json")
             assert result.is_file()
-            assert (root / "plots/mesh_comparison.png").is_file()
-            assert (root / "plots/quality/quality_scaled_jacobian.pdf").is_file()
+            assert (root / "p/mesh_comparison.png").is_file()
+            assert (root / "p/q/q_sj.pdf").is_file()
             assert not (root / "per_cell.csv").exists()
             assert not (quality / "quality_data.npz").exists()
+
+    def test_image_only_migration_preserves_nonimage_artifacts(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            legacy = root / "plots/comparison/TFI_PDE_HMONet/quality"
+            legacy.mkdir(parents=True)
+            image = legacy / "quality_scaled_jacobian.png"
+            image.write_bytes(b"png")
+            detail = root / "details.csv"
+            detail.write_text("metric,value\n", encoding="utf-8")
+
+            assert migrate_evaluation_image_paths(root) == 1
+            assert (root / "p/c/t_p_h/q/q_sj.png").is_file()
+            assert detail.is_file()
 
     def test_per_grid_manifest_entries_are_reused_independently(self):
         with TemporaryDirectory() as temporary:

@@ -99,6 +99,8 @@ DEFAULT_EXPERIMENT_SET = "ex1"
 DEFAULT_BASELINE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/experiment.yaml"
 DEFAULT_EVALUATE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/evaluate.yaml"
 EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*")
+RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+MAX_RUN_TAG_LENGTH = 24
 
 
 class BaselineCompatibilityError(RuntimeError):
@@ -155,6 +157,22 @@ def validate_experiment_set_name(value: str) -> str:
     if not EXPERIMENT_SET_PATTERN.fullmatch(value):
         raise ValueError(
             "--experiment-set must use the form ex1, ex2, ..."
+        )
+    return value
+
+
+def validate_run_tag(value: str) -> str:
+    """Accept a short portable tag that preserves output-path headroom."""
+    value = str(value).strip()
+    if not RUN_TAG_PATTERN.fullmatch(value):
+        raise ValueError(
+            "--run-tag must use letters, digits, '.', '_' or '-', and begin with "
+            "a letter or digit"
+        )
+    if len(value) > MAX_RUN_TAG_LENGTH:
+        raise ValueError(
+            f"--run-tag must contain at most {MAX_RUN_TAG_LENGTH} characters "
+            "to keep Windows and server output paths portable"
         )
     return value
 
@@ -1342,9 +1360,14 @@ def compact_evaluation_result_directory(directory: Path) -> Path:
     ]
     for child in image_files:
         relative = child.relative_to(directory)
-        if relative.parts and relative.parts[0] == "plots":
+        if relative.parts and relative.parts[0] == "p":
             continue
-        destination = _compact_evaluation_image_path(directory, relative)
+        source_relative = (
+            Path(*relative.parts[1:])
+            if relative.parts and relative.parts[0] == "plots"
+            else relative
+        )
+        destination = _compact_evaluation_image_path(directory, source_relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             stem, suffix = destination.stem, destination.suffix
@@ -1372,51 +1395,84 @@ def compact_evaluation_result_directory(directory: Path) -> Path:
     return result_file
 
 
+def migrate_evaluation_image_paths(directory: Path) -> int:
+    """Move only published images into the compact layout, preserving all data.
+
+    This migration intentionally leaves non-image artifacts and empty legacy
+    directories untouched.  It is therefore safe for previously completed
+    evaluations whose CSV/NPZ details may still be useful to the user.
+    """
+    directory = Path(directory)
+    moved = 0
+    for child in list(directory.rglob("*")):
+        if not child.is_file() or child.suffix.lower() not in EVALUATION_IMAGE_SUFFIXES:
+            continue
+        relative = child.relative_to(directory)
+        if relative.parts and relative.parts[0] == "p":
+            continue
+        source_relative = (
+            Path(*relative.parts[1:])
+            if relative.parts and relative.parts[0] == "plots"
+            else relative
+        )
+        destination = _compact_evaluation_image_path(directory, source_relative)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            stem, suffix = destination.stem, destination.suffix
+            index = 2
+            while destination.exists():
+                destination = destination.with_name(f"{stem}_{index}{suffix}")
+                index += 1
+        shutil.move(str(child), str(destination))
+        moved += 1
+    return moved
+
+
 def _compact_evaluation_image_path(root: Path, relative: Path) -> Path:
     """Map evaluator-internal folders to the public compact plot hierarchy."""
     parts = list(relative.parts)
-    filename = parts[-1]
+    filename = _short_plot_filename(parts[-1])
     lowered = [part.lower() for part in parts]
     if len(parts) == 1:
-        return root / "plots" / filename
+        return root / "p" / filename
     if parts[0].lower() == "grid_quality":
-        return root / "plots" / "quality" / filename
-    if parts[0].lower() == "comparisons":
-        category = ["comparison", _comparison_method_group(parts[1:-1])]
-        if "grid_quality" in lowered:
-            category.append("quality")
-        return root / "plots" / Path(*category) / filename
+        return root / "p" / "q" / filename
+    if parts[0].lower() in {"comparisons", "comparison"}:
+        category = ["p", "c", _comparison_method_group(parts[1:-1])]
+        if "grid_quality" in lowered or "quality" in lowered:
+            category.append("q")
+        return root / Path(*category) / filename
 
     method_aliases = {
-        "pde_winslow": "PDE",
-        "tfi": "TFI",
-        "hmonet": "HMONet",
-        "qg-hmonet": "QG-HMONet",
-        "meshonet": "MeshONet",
-        "pi-meshonet": "PI-MeshONet",
+        "pde_winslow": "pde",
+        "tfi": "tfi",
+        "hmonet": "hm",
+        "qg-hmonet": "qg",
+        "meshonet": "mo",
+        "pi-meshonet": "pi",
     }
     method = method_aliases.get(parts[0].lower(), _safe_plot_component(parts[0]))
-    category = [method]
+    category = ["p", method]
     if "raw" in lowered:
-        category.append("raw")
-    elif method in {"HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"}:
-        category.append("processed")
-    if "grid_quality" in lowered:
-        category.append("quality")
-    return root / "plots" / Path(*category) / filename
+        category.append("r")
+    elif method in {"hm", "qg", "mo", "pi"}:
+        category.append("p")
+    if "grid_quality" in lowered or "quality" in lowered:
+        category.append("q")
+    return root / Path(*category) / filename
 
 
 def _comparison_method_group(parts) -> str:
     """Extract a readable method combination from evaluator-internal folders."""
     aliases = {
-        "tfi": "TFI",
-        "pde": "PDE",
-        "meshonet": "MeshONet",
-        "pimeshonet": "PI-MeshONet",
-        "hmonet": "HMONet",
-        "qghmonet": "QG-HMONet",
-        "pihmonet": "PI-HMONet",
-        "attention": "Attention-PI-HMONet",
+        "tfi": "t",
+        "pde": "p",
+        "meshonet": "m",
+        "pimeshonet": "pi",
+        "hmonet": "h",
+        "qghmonet": "qg",
+        "pihmonet": "pih",
+        "attention": "att",
     }
     ignored = {
         "grid",
@@ -1444,6 +1500,30 @@ def _comparison_method_group(parts) -> str:
         if len(methods) >= 2:
             return "_".join(methods)
     return "methods"
+
+
+def _short_plot_filename(filename: str) -> str:
+    """Shorten published image names while retaining their metric identity."""
+    stem, suffix = Path(filename).stem, Path(filename).suffix
+    replacements = (
+        ("comparison_quality_", "q_"),
+        ("quality_", "q_"),
+        ("self_intersection", "sx"),
+        ("affected_cell_fraction", "acf"),
+        ("flipping_cell", "flip"),
+        ("invalid_cell", "inv"),
+        ("scaled_jacobian", "sj"),
+        ("jacobian", "jac"),
+        ("singular_value", "sv"),
+        ("aspect_ratio", "ar"),
+        ("maximum_angle", "maxang"),
+        ("minimum_angle", "minang"),
+        ("orthogonality", "ortho"),
+        ("distribution", "dist"),
+    )
+    for old, new in replacements:
+        stem = stem.replace(old, new)
+    return f"{stem}{suffix}"
 
 
 def _safe_plot_component(value: str) -> str:
@@ -1481,15 +1561,14 @@ def publish_evaluation_result(
         if not image.is_file() or image.suffix.lower() not in EVALUATION_IMAGE_SUFFIXES:
             continue
         relative = image.relative_to(source)
-        if relative.parts and relative.parts[0] == "plots":
+        if relative.parts and relative.parts[0] == "p":
             parts = list(relative.parts)
-            if (
-                len(parts) >= 3
-                and parts[1] == "comparison"
-                and (parts[2] == "quality" or len(parts) == 3)
-            ):
-                parts.insert(2, comparison_group)
+            parts[-1] = _short_plot_filename(parts[-1])
             destination = target / Path(*parts)
+        elif relative.parts and relative.parts[0] == "plots":
+            destination = _compact_evaluation_image_path(
+                target, Path(*relative.parts[1:])
+            )
         else:
             destination = _compact_evaluation_image_path(target, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1507,9 +1586,13 @@ def publish_evaluation_result(
 
 def _comparison_group_from_methods(methods) -> str:
     aliases = {
-        "PDE_Winslow": "PDE",
-        "PI-MeshONet": "PI-MeshONet",
-        "QG-HMONet": "QG-HMONet",
+        "TFI": "t",
+        "PDE_Winslow": "p",
+        "PDE": "p",
+        "MeshONet": "m",
+        "PI-MeshONet": "pi",
+        "HMONet": "h",
+        "QG-HMONet": "qg",
     }
     names = [aliases.get(str(method), str(method)) for method in methods]
     return "_".join(_safe_plot_component(name) for name in names) or "methods"
@@ -2941,6 +3024,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     validate_experiment_set_name(args.experiment_set)
+    args.run_tag = validate_run_tag(args.run_tag)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()

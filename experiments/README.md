@@ -25,7 +25,7 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 - `--seed S...`：一个或多个随机种子；
 - `--grids N...`：评估网格规模；
 - `--values V...`：评估参数；
-- `--tag TAG`：输出标签；
+- `--tag TAG`：输出标签（仅限字母、数字、`.`、`_`、`-`，最长 24 字符）；
 - `--gpus 0 1 2 3`：动态多GPU任务队列；
 - `--train-only`或`--evaluate-only`：只执行一个阶段；
 - `--force`：替换所选训练与评估；
@@ -36,6 +36,8 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 ```text
 experiments/<exN>/eval/<dataset>/seed_<seed>/<run-tag>/<experiment>/<grid>/<value>/
 ```
+
+其中图片采用紧凑子目录 `p/`：`p/c/<methods>/q/` 表示多方法质量对比，`p/<method>/r|p|q/` 分别表示原始网格、后处理网格与质量图。方法和完整指标名称始终保留在同层 `results.json` 中。
 
 多GPU日志写入：
 

@@ -12,9 +12,11 @@ EVALUATION_PATH_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
 # Final publication also validates every generated file, so this preflight may
 # use the measured ablation layout instead of the longer four-method layout.
 # Compact publication keeps the deepest retained image below
-# ``plots/<method>/<stage>/quality/<file>``.  Reserve that measured maximum,
-# not the evaluator's much deeper transient directory tree.
-EVALUATION_RELATIVE_PATH_RESERVE = 72
+# ``p/<method>/<stage>/q/<file>``.  The public plot layout is deliberately
+# abbreviated so that a server checkout nested below a home directory and a
+# classic Windows checkout both retain ample headroom.  Reserve more than the
+# measured deepest retained artifact rather than the evaluator's transient tree.
+EVALUATION_RELATIVE_PATH_RESERVE = 96
 
 def _safe_text(value) -> str:
     text = re.sub(r"[^A-Za-z0-9._+-]+", "_", str(value)).strip("._")

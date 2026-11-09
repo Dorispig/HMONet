@@ -41,6 +41,15 @@ def test_only_consecutive_suite_names_are_accepted():
             run_ablation_2d.validate_experiment_set_name(value)
 
 
+def test_run_tag_is_portable_and_bounded_for_output_paths():
+    assert run_ablation_2d.validate_run_tag("v1") == "v1"
+    assert run_ablation_2d.validate_run_tag("paper.v1-2026_11") == "paper.v1-2026_11"
+    with pytest.raises(ValueError):
+        run_ablation_2d.validate_run_tag("bad/tag")
+    with pytest.raises(ValueError):
+        run_ablation_2d.validate_run_tag("x" * 25)
+
+
 def test_suite_local_all_and_baseline_selection():
     available = ("rational_affine", "coons_residual")
     assert resolve_ablations(["all"], available) == list(available)

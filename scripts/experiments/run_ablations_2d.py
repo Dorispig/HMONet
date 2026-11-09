@@ -344,6 +344,7 @@ def _run_dynamic_gpu_queue(args, selected):
 def main(argv=None):
     args = build_parser().parse_args(argv)
     run_ablation_2d.validate_experiment_set_name(args.experiment_set)
+    args.run_tag = run_ablation_2d.validate_run_tag(args.run_tag)
     suite_root = (ROOT / "experiments" / args.experiment_set).resolve()
     args.experiment_root = (args.experiment_root or suite_root).resolve()
     args.config = (args.config or suite_root / "configs/ablation_2d.yaml").resolve()
