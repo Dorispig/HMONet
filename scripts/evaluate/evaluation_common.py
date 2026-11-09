@@ -44,6 +44,10 @@ from src.utils.paths import resolve_project_path
 EVALUATION_FINGERPRINT_SCHEMA_VERSION = 1
 _CHECKPOINT_DIGEST_CACHE = {}
 _FINGERPRINT_OPTION_EXCLUSIONS = {
+    # Device selection changes execution placement, not numerical evaluation
+    # semantics.  Keep it in evaluation_parameters.json for provenance but do
+    # not invalidate an otherwise identical cached result.
+    "device",
     "output_root",
     "save_plots",
     "save_png",
@@ -90,6 +94,19 @@ def _fingerprint_options(options):
         for key, value in options.items()
         if key not in _FINGERPRINT_OPTION_EXCLUSIONS
     }
+
+
+def _identity_without_device(value):
+    """Remove execution-device fields for legacy result compatibility."""
+    if isinstance(value, dict):
+        return {
+            key: _identity_without_device(item)
+            for key, item in value.items()
+            if key != "device"
+        }
+    if isinstance(value, list):
+        return [_identity_without_device(item) for item in value]
+    return value
 
 
 def evaluation_identity(
@@ -177,10 +194,21 @@ def _reusable_compact_record(root, fingerprint, options, *, announce=True):
     ):
         return None
     record = read_json(Path(root) / "results.json")
-    if not record or record.get("evaluation_fingerprint") != fingerprint:
+    if not record:
+        return None
+    exact_match = record.get("evaluation_fingerprint") == fingerprint
+    current_identity = evaluation_identity_from_record(record, options)
+    legacy_device_only_match = (
+        not exact_match
+        and isinstance(record.get("evaluation_identity"), dict)
+        and _identity_without_device(record["evaluation_identity"])
+        == _identity_without_device(current_identity)
+    )
+    if not exact_match and not legacy_device_only_match:
         return None
     if announce:
-        print(f"  reuse compact evaluation summary {root}", flush=True)
+        suffix = " (legacy device-compatible)" if legacy_device_only_match else ""
+        print(f"  reuse compact evaluation summary {root}{suffix}", flush=True)
     return record
 
 

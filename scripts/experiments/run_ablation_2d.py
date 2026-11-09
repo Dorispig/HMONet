@@ -448,8 +448,12 @@ def _training_config_path(args) -> Path:
 
 
 def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
-    """Remove machine-specific paths while retaining every training parameter."""
+    """Remove machine-specific settings while retaining training semantics."""
     normalized = copy.deepcopy(snapshot)
+    # Hardware selection changes throughput but not the model, data, or numerical
+    # objective.  It must remain visible in run metadata, but must not make an
+    # otherwise identical training ineligible for reuse.
+    normalized.setdefault("training", {}).pop("device", None)
     mode = dataset_mode(dataset_name(dataset))
     normalized["datasets"] = {mode: dataset_name(dataset)}
     # ``uniform_index`` has always been the semantic default. Keeping it explicit
@@ -470,7 +474,7 @@ def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
             block.pop("coordinate_lift_q", None)
         elif block.get("coordinate_lift_max_power") == 1:
             block.pop("coordinate_lift_max_power")
-    return normalized
+    return _identity_without_device(normalized)
 
 
 def _legacy_dataset_identity(value):
@@ -512,8 +516,6 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
     training = config.setdefault("training", {})
     training["seed"] = int(seed)
     training["dataset"] = dataset_mode(dataset_name(dataset))
-    if args.device:
-        training["device"] = args.device
     model_name = variant_model(variant)
     model = config.setdefault("model", {}).setdefault("hmonet", {})
     common_model = config.setdefault("model", {}).setdefault("common", {})
@@ -792,11 +794,11 @@ def _evaluation_config_digest(path: Path, case_name: str) -> str:
     """Keep migrated case fingerprints stable until relevant settings change."""
     config = _load_yaml_mapping(path)
     compatibility = config.pop("_fingerprint_compatibility", None)
-    relevant = {
+    relevant = _identity_without_device({
         "case": config.get("cases", {}).get(case_name),
         "ablation": config.get("ablation", {}),
         "evaluation": config.get("evaluation", {}),
-    }
+    })
     canonical = hashlib.sha256(
         json.dumps(
             relevant, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -901,6 +903,13 @@ def _refactor_compatible_evaluation_identity(current: dict, saved: dict) -> bool
     return current_without_source == saved_without_source
 
 
+def _evaluation_identity_compatible(current: dict, saved: dict) -> bool:
+    """Accept a legacy identity that differs only by execution device."""
+    return _refactor_compatible_evaluation_identity(
+        current, saved
+    ) or _identity_matches_without_device(current, saved)
+
+
 def effective_evaluation_identity(args, dataset: Path, summary: dict, training_fingerprint: str):
     """Build the exact evaluation identity used to reuse completed results."""
     checkpoint = resolve_project_path(summary["best_checkpoint"])
@@ -927,7 +936,6 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
         ),
         "hmonet_boundary_projection": settings["hmonet_boundary_projection"],
         "quality_metrics": settings["quality_metrics"],
-        "device": args.device,
     }
     if summary.get("evaluation_checkpoint_stage"):
         payload["checkpoint_stage"] = summary["evaluation_checkpoint_stage"]
@@ -1067,6 +1075,39 @@ def _write_resolved_training_config(path: Path, identity: dict) -> None:
     )
 
 
+def _identity_without_device(value):
+    """Return an identity stripped of execution-hardware selection.
+
+    ``device`` is deliberately retained in manifests and command logs, but is
+    not part of numerical training/evaluation semantics.  This helper also
+    permits reuse of historical identities created before device was removed
+    from the fingerprint payload.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _identity_without_device(item)
+            for key, item in value.items()
+            if key != "device"
+        }
+    if isinstance(value, list):
+        return [_identity_without_device(item) for item in value]
+    return value
+
+
+def _training_identity_path(directory: Path, manifest: dict) -> Path:
+    configured = manifest.get("training_identity_file")
+    if configured is None:
+        return directory / "training_identity.json"
+    path = resolve_project_path(configured)
+    if not path.is_file() and not Path(configured).is_absolute():
+        path = (directory / configured).resolve()
+    return path
+
+
+def _identity_matches_without_device(expected: dict, saved: dict) -> bool:
+    return _identity_without_device(expected) == _identity_without_device(saved)
+
+
 def load_training_from_directory(directory: Path):
     """Load one explicitly selected completed training without re-hashing config."""
     manifest_path = directory / "run_manifest.json"
@@ -1090,8 +1131,14 @@ def load_training_from_directory(directory: Path):
     }
 
 
-def find_reusable_training(experiment_root: Path, fingerprint: str):
-    """Find a completed training with the same fingerprint across all run tags."""
+def find_reusable_training(
+    experiment_root: Path, fingerprint: str, identity: dict | None = None
+):
+    """Find a completed training with the same numerical identity.
+
+    Exact hashes are preferred.  A legacy device-bearing identity is accepted
+    only when it is otherwise identical to the requested device-free identity.
+    """
     if not experiment_root.is_dir():
         return None
     candidates = []
@@ -1100,7 +1147,21 @@ def find_reusable_training(experiment_root: Path, fingerprint: str):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if manifest.get("training_fingerprint") != fingerprint:
+        exact_match = manifest.get("training_fingerprint") == fingerprint
+        compatible_match = False
+        if not exact_match and identity is not None:
+            try:
+                saved_identity = json.loads(
+                    _training_identity_path(manifest_path.parent, manifest).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                compatible_match = _identity_matches_without_device(
+                    identity, saved_identity
+                )
+            except (OSError, json.JSONDecodeError):
+                compatible_match = False
+        if not exact_match and not compatible_match:
             continue
         summary_path = _training_summary_path(manifest_path, manifest)
         if not summary_path.is_file():
@@ -1148,8 +1209,8 @@ def _flatten_identity(value, prefix="") -> dict[str, object]:
 
 def _identity_differences(expected: dict, actual: dict) -> list[dict]:
     """Return every differing baseline identity field."""
-    expected_flat = _flatten_identity(expected)
-    actual_flat = _flatten_identity(actual)
+    expected_flat = _flatten_identity(_identity_without_device(expected))
+    actual_flat = _flatten_identity(_identity_without_device(actual))
     differences = []
     for key in sorted(set(expected_flat) | set(actual_flat)):
         expected_value = expected_flat.get(key, "<missing>")
@@ -1195,13 +1256,7 @@ def check_trained_baseline_identity(
             fingerprint = manifest.get("training_fingerprint")
             if not fingerprint:
                 continue
-            configured_identity = manifest.get("training_identity_file")
-            if configured_identity is None:
-                identity_path = directory / "training_identity.json"
-            else:
-                identity_path = resolve_project_path(configured_identity)
-                if not identity_path.is_file() and not Path(configured_identity).is_absolute():
-                    identity_path = (directory / configured_identity).resolve()
+            identity_path = _training_identity_path(directory, manifest)
             try:
                 identity = json.loads(identity_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
@@ -1215,8 +1270,10 @@ def check_trained_baseline_identity(
                 }
             )
     matching = [
-        item for item in candidates
+        item
+        for item in candidates
         if item["fingerprint"] == expected_fingerprint
+        or _identity_matches_without_device(expected_identity, item["identity"])
     ]
     if matching:
         return None
@@ -1761,7 +1818,7 @@ def find_reusable_evaluation(
                     saved_identity = json.loads(
                         resolve_project_path(identity_file).read_text(encoding="utf-8")
                     )
-                    compatible_match = _refactor_compatible_evaluation_identity(
+                    compatible_match = _evaluation_identity_compatible(
                         identity, saved_identity
                     )
                 except (OSError, json.JSONDecodeError):
@@ -2536,7 +2593,9 @@ def execute(args, config, variants: list[Variant]):
                             reusable = selected
                     if reusable is None:
                         for search_root in cache_roots:
-                            reusable = find_reusable_training(search_root, fingerprint)
+                            reusable = find_reusable_training(
+                                search_root, fingerprint, identity
+                            )
                             if reusable is not None:
                                 break
                 if immutable_external_baseline and reusable is None:
