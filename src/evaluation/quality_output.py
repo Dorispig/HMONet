@@ -500,6 +500,7 @@ def save_invalid_cells(
     invalid: list[dict],
     mesh: QuadMeshXY,
     *,
+    make_plots: bool = False,
     save_png: bool = True,
     save_pdf: bool = True,
 ) -> None:
@@ -532,6 +533,8 @@ def save_invalid_cells(
                     json.dumps(item["invalid_quality_values"], allow_nan=True),
                 ]
             )
+    if not make_plots or not (save_png or save_pdf):
+        return
     fig, axis = plt.subplots(figsize=(8, 7))
     plot_quad_meshXY(mesh, ax=axis, show_node_id=False)
     for item in invalid:
@@ -683,6 +686,7 @@ def save_quad_quality(
     save_png: bool = True,
     save_pdf: bool = True,
     save_distribution_plots: bool = False,
+    plot_metrics: tuple[str, ...] | list[str] = (),
 ) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     # Prevent disabled formats from leaving stale figures from an older run.
@@ -717,15 +721,10 @@ def save_quad_quality(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     if make_plots and (save_png or save_pdf):
-        fig, axis = plt.subplots(figsize=(7, 6))
-        plot_quad_meshXY(mesh, ax=axis, show_node_id=False)
-        axis.set_title("mesh")
-        fig.tight_layout()
-        save_figure_formats(
-            fig, out_dir / "mesh", save_png=save_png, save_pdf=save_pdf, dpi=180
-        )
-        plt.close(fig)
-        for name, values in fields.items():
+        for name in plot_metrics:
+            if name not in fields:
+                continue
+            values = fields[name]
             fig, axes = plt.subplots(
                 1,
                 2 if save_distribution_plots else 1,
@@ -748,37 +747,21 @@ def save_quad_quality(
                 dpi=180,
             )
             plt.close(fig)
-        save_invalid_cells(out_dir, invalid, mesh, save_png=save_png, save_pdf=save_pdf)
-    else:
-        (out_dir / "invalid_cells.json").write_text(
-            json.dumps(invalid, indent=2, ensure_ascii=False, allow_nan=True),
-            encoding="utf-8",
-        )
-        with (out_dir / "invalid_cells.csv").open(
-            "w", newline="", encoding="utf-8"
-        ) as stream:
-            writer = csv.writer(stream)
-            writer.writerow(
-                [
-                    "cell_index",
-                    "node_indices",
-                    "node_coordinates",
-                    "reasons",
-                    "quality_values",
-                    "invalid_quality_values",
-                ]
-            )
-            for item in invalid:
-                writer.writerow(
-                    [
-                        item["cell_index"],
-                        json.dumps(item["node_indices"]),
-                        json.dumps(item["node_coordinates"], allow_nan=True),
-                        ";".join(item["reasons"]),
-                        json.dumps(item["quality_values"], allow_nan=True),
-                        json.dumps(item["invalid_quality_values"], allow_nan=True),
-                    ]
-                )
+    invalid_plot_metrics = {
+        "concave_vertex_count",
+        "self_intersection",
+        "intersecting_cell",
+        "flipping_cell",
+        "degenerate_cell",
+    }
+    save_invalid_cells(
+        out_dir,
+        invalid,
+        mesh,
+        make_plots=make_plots and bool(invalid_plot_metrics.intersection(plot_metrics)),
+        save_png=save_png,
+        save_pdf=save_pdf,
+    )
     return summary
 
 
@@ -794,6 +777,7 @@ def save_quality_comparison(
     save_png: bool = True,
     save_pdf: bool = True,
     save_distribution_plots: bool = True,
+    plot_metrics: tuple[str, ...] | list[str] = (),
 ) -> dict:
     """Save paper-oriented same-scale quality comparisons for available methods."""
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
@@ -946,7 +930,9 @@ def save_quality_comparison(
         fig, out_dir / "mesh_comparison", save_png=save_png, save_pdf=save_pdf, dpi=220
     )
     plt.close(fig)
-    for metric in metrics:
+    for metric in plot_metrics:
+        if metric not in metrics:
+            continue
         combined = np.concatenate(
             [np.asarray(method_fields[name][metric]) for name in names]
         )
@@ -1014,6 +1000,7 @@ def save_hex_quality(
     save_pdf: bool = False,
     save_distribution_plots: bool = True,
     quality_fields: dict | None = None,
+    plot_metrics: tuple[str, ...] | list[str] = (),
 ) -> dict:
     """Documentation string."""
     from src.metrics import evaluate_hexahedral_grid_quality
@@ -1110,7 +1097,10 @@ def save_hex_quality(
                 ]
             )
     if make_plots and save_distribution_plots:
-        for name, values in fields.items():
+        for name in plot_metrics:
+            if name not in fields:
+                continue
+            values = fields[name]
             fig, axis = plt.subplots(figsize=(7, 5))
             axis.hist(values[np.isfinite(values)], bins=30, edgecolor="black")
             axis.set(title=f"3D {name}", xlabel=name, ylabel="cell count")

@@ -153,7 +153,16 @@ def build_parser():
         "--evaluation-plots",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Generate evaluation figures (default: enabled).",
+        help="Generate mesh visualizations and mesh-comparison figures (default: enabled).",
+    )
+    parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help=(
+            "Opt in to quality figures: 'all' or selected metric names such as "
+            "scaled_jacobian max_angle. Default: summaries only, no quality figures."
+        ),
     )
     parser.add_argument("--experiment-set", default=run_ablation_2d.DEFAULT_EXPERIMENT_SET)
     parser.add_argument("--config", type=Path)
@@ -227,6 +236,8 @@ def _forward_common_arguments(args, ablation: str) -> list[str]:
         command += ["--evaluation-values", *map(str, args.evaluation_values)]
     if not getattr(args, "evaluation_plots", True):
         command.append("--no-evaluation-plots")
+    if getattr(args, "quality_plots", None):
+        command += ["--quality-plots", *map(str, args.quality_plots)]
     if args.device:
         command += ["--device", args.device]
     for flag in (

@@ -29,7 +29,9 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 - `--gpus 0 1 2 3`：动态多GPU任务队列；
 - `--train-only`或`--evaluate-only`：只执行一个阶段；
 - `--force`：替换所选训练与评估；
-- `--no-plots`：不生成新评估图片。
+- `--no-plots`：不生成任何新评估图片；
+- `--quality-plots all`：额外生成全部质量指标图与对应比较图；
+- `--quality-plots scaled_jacobian max_angle`：只生成指定指标的单方法图和多方法对比图。默认不生成质量图片，完整数值汇总仍会保留。
 
 完整评估结果统一写入：
 
@@ -37,7 +39,7 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 experiments/<exN>/eval/<dataset>/seed_<seed>/<run-tag>/<experiment>/<grid>/<value>/
 ```
 
-其中图片采用紧凑子目录 `p/`：`p/c/<methods>/q/` 表示多方法质量对比，`p/<method>/r|p|q/` 分别表示原始网格、后处理网格与质量图。方法和完整指标名称始终保留在同层 `results.json` 中。
+其中图片采用紧凑子目录 `p/`：默认仅保留各方法的原始/后处理网格图与 `p/c/<methods>/mesh_comparison.png`。显式传入 `--quality-plots` 后，质量图才会写入 `p/c/<methods>/q/` 和 `p/<method>/r|p/q/`。方法和完整指标名称始终保留在同层 `results.json` 中。
 
 多GPU日志写入：
 

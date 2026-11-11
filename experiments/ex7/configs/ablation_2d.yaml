@@ -1,4 +1,4 @@
-# ex7: power-Fourier coordinate augmentation maximum-order sweep.
+# ex7: coordinate-lift order and legacy-formula ablation.
 seeds: [20261030]
 datasets: [air_t_ext_1_500_21_21]
 grid_shapes: [[101, 101], [201, 201], [401, 401]]

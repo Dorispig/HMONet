@@ -37,7 +37,13 @@ def build_parser():
         "--evaluation-plots",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Generate evaluation figures (default: enabled).",
+        help="Generate mesh visualizations and mesh comparisons (default: enabled).",
+    )
+    parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help="Opt in to quality figures; use 'all' for every enabled metric.",
     )
     parser.add_argument("--experiment-set", default=run_ablation_2d.DEFAULT_EXPERIMENT_SET)
     parser.add_argument("--config", type=Path)
@@ -112,6 +118,8 @@ def main(argv=None):
         command += ["--evaluation-values", *map(str, args.evaluation_values)]
     if not args.evaluation_plots:
         command.append("--no-evaluation-plots")
+    if args.quality_plots:
+        command += ["--quality-plots", *args.quality_plots]
     if args.device:
         command += ["--device", args.device]
     if args.dry_run:
@@ -149,6 +157,8 @@ def main(argv=None):
             ]
         if not args.evaluation_plots:
             batch_command.append("--no-evaluation-plots")
+        if args.quality_plots:
+            batch_command += ["--quality-plots", *args.quality_plots]
         if args.queue_log_root:
             batch_command += ["--queue-log-root", str(args.queue_log_root)]
         if args.dry_run:

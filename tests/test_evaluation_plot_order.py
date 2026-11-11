@@ -31,6 +31,7 @@ class TestEvaluationPlotOrder:
             save_png=True,
             save_pdf=False,
             save_distribution_plots=False,
+            quality_plot_metrics=["minimum_scaled_jacobian"],
         )
 
     def teardown_method(self):
@@ -85,6 +86,7 @@ class TestEvaluationPlotOrder:
                 {"boundary_projection": {}},
                 quality_cache={name: quality for name in meshes},
                 save_distribution_plots=False,
+                plot_metrics=("scaled_jacobian",),
             )
             assert (saved.call_count) == (2)
         metadata = json.loads((self.root / "metadata.json").read_text(encoding="utf-8"))

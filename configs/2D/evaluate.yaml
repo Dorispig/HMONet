@@ -351,6 +351,9 @@ evaluation:
   # both/all：全部指标；none：不计算；也可写列表，如
   # [min_angle, scaled_jacobian, intersecting_cell]。
   quality_metrics: both
+  # 质量数值汇总默认完整保存；质量图片默认不生成。
+  # 可写 all 或指定指标，如 [scaled_jacobian, max_angle]；也可由 --quality-plots 覆盖。
+  quality_plot_metrics: []
 
   # 如需关闭单项，可取消下面注释，或使用 --no-quality-<指标名>。
   # quality_switches:
@@ -359,7 +362,7 @@ evaluation:
 
   save_plots: true
   save_png: true
-  compact_outputs: true  # 仅保留 results.json 与图片；指纹一致时直接复用汇总结果。
+  compact_outputs: true  # 保留 results.json、汇总表和启用的图片；指纹一致时直接复用。
   save_pdf: false
   save_distribution_plots: false
 

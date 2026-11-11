@@ -27,11 +27,21 @@ from .quality_output import (
 from .quality_3d import middle_surface_grids, surface_quad_quality_fields, HIGHER
 from .zoom_3d import quad_cells, draw_volume, DEFAULTS as ZOOM_DEFAULTS
 from src.metrics import evaluate_hexahedral_grid_quality
-from src.utils.quality_selection import selected_quality_metrics
+from src.utils.quality_selection import (
+    selected_quality_metrics,
+    selected_quality_plot_metrics,
+)
 
 
 def plot_enabled(options):
     return options["save_plots"] and (options["save_png"] or options["save_pdf"])
+
+
+def quality_plot_enabled(options, dimension=2, *, surface=False):
+    """Whether opt-in metric figures may be emitted for this mesh type."""
+    return plot_enabled(options) and bool(
+        selected_quality_plot_metrics(options, dimension, surface=surface)
+    )
 
 
 def save_figure(fig, path, options):
@@ -79,6 +89,7 @@ def save_method(directory, method, points, shape, options):
     directory.mkdir(parents=True, exist_ok=True)
     np.save(directory / "mesh.npy", points)
     selected = selected_quality_metrics(options, len(shape))
+    plot_metrics = selected_quality_plot_metrics(options, len(shape))
     quality = empty_quality(points, shape)
     if len(shape) == 2:
         if selected:
@@ -88,10 +99,11 @@ def save_method(directory, method, points, shape, options):
                 points,
                 *shape,
                 quality=quality,
-                make_plots=options["save_plots"],
+                make_plots=quality_plot_enabled(options, len(shape)),
                 save_png=options["save_png"],
                 save_pdf=options["save_pdf"],
                 save_distribution_plots=options["save_distribution_plots"],
+                plot_metrics=plot_metrics,
             )
         np.savez_compressed(
             directory / "mesh_data.npz",
@@ -108,10 +120,11 @@ def save_method(directory, method, points, shape, options):
                 quality_dir,
                 grid,
                 quality_fields=fields,
-                make_plots=options["save_plots"],
+                make_plots=quality_plot_enabled(options, len(shape)),
                 save_png=options["save_png"],
                 save_pdf=options["save_pdf"],
                 save_distribution_plots=options["save_distribution_plots"],
+                plot_metrics=plot_metrics,
             )
             quality = {"fields": fields, "summary": summary}
             flags = [
@@ -125,10 +138,6 @@ def save_method(directory, method, points, shape, options):
                     "assessed_metrics": flags,
                 }
                 write_json(quality_dir / "quality_summary.json", summary)
-            if plot_enabled(options):
-                plot_volumes(
-                    quality_dir, {method: points}, {method: fields}, shape, options
-                )
         mesh = HexMeshXYZ(*shape, points)
         np.savez_compressed(
             directory / "mesh_data.npz",
@@ -245,7 +254,8 @@ def save_sections(directory, meshes, shape, options):
         if not plot_enabled(options):
             continue
         names = list(meshes)
-        for metric in [None, *next(iter(fields.values()))]:
+        plot_metrics = selected_quality_plot_metrics(options, 3, surface=True)
+        for metric in [None, *plot_metrics]:
             combined = (
                 np.concatenate([fields[m][metric] for m in names])
                 if metric
@@ -325,7 +335,8 @@ def plot_volumes(directory, meshes, fields, shape, options):
     all_points = np.concatenate(list(meshes.values()))
     limits = (all_points.min(axis=0), all_points.max(axis=0))
     cells = HexMeshXYZ(*shape, next(iter(meshes.values()))).cells
-    for metric in [None, *next(iter(fields.values()))]:
+    plot_metrics = selected_quality_plot_metrics(options, 3)
+    for metric in [None, *plot_metrics]:
         values = (
             np.concatenate([fields[m][metric] for m in names])
             if metric
@@ -349,7 +360,7 @@ def plot_volumes(directory, meshes, fields, shape, options):
             )
             ax.set_title(method_label(method))
             panels.append(ax)
-        if metric:
+        if metric and all(metric in field for field in fields.values()):
             fig.colorbar(
                 ScalarMappable(norm=norm, cmap=cmap),
                 ax=panels,
@@ -371,7 +382,9 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
     metadata = {**metadata, "method_order": list(meshes)}
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    if not selected_quality_metrics(options, len(shape)):
+    selected = selected_quality_metrics(options, len(shape))
+    plot_metrics = selected_quality_plot_metrics(options, len(shape))
+    if not selected:
         np.savez_compressed(directory / "comparison_mesh_data.npz", **meshes)
         write_json(directory / "metadata.json", metadata)
         if len(shape) == 3:
@@ -397,10 +410,11 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
             *shape,
             metadata,
             quality_cache=qualities,
-            make_plots=options["save_plots"],
+            make_plots=plot_enabled(options),
             save_png=options["save_png"],
             save_pdf=options["save_pdf"],
             save_distribution_plots=options["save_distribution_plots"],
+            plot_metrics=plot_metrics,
         )
     else:
         summary = {m: q["summary"] for m, q in qualities.items()}
@@ -438,14 +452,14 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
                 options,
             )
             from .quality_3d import plot_surface_slice_comparison
-
-            plot_surface_slice_comparison(
-                directory,
-                {m: q["fields"] for m, q in qualities.items()},
-                *shape,
-                save_png=options["save_png"],
-                save_pdf=options["save_pdf"],
-            )
+            if selected_quality_plot_metrics(options, 3, surface=True):
+                plot_surface_slice_comparison(
+                    directory,
+                    {m: q["fields"] for m, q in qualities.items()},
+                    *shape,
+                    save_png=options["save_png"],
+                    save_pdf=options["save_pdf"],
+                )
     save_quality_table(directory / "quality_summary.csv", summary)
     save_quality_table(
         directory

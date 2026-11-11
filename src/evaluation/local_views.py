@@ -2,7 +2,10 @@
 
 from argparse import Namespace
 from pathlib import Path
-from src.utils.quality_selection import selected_quality_metrics
+from src.utils.quality_selection import (
+    selected_quality_metrics,
+    selected_quality_plot_metrics,
+)
 from .artifacts import read_json
 
 
@@ -18,7 +21,15 @@ def prune_disabled_quality_zooms(directory, dimension, options):
             dimension,
             surface=dimension == 3 and settings.get("mode", "slice") == "slice",
         )
-        if metric in selected or settings.get("plot") == "mesh":
+        selected_plots = selected_quality_plot_metrics(
+            options,
+            dimension,
+            surface=dimension == 3 and settings.get("mode", "slice") == "slice",
+        )
+        if (
+            (metric in selected and metric in selected_plots)
+            or settings.get("plot") == "mesh"
+        ):
             continue
         if "files" in metadata:
             names = [*metadata["files"], marker.name]
@@ -60,7 +71,12 @@ def run_local_views(directory, dimension, options):
             dimension,
             surface=dimension == 3 and job.get("mode", "slice") == "slice",
         )
-        if metric not in selected:
+        selected_plots = selected_quality_plot_metrics(
+            options,
+            dimension,
+            surface=dimension == 3 and job.get("mode", "slice") == "slice",
+        )
+        if metric not in selected or metric not in selected_plots:
             if job.get("center_on") == "worst" or job.get("plot") == "quality":
                 print(f"  skip quality/worst zoom: {metric} is disabled", flush=True)
                 continue

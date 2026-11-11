@@ -67,8 +67,11 @@ evaluation:
   # 命令行使用 --no-compute-grid-quality 关闭，使用 --compute-grid-quality 开启。
   compute_grid_quality: true
   # both 或 all 选择全部启用指标；none 不选择指标；也可指定列表，如 [min_angle, scaled_jacobian]。
-  # 仅对已选中且独立开关为 true 的指标进行计算、数据导出与绘图。
+  # 仅对已选中且独立开关为 true 的指标进行计算与数据导出。
   quality_metrics: both
+  # 质量数值汇总默认完整保存；质量图片默认不生成。
+  # 可写 all 或指定指标，如 [minimum_scaled_jacobian, max_angle]。
+  quality_plot_metrics: []
   # 命令行选择指标示例：--quality-metrics min_angle,scaled_jacobian。
   # 单项开关示例：--no-quality-intersecting-cell 关闭，--quality-intersecting-cell 开启。
   # 公共指标用于体网格及 x_mid、y_mid、z_mid 切片；仅适用四边形的指标只用于切片。
@@ -93,7 +96,7 @@ evaluation:
     flipped_cell: true  # 体网格翻转单元标记。
   save_plots: true
   save_png: true
-  compact_outputs: true  # 仅保留 results.json 与图片；指纹一致时直接复用汇总结果。
+  compact_outputs: true  # 保留 results.json、汇总表和启用的图片；指纹一致时直接复用。
   save_pdf: false
   save_distribution_plots: false
   # 可选局部视图；可通过 cases.<name>.evaluation 为各案例单独设置。

@@ -371,7 +371,13 @@ def analyze_method(
     """Reuse complete analysis; repair missing files without repeating inference."""
     plot_settings = {
         key: options[key]
-        for key in ("save_plots", "save_png", "save_pdf", "save_distribution_plots")
+        for key in (
+            "save_plots",
+            "save_png",
+            "save_pdf",
+            "save_distribution_plots",
+            "quality_plot_metrics",
+        )
     }
     signature = digest(
         {
@@ -411,8 +417,8 @@ def analyze_method(
                 **options,
                 "save_plots": options["save_plots"]
                 and bool(
-                    quality_settings(options, len(shape))["metrics"]
-                    or quality_settings(options, len(shape))["surface_metrics"]
+                    quality_settings(options, len(shape))["plot_metrics"]
+                    or quality_settings(options, len(shape))["surface_plot_metrics"]
                 ),
             },
         )
@@ -443,8 +449,8 @@ def analyze_method(
                 **options,
                 "save_plots": options["save_plots"]
                 and bool(
-                    quality_settings(options, len(shape))["metrics"]
-                    or quality_settings(options, len(shape))["surface_metrics"]
+                    quality_settings(options, len(shape))["plot_metrics"]
+                    or quality_settings(options, len(shape))["surface_plot_metrics"]
                 ),
             },
         )
@@ -739,8 +745,10 @@ def evaluate_object(
                         "save_png",
                         "save_pdf",
                         "save_distribution_plots",
+                        "quality_plot_metrics",
                     )
                 },
+                "quality": quality_settings(options, dimension),
             }
         )
         analysis_reused = (
@@ -761,8 +769,8 @@ def evaluate_object(
                     **options,
                     "save_plots": options["save_plots"]
                     and bool(
-                        metadata["quality_evaluation"]["metrics"]
-                        or metadata["quality_evaluation"]["surface_metrics"]
+                        metadata["quality_evaluation"]["plot_metrics"]
+                        or metadata["quality_evaluation"]["surface_plot_metrics"]
                     ),
                 },
             )

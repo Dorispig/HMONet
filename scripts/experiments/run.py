@@ -75,6 +75,12 @@ def build_parser():
     parser.add_argument(
         "--plots", action=argparse.BooleanOptionalAction, default=True
     )
+    parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help="Generate only the requested quality figures; use 'all' for every enabled metric.",
+    )
     return parser
 
 
@@ -101,6 +107,8 @@ def command_from_args(args):
     command += ["--queue-terminal-interval", str(args.queue_terminal_interval)]
     if not args.plots:
         command.append("--no-evaluation-plots")
+    if args.quality_plots:
+        command += ["--quality-plots", *args.quality_plots]
     for name in ("train_only", "evaluate_only", "force", "dry_run", "continue_on_error"):
         if getattr(args, name):
             command.append("--" + name.replace("_", "-"))

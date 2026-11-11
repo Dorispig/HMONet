@@ -358,6 +358,7 @@ evaluation:
   # both/all：全部指标；none：不计算；也可写列表，如
   # [min_angle, scaled_jacobian, intersecting_cell]。
   quality_metrics: both
+  quality_plot_metrics: []  # Summaries are retained; metric figures are opt-in.
 
   # 如需关闭单项，可取消下面注释，或使用 --no-quality-<指标名>。
   # quality_switches:
@@ -394,6 +395,7 @@ ablation:
   grid_shapes: [[101, 101], [201, 201], [401, 401]]
   methods: [tfi, pde, hmonet]
   quality_metrics: both
+  quality_plots: []
   hmonet_boundary_projection: none
   meshonet_boundary_projection: none
   pimeshonet_boundary_projection: none

@@ -49,6 +49,9 @@ DEFAULTS = dict(
     compute_grid_quality=True,
     quality_metrics="both",
     quality_switches={},
+    # Numeric quality summaries are always retained; expensive metric figures
+    # are opt-in via --quality-plots.
+    quality_plot_metrics=[],
     winslow_max_iter=1000,
     winslow_tolerance=1e-8,
     hmonet_pde_iterations=0,
@@ -141,6 +144,16 @@ def build_parser(dimension):
     parser.add_argument(
         "--quality-metrics",
         help="both: all metrics; none: no metrics; otherwise comma-separated metric names.",
+    )
+    parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help=(
+            "Optional quality figures: 'all' for every enabled metric, or one or "
+            "more metric names (for example scaled_jacobian max_angle). "
+            "Default: no quality figures; mesh visualizations and summaries remain enabled."
+        ),
     )
     for metric in (QUAD_METRICS if dimension == 2 else ALL_METRICS):
         parser.add_argument(

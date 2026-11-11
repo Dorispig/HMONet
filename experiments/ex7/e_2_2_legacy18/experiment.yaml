@@ -1,0 +1,13 @@
+schema_version: 1
+experiment: e_2_2_legacy18
+cli_alias: e_2_2
+# Old coordinate lift with the same 18-dimensional trunk input as the
+# power-Fourier P=3 experiment.
+variants:
+  - name: e_2_2_legacy18
+    value: legacy_18
+    overrides:
+      - --coordinate-lift-mode
+      - legacy
+      - --trunk-dim
+      - "18"

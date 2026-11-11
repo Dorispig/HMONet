@@ -834,6 +834,10 @@ def ablation_evaluation_settings(args) -> dict:
         "values": getattr(args, "evaluation_values", None),
         "methods": list(methods),
         "quality_metrics": values.get("quality_metrics", "both"),
+        "quality_plots": list(
+            getattr(args, "quality_plots", None)
+            or values.get("quality_plots", [])
+        ),
         "hmonet_boundary_projection": values.get(
             "hmonet_boundary_projection", "none"
         ),
@@ -936,6 +940,7 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
         ),
         "hmonet_boundary_projection": settings["hmonet_boundary_projection"],
         "quality_metrics": settings["quality_metrics"],
+        "quality_plots": settings["quality_plots"],
     }
     if summary.get("evaluation_checkpoint_stage"):
         payload["checkpoint_stage"] = summary["evaluation_checkpoint_stage"]
@@ -1386,6 +1391,8 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
         str(settings["quality_metrics"]),
         "--force",
     ]
+    if settings["quality_plots"]:
+        command += ["--quality-plots", *map(str, settings["quality_plots"])]
     if model in {"hmonet", "qghmonet"}:
         command += [
             "--hmonet-mapping-mode",
@@ -3034,8 +3041,17 @@ def build_parser():
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Generate pure-grid, quality, and comparison figures during ablation "
+            "Generate pure-grid and mesh-comparison figures during ablation "
             "evaluation (default: enabled). Use --no-evaluation-plots to disable."
+        ),
+    )
+    parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help=(
+            "Opt in to quality figures: 'all' or selected metric names. "
+            "Default: quality summaries only."
         ),
     )
     parser.add_argument(

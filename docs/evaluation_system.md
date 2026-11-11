@@ -29,6 +29,18 @@ YAML case 可直接构造指定参数的精确边界；`--dataset`/`--parameter-
 
 `quality_metrics` 和各指标开关共同决定实际计算内容，CLI 可使用 `--quality-metrics` 或单项开关覆盖。`--no-compute-grid-quality` 关闭质量计算，但仍可保留网格、时间和边界误差。关闭的指标不会用于局部 worst 搜索。
 
+质量数值计算与图片输出分离：默认仍完整保存所有启用指标的汇总，但只生成单方法网格图和方法并排网格图，不生成质量热图、分布图或质量局部图。需要图片时显式指定：
+
+```bash
+# 仅生成 scaled Jacobian 与最大角的单方法图、方法对比图
+python scripts/evaluate/evaluate_2d.py ... --quality-plots scaled_jacobian max_angle
+
+# 生成当前启用的全部质量图（含已有的质量对比图）
+python scripts/evaluate/evaluate_2d.py ... --quality-plots all
+```
+
+消融实验入口使用相同参数，例如：`python scripts/experiments/run.py ex1 baseline all --quality-plots all`。
+
 二维评估报告角度、Jacobian/Scaled Jacobian、偏斜、长宽比、正交性及非法/翻转/退化/凹/相交单元。三维评估报告六面体体质量、非法状态，并在配置要求时统计中间截面质量。三维截面的相交检测不等价于任意两个六面体的完整碰撞证明，解释结果时应注明检测范围。
 
 选择 PDE 且存在网络方法时，保存网络结果相对本次 PDE 网格的逐点坐标 MSE 和逐单元最大顶点 MSE。坐标分量按评估定义取平均；不得与采用不同维度缩放的训练损失直接混用。
@@ -60,6 +72,8 @@ YAML case 可直接构造指定参数的精确边界；`--dataset`/`--parameter-
 | `--generation-only` | 只生成网格、边界误差和计时记录 |
 | `--analysis-only` | 必须已有匹配网格，不执行模型或 PDE |
 | `--no-plots` | 保留数值结果但不生成新图片 |
+| `--quality-plots all` | 生成全部已启用的质量指标图和方法对比图 |
+| `--quality-plots <metric> ...` | 只生成指定质量指标图；不影响所有指标的数值汇总 |
 | `--save-distribution-plots` | 显式生成分布图 |
 | `--no-compact-outputs` | 保留网格和逐单元中间数据 |
 
@@ -86,12 +100,12 @@ grid_quality/
   quality_data.npz|csv
   quality_summary.json|csv
   invalid_cells.json|csv
-  quality_<metric>.png
+  # 默认无质量图片；仅在 --quality-plots 时出现 quality_<metric>.png
 boundary_error_summary.json
 boundary_error_data.csv
 ```
 
-比较组包含方法并排网格图、共享色标质量图、`results.json`/质量摘要、非法单元统计、边界误差和论文计时表。三维还可包含边界面与中间截面结果。
+比较组默认包含方法并排网格图、`results.json`/质量摘要、非法单元统计、边界误差和论文计时表；共享色标质量图仅在 `--quality-plots` 时生成。三维还可包含边界面与中间截面数值结果。
 
 默认紧凑模式在汇总和图片完成后删除生成网格数组、逐单元 CSV/NPZ 和分析缓存，只长期保留汇总及启用的图片。需要下游求解、`analysis-only` 或自定义二次分析时，应使用 `--generation-only --no-compact-outputs` 保留网格；只有紧凑 `results.json` 时不能恢复原网格。
 

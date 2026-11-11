@@ -31,6 +31,25 @@ HEX_METRICS = (
 ALL_METRICS = tuple(dict.fromkeys((*QUAD_METRICS, *HEX_METRICS)))
 
 
+def _normalize_plot_selection(selection):
+    """Return a stable requested-quality-plot selection.
+
+    Quality *calculation* and quality *visualization* intentionally use
+    independent controls.  Evaluation always retains the numeric summaries;
+    rendered metric maps can be very large and are therefore opt-in.
+    """
+    if selection is None:
+        return ()
+    if isinstance(selection, str):
+        selection = [item.strip().lower() for item in selection.split(",") if item.strip()]
+    return tuple(
+        token.strip().lower()
+        for item in selection
+        for token in str(item).split(",")
+        if token.strip()
+    )
+
+
 def metric_names(selection, available):
     """Resolve both/all, none, or explicit names; reject misspelled metrics."""
     if selection is None:
@@ -79,6 +98,36 @@ def selected_quality_metrics(options, dimension=2, *, surface=False):
     )
 
 
+def selected_quality_plot_metrics(options, dimension=2, *, surface=False):
+    """Resolve opt-in metric figures without changing numeric summaries.
+
+    ``--quality-plots all`` requests every metric currently calculated for the
+    applicable mesh type.  A named request is validated against the available
+    metrics and intersected with the active numeric-quality selection; this
+    keeps a deliberately disabled metric from silently reappearing as a plot.
+    """
+    requested = _normalize_plot_selection(options.get("quality_plot_metrics"))
+    if not requested or requested == ("none",):
+        return ()
+    applicable = QUAD_METRICS if dimension == 2 or surface else HEX_METRICS
+    unknown = set(requested) - {"all", "none"} - set(applicable)
+    if unknown:
+        raise ValueError(
+            f"Unknown quality plot metrics {sorted(unknown)}; choose "
+            f"'all' or {list(applicable)}"
+        )
+    if "all" in requested:
+        if len(requested) != 1:
+            raise ValueError("--quality-plots all cannot be combined with named metrics")
+        return selected_quality_metrics(options, dimension, surface=surface)
+    if "none" in requested:
+        if len(requested) != 1:
+            raise ValueError("--quality-plots none cannot be combined with named metrics")
+        return ()
+    calculated = set(selected_quality_metrics(options, dimension, surface=surface))
+    return tuple(name for name in applicable if name in requested and name in calculated)
+
+
 def quality_settings(options, dimension):
     """Resolved selections for metadata and analysis-cache invalidation."""
     return {
@@ -86,6 +135,12 @@ def quality_settings(options, dimension):
         "metrics": list(selected_quality_metrics(options, dimension)),
         "surface_metrics": (
             list(selected_quality_metrics(options, dimension, surface=True))
+            if dimension == 3
+            else []
+        ),
+        "plot_metrics": list(selected_quality_plot_metrics(options, dimension)),
+        "surface_plot_metrics": (
+            list(selected_quality_plot_metrics(options, dimension, surface=True))
             if dimension == 3
             else []
         ),
