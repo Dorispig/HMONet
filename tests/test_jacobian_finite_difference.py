@@ -182,4 +182,4 @@ class TestJacobianFiniteDifference:
                             ).read_text()
                         )
                         assert (summary["jacobian_method"]) == (method)
-                        assert (summary["jacobian_fd_step"]) == (0.001)
+                        assert (summary["jacobian_fd_step"]) == (0.01)

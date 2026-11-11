@@ -600,7 +600,7 @@ def _jacobian_fd_scheme(logical, step):
     return first_offset, second_offset, w0, w1, w2
 
 
-def jacobian_finite_difference_queries(logical, step=1e-3):
+def jacobian_finite_difference_queries(logical, step=0.01):
     """Return [..., point, 1+2*d, d] batched queries, all within the unit domain.
 
     The center is followed by two points per coordinate axis. One-sided
@@ -614,7 +614,7 @@ def jacobian_finite_difference_queries(logical, step=1e-3):
     return torch.cat((logical.unsqueeze(-2), neighbors), dim=-2)
 
 
-def jacobian_positive_loss_finite_difference(prediction, logical, minimum, step=1e-3):
+def jacobian_positive_loss_finite_difference(prediction, logical, minimum, step=0.01):
     """Penalize the determinant computed from final mapped stencil coordinates.
 
     ``prediction`` corresponds to jacobian_finite_difference_queries(logical).
@@ -626,14 +626,29 @@ def jacobian_positive_loss_finite_difference(prediction, logical, minimum, step=
         raise ValueError(
             "Prediction shape must match the Jacobian finite-difference stencil"
         )
-    _, _, w0, w1, w2 = _jacobian_fd_scheme(logical, step)
+    derivatives = jacobian_finite_difference_derivatives(prediction, logical, step)
+    determinant = torch.linalg.det(derivatives)
+    return torch.relu(float(minimum) - determinant).square().mean()
+
+
+def jacobian_finite_difference_derivatives(prediction, logical, step=0.01):
+    """Return the physical-by-logical Jacobian from the one-sided-safe stencil.
+
+    This shared operator is used by the ordinary Jacobian penalty and by the
+    normalized Jacobian/singular-value barriers.  Therefore every finite-
+    difference Jacobian term is governed by the same ``jacobian_fd_step``.
+    """
+    dimension = logical.shape[-1]
+    if prediction.shape != (*logical.shape[:-1], 1 + 2 * dimension, dimension):
+        raise ValueError(
+            "Prediction shape must match the Jacobian finite-difference stencil"
+        )
+    _, _, _w0, w1, w2 = _jacobian_fd_scheme(logical, step)
     center = prediction[..., 0, :].unsqueeze(-2)
     first = prediction[..., 1::2, :]
     second = prediction[..., 2::2, :]
     derivatives = w1[..., None] * (first - center) + w2[..., None] * (second - center)
-    jacobian = derivatives.transpose(-1, -2)
-    determinant = torch.linalg.det(jacobian)
-    return torch.relu(float(minimum) - determinant).square().mean()
+    return derivatives.transpose(-1, -2)
 
 
 def normal_alignment_loss(direction, normal):

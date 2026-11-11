@@ -212,7 +212,7 @@ hmonet_training: &hard_operator_training  # HMONet训练参数
   # Jacobian 方法：finite_difference 或 autograd。
   jacobian_loss_enabled: false  # 仅使用physics_jacobian_loss_weight，避免混淆监督式损失开关
   jacobian_method: finite_difference  # Jacobian计算方法
-  jacobian_fd_step: 0.0001  # 有限差分步长
+  jacobian_fd_step: 0.01  # 有限差分步长
   jacobian_loss_weight: 1.0e-4  # Jacobian损失权重
   jacobian_minimum: 1.0e-4  # 最小允许Jacobian
 

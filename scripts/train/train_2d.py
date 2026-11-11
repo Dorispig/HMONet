@@ -21,7 +21,6 @@ from src.losses.physics import (
     elliptic_grid_boundary_aware_terms,
     elliptic_grid_pde_residual,
     jacobian_positive_loss as physics_jacobian_positive_loss,
-    normalized_mapping_barriers,
     normalized_mapping_barriers_from_jacobian,
     elliptic_grid_scale_invariant_pde_loss,
     stencil_queries as physics_stencil_queries,
@@ -30,6 +29,7 @@ from src.losses.physics import (
 from src.numerics.differential import (
     autograd_differential_terms,
     boundary_aware_stencil_queries,
+    finite_difference_derivatives,
 )
 from scripts.train.pi_anchor import masked_anchor_mse, tfi_anchor_targets
 from src.engine.training import (
@@ -40,6 +40,7 @@ from src.engine.training import (
     interpolate_pde_mesh,
     jacobian_positive_loss_autograd,
     jacobian_positive_loss_finite_difference,
+    jacobian_finite_difference_derivatives,
     jacobian_finite_difference_queries,
     logical_grid_and_interior_indices,
     make_data_loader,
@@ -94,6 +95,7 @@ def _physics_phase_loss(
     shape,
     device,
     pde_steps,
+    jacobian_step,
     tfi_count,
     pde_count,
     fixed_mse_count,
@@ -110,8 +112,8 @@ def _physics_phase_loss(
     """Evaluate one HMONet objective used by a multi-stage experiment.
 
     ``tfi_warmup`` learns a stable, boundary-exact transfinite initialization.
-    The physics phases then use the same finite-difference stencil for the
-    Winslow residual and, where requested, the positive-Jacobian penalty.
+    PDE residuals use ``pde_steps``; the optional positive-Jacobian term uses
+    its own scalar ``jacobian_step``.
     """
     if phase == "tfi_warmup":
         logical = sample_shared_random_points(len(mesh), tfi_count, 2, device)
@@ -133,23 +135,36 @@ def _physics_phase_loss(
         # The two coordinate components form a squared Euclidean error.
         coordinate = 2.0 * (prediction - target).square().mean()
 
+    use_jacobian = (
+        phase in {"pde_jacobian", "fixed_mse_physics_jacobian"}
+        and float(jacobian_weight) > 0.0
+    )
+    jacobian_steps = torch.full_like(pde_steps, float(jacobian_step))
+    margin = torch.maximum(pde_steps, jacobian_steps) if use_jacobian else pde_steps
     centers = sample_shared_random_points(
-        len(mesh), pde_count, 2, device, margin=float(pde_steps.max().item())
+        len(mesh), pde_count, 2, device, margin=float(margin.max().item())
     )
     queries = physics_stencil_queries(centers, pde_steps)
     values = predict_coordinates(
         model, boundary, queries.flatten(-3, -2), geometries
     ).reshape(*queries.shape)
     pde = elliptic_grid_pde_residual(values, pde_steps).square().sum(-1).mean()
-    use_jacobian = (
-        phase in {"pde_jacobian", "fixed_mse_physics_jacobian"}
-        and float(jacobian_weight) > 0.0
-    )
-    jacobian = (
-        physics_jacobian_positive_loss(values, pde_steps, jacobian_minimum)
-        if use_jacobian
-        else None
-    )
+    jacobian = None
+    if use_jacobian:
+        if torch.equal(pde_steps, jacobian_steps):
+            jacobian = physics_jacobian_positive_loss(
+                values, pde_steps, jacobian_minimum
+            )
+        else:
+            jacobian_queries = jacobian_finite_difference_queries(
+                centers, jacobian_step
+            )
+            jacobian_values = predict_coordinates(
+                model, boundary, jacobian_queries.flatten(-3, -2), geometries
+            ).reshape(*jacobian_queries.shape)
+            jacobian = jacobian_positive_loss_finite_difference(
+                jacobian_values, centers, jacobian_minimum, jacobian_step
+            )
     loss = float(pde_weight) * pde
     if coordinate is not None:
         loss = loss + float(fixed_mse_weight) * coordinate
@@ -383,9 +398,10 @@ def _random_loss_combo(
     sample_count, mse_weight, pde_weight, jacobian_weight,
     jacobian_minimum, target_interpolation, point_loss_weighting,
     idw_query_chunk_size, idw_support_chunk_size,
+    jacobian_step=0.01,
     winslow_weight=0.0, winslow_barrier_weight=0.0,
     winslow_minimum=1e-4, winslow_epsilon=1e-6,
-    winslow_fd_step=1e-4,
+    winslow_fd_step=0.01,
     scale_invariant_pde=False,
     normalized_jacobian_weight=0.0,
     normalized_jacobian_minimum=0.02,
@@ -446,6 +462,8 @@ def _random_loss_combo(
         raise ValueError("random-loss FD boundary scheme must be central or one_sided")
     if derivative_backend != "finite_difference" and fd_boundary_scheme != "central":
         raise ValueError("one_sided FD boundary scheme requires finite_difference backend")
+    if derivative_backend == "finite_difference" and not 0 < float(jacobian_step) <= 1 / 3:
+        raise ValueError("jacobian_fd_step must be in (0, 1/3]")
     components = {}
     loss = torch.zeros((), device=device)
     if mse_weight > 0:
@@ -469,6 +487,12 @@ def _random_loss_combo(
         or singular_value_weight > 0
     ):
         has_winslow = winslow_weight > 0 or winslow_barrier_weight > 0
+        has_mapping_barrier = (
+            jacobian_weight > 0
+            or normalized_jacobian_weight > 0
+            or singular_value_weight > 0
+        )
+        jacobian_steps = torch.full_like(steps, float(jacobian_step))
         if mixed_sampling:
             if curvature_count > 0 and (
                 boundary_curvature is None or computational_boundary is None
@@ -497,15 +521,16 @@ def _random_loss_combo(
                 fd_stencil_inside=fd_stencil_inside,
             )
         else:
-            margin = (
-                torch.maximum(steps, torch.full_like(steps, float(winslow_fd_step)))
-                if has_winslow
-                else (
-                    steps
-                    if derivative_backend == "finite_difference" and fd_stencil_inside
-                    else 0.0
-                )
-            )
+            if derivative_backend == "finite_difference" and fd_stencil_inside:
+                margin = steps
+                if has_mapping_barrier:
+                    margin = torch.maximum(margin, jacobian_steps)
+                if has_winslow:
+                    margin = torch.maximum(
+                        margin, torch.full_like(steps, float(winslow_fd_step))
+                    )
+            else:
+                margin = 0.0
             centers = sample_shared_random_points(
                 len(mesh), sample_count, 2, device, margin=margin
             )
@@ -525,25 +550,72 @@ def _random_loss_combo(
                 if boundary_aware
                 else physics_stencil_queries(centers, steps)
             )
-            if has_winslow:
-                geometry_queries = jacobian_finite_difference_queries(
-                    centers, winslow_fd_step
+            reuse_pde_stencil = has_mapping_barrier and torch.equal(
+                steps, jacobian_steps
+            )
+            mapping_queries = None
+            if has_mapping_barrier and not reuse_pde_stencil:
+                mapping_queries = (
+                    boundary_aware_stencil_queries(centers, jacobian_steps)
+                    if boundary_aware
+                    else jacobian_finite_difference_queries(centers, jacobian_step)
                 )
-                combined_queries = torch.cat((queries, geometry_queries), dim=-2)
-                combined_values = predict_coordinates(
-                    model, boundary, combined_queries.flatten(-3, -2), geometries
-                ).reshape(*combined_queries.shape)
-                values = combined_values[..., :queries.shape[-2], :]
-                geometry_values = combined_values[..., queries.shape[-2]:, :]
-            else:
+            winslow_queries = (
+                jacobian_finite_difference_queries(centers, winslow_fd_step)
+                if has_winslow
+                else None
+            )
+            query_groups = [queries]
+            if mapping_queries is not None:
+                query_groups.append(mapping_queries)
+            if winslow_queries is not None:
+                query_groups.append(winslow_queries)
+            if len(query_groups) == 1:
                 values = predict_coordinates(
                     model, boundary, queries.flatten(-3, -2), geometries
                 ).reshape(*queries.shape)
+                mapping_values = values if reuse_pde_stencil else None
+                geometry_values = None
+            else:
+                combined_queries = torch.cat(query_groups, dim=-2)
+                combined_values = predict_coordinates(
+                    model, boundary, combined_queries.flatten(-3, -2), geometries
+                ).reshape(*combined_queries.shape)
+                offset = 0
+                values = combined_values[..., offset : offset + queries.shape[-2], :]
+                offset += queries.shape[-2]
+                mapping_values = values if reuse_pde_stencil else None
+                if mapping_queries is not None:
+                    mapping_values = combined_values[
+                        ..., offset : offset + mapping_queries.shape[-2], :
+                    ]
+                    offset += mapping_queries.shape[-2]
+                geometry_values = None
+                if winslow_queries is not None:
+                    geometry_values = combined_values[
+                        ..., offset : offset + winslow_queries.shape[-2], :
+                    ]
         boundary_residual = boundary_first = None
         if derivative_backend == "finite_difference" and boundary_aware:
             boundary_residual, boundary_first = elliptic_grid_boundary_aware_terms(
                 values, centers, steps
             )
+        mapping_first = None
+        if derivative_backend == "finite_difference" and has_mapping_barrier:
+            if reuse_pde_stencil:
+                mapping_first = (
+                    boundary_first
+                    if boundary_aware
+                    else finite_difference_derivatives(values, steps)[0].transpose(-1, -2)
+                )
+            elif boundary_aware:
+                _, mapping_first = elliptic_grid_boundary_aware_terms(
+                    mapping_values, centers, jacobian_steps
+                )
+            else:
+                mapping_first = jacobian_finite_difference_derivatives(
+                    mapping_values, centers, jacobian_step
+                )
         if pde_weight > 0:
             if derivative_backend == "autograd":
                 if not scale_invariant_pde:
@@ -577,15 +649,10 @@ def _random_loss_combo(
                     float(jacobian_minimum) - determinant
                 ).square().mean()
             else:
-                if boundary_aware:
-                    determinant = torch.linalg.det(boundary_first)
-                    jacobian = torch.relu(
-                        float(jacobian_minimum) - determinant
-                    ).square().mean()
-                else:
-                    jacobian = physics_jacobian_positive_loss(
-                        values, steps, jacobian_minimum
-                    )
+                determinant = torch.linalg.det(mapping_first)
+                jacobian = torch.relu(
+                    float(jacobian_minimum) - determinant
+                ).square().mean()
             loss = loss + float(jacobian_weight) * jacobian
             components["jacobian"] = jacobian
         if normalized_jacobian_weight > 0 or singular_value_weight > 0:
@@ -602,25 +669,15 @@ def _random_loss_combo(
                     )
                 )
             else:
-                if boundary_aware:
-                    normalized_jacobian, singular_value = (
-                        normalized_mapping_barriers_from_jacobian(
-                            boundary_first,
-                            characteristic_length,
-                            jacobian_minimum=normalized_jacobian_minimum,
-                            singular_value_minimum=singular_value_minimum,
-                            reduction=barrier_reduction,
-                        )
-                    )
-                else:
-                    normalized_jacobian, singular_value = normalized_mapping_barriers(
-                        values,
-                        steps,
+                normalized_jacobian, singular_value = (
+                    normalized_mapping_barriers_from_jacobian(
+                        mapping_first,
                         characteristic_length,
                         jacobian_minimum=normalized_jacobian_minimum,
                         singular_value_minimum=singular_value_minimum,
                         reduction=barrier_reduction,
                     )
+                )
             if normalized_jacobian_weight > 0:
                 loss = loss + float(normalized_jacobian_weight) * normalized_jacobian
                 components["normalized_jacobian"] = normalized_jacobian
@@ -680,7 +737,7 @@ def train_hmonet(
     jacobian_method = geometry_options.setdefault(
         "jacobian_method", "finite_difference"
     )
-    jacobian_step = float(geometry_options.setdefault("jacobian_fd_step", 1e-3))
+    jacobian_step = float(geometry_options.setdefault("jacobian_fd_step", 0.01))
     if jacobian_method not in ("autograd", "finite_difference"):
         raise ValueError("jacobian_method must be autograd or finite_difference")
     if not 0 < jacobian_step <= 1 / 3:
@@ -693,7 +750,7 @@ def train_hmonet(
     pde_steps = torch.as_tensor(
         configured_pde_step
         if configured_pde_step is not None
-        else [1.0 / (size - 1) for size in shape],
+        else [0.01, 0.01],
         device=device,
         dtype=torch.float32,
     )
@@ -1009,6 +1066,7 @@ def train_hmonet(
                             ),
                             jacobian_weight=physics_jacobian_weight,
                             jacobian_minimum=physics_jacobian_minimum,
+                            jacobian_step=jacobian_step,
                             winslow_weight=winslow_weight if active_phase == "random_loss_combo" else 0.0,
                             winslow_barrier_weight=winslow_barrier_weight if active_phase == "random_loss_combo" else 0.0,
                             winslow_minimum=winslow_minimum,
@@ -1086,6 +1144,7 @@ def train_hmonet(
                         shape=shape,
                         device=device,
                         pde_steps=pde_steps,
+                        jacobian_step=jacobian_step,
                         tfi_count=random_count,
                         pde_count=physics_count,
                         fixed_mse_count=fixed_mse_count,

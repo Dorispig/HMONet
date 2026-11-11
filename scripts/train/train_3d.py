@@ -26,6 +26,7 @@ from src.engine.training import (
     interpolate_pde_mesh,
     jacobian_positive_loss_autograd,
     jacobian_positive_loss_finite_difference,
+    jacobian_finite_difference_derivatives,
     jacobian_finite_difference_queries,
     logical_grid_and_interior_indices,
     make_data_loader,
@@ -51,9 +52,10 @@ from src.data.mesh.sampling import (
 from src.losses.physics import (
     elliptic_grid_pde_residual,
     elliptic_grid_scale_invariant_pde_loss,
-    normalized_mapping_barriers,
+    normalized_mapping_barriers_from_jacobian,
     stencil_queries as physics_stencil_queries,
 )
+from src.numerics.differential import finite_difference_derivatives
 from src.models import HMONet3D, MeshONet3D, QGHMONet3D
 from src.models.mapping_modes import mapping_mode_choices
 from src.data.mesh.topology import GenerateHexMeshBoundaryIndex
@@ -124,10 +126,14 @@ def _train_hmonet_physics_3d(
     )
     if steps.shape != (3,) or bool(((steps <= 0) | (steps >= 0.5)).any()):
         raise ValueError("pde_fd_step must contain three values in (0, 0.5)")
+    jacobian_step = float(geometry_options.get("jacobian_fd_step", 0.01))
+    if not 0 < jacobian_step <= 1 / 3:
+        raise ValueError("jacobian_fd_step must be in (0, 1/3]")
+    jacobian_steps = torch.full_like(steps, jacobian_step)
     keep_inside = bool(
         geometry_options.get("random_loss_fd_stencil_inside", True)
     )
-    margin = steps if keep_inside else torch.zeros_like(steps)
+    has_mapping_barrier = False
 
     pde_weight = float(geometry_options.get("physics_pde_loss_weight", 1.0))
     normalized_jacobian_weight = float(
@@ -140,6 +146,14 @@ def _train_hmonet_physics_3d(
         raise ValueError("Physics loss weights must be nonnegative")
     if pde_weight + normalized_jacobian_weight + singular_value_weight <= 0:
         raise ValueError("At least one formal 3-D physics loss must be active")
+    has_mapping_barrier = (
+        normalized_jacobian_weight > 0 or singular_value_weight > 0
+    )
+    margin = (
+        torch.maximum(steps, jacobian_steps)
+        if keep_inside and has_mapping_barrier
+        else (steps if keep_inside else torch.zeros_like(steps))
+    )
     scale_invariant_pde = bool(
         geometry_options.get("physics_scale_invariant_pde_enabled", False)
     )
@@ -212,12 +226,32 @@ def _train_hmonet_physics_3d(
                     )
                 centers = torch.cat(point_parts, dim=1)
                 queries = physics_stencil_queries(centers, steps)
-                values = predict_coordinates(
-                    model,
-                    boundary,
-                    queries.flatten(-3, -2),
-                    geometries,
-                ).reshape(*queries.shape)
+                reuse_pde_stencil = has_mapping_barrier and torch.equal(
+                    steps, jacobian_steps
+                )
+                jacobian_queries = (
+                    jacobian_finite_difference_queries(centers, jacobian_step)
+                    if has_mapping_barrier and not reuse_pde_stencil
+                    else None
+                )
+                if jacobian_queries is None:
+                    values = predict_coordinates(
+                        model,
+                        boundary,
+                        queries.flatten(-3, -2),
+                        geometries,
+                    ).reshape(*queries.shape)
+                    jacobian_values = values if reuse_pde_stencil else None
+                else:
+                    combined_queries = torch.cat((queries, jacobian_queries), dim=-2)
+                    combined_values = predict_coordinates(
+                        model,
+                        boundary,
+                        combined_queries.flatten(-3, -2),
+                        geometries,
+                    ).reshape(*combined_queries.shape)
+                    values = combined_values[..., :queries.shape[-2], :]
+                    jacobian_values = combined_values[..., queries.shape[-2]:, :]
 
                 if scale_invariant_pde:
                     pde = elliptic_grid_scale_invariant_pde_loss(values, steps)
@@ -225,14 +259,26 @@ def _train_hmonet_physics_3d(
                     pde = elliptic_grid_pde_residual(values, steps).square().sum(-1).mean()
                 extents = boundary.amax(dim=-2) - boundary.amin(dim=-2)
                 characteristic_length = extents.prod(dim=-1).clamp_min(1e-12).pow(1.0 / 3.0)
-                normalized_jacobian, singular_value = normalized_mapping_barriers(
-                    values,
-                    steps,
-                    characteristic_length,
-                    jacobian_minimum=jacobian_minimum,
-                    singular_value_minimum=singular_minimum,
-                    reduction=reduction,
-                )
+                if has_mapping_barrier:
+                    mapping_jacobian = (
+                        finite_difference_derivatives(values, steps)[0].transpose(-1, -2)
+                        if reuse_pde_stencil
+                        else jacobian_finite_difference_derivatives(
+                            jacobian_values, centers, jacobian_step
+                        )
+                    )
+                    normalized_jacobian, singular_value = (
+                        normalized_mapping_barriers_from_jacobian(
+                            mapping_jacobian,
+                            characteristic_length,
+                            jacobian_minimum=jacobian_minimum,
+                            singular_value_minimum=singular_minimum,
+                            reduction=reduction,
+                        )
+                    )
+                else:
+                    normalized_jacobian = values.new_zeros(())
+                    singular_value = values.new_zeros(())
                 loss = (
                     pde_weight * pde
                     + normalized_jacobian_weight * normalized_jacobian
@@ -323,7 +369,7 @@ def train_hmonet(
     jacobian_method = geometry_options.setdefault(
         "jacobian_method", "finite_difference"
     )
-    jacobian_step = float(geometry_options.setdefault("jacobian_fd_step", 1e-3))
+    jacobian_step = float(geometry_options.setdefault("jacobian_fd_step", 0.01))
     if jacobian_method not in ("autograd", "finite_difference"):
         raise ValueError("jacobian_method must be autograd or finite_difference")
     if not 0 < jacobian_step <= 1 / 3:

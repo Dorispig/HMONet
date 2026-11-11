@@ -38,6 +38,8 @@ def test_formal_hmonet_is_pure_self_supervised_derivative_suite_objective():
     assert h["physics_scale_invariant_pde_enabled"] is True
     assert h["physics_normalized_jacobian_loss_weight"] == 0.01
     assert h["physics_singular_value_loss_weight"] == 0.05
+    assert h["pde_fd_step"] == [0.01, 0.01]
+    assert h["jacobian_fd_step"] == 0.01
     assert h["random_loss_curvature_sample_count"] == 200
     assert h["random_loss_global_sample_count"] == 200
     assert h["random_loss_boundary_band_sample_count"] == 0
@@ -83,6 +85,7 @@ def test_formal_3d_hmonet_matches_2d_physics_objective_and_sampling():
     ):
         assert h3[key] == h2[key]
     assert h3["pde_fd_step"] == [0.01, 0.01, 0.01]
+    assert h3["jacobian_fd_step"] == 0.01
     assert config_3d["training"]["seed"] == config_2d["training"]["seed"]
     assert config_3d["hmonet_sampling"] == config_2d["hmonet_sampling"]
 

@@ -70,7 +70,7 @@ hmonet_training:
   physics_singular_value_minimum: 0.05
   physics_barrier_reduction: all
   pde_fd_step: [0.01, 0.01]
-  jacobian_fd_step: 0.0001
+  jacobian_fd_step: 0.01
   random_loss_derivative_backend: finite_difference
   random_loss_fd_stencil_inside: true
   random_loss_fd_boundary_scheme: central

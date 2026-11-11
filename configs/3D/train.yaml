@@ -156,6 +156,7 @@ hmonet_training: &hard_operator_training
   training_strategy: random_loss_combo_from_start
   random_loss_sample_count: 400
   pde_fd_step: [0.01, 0.01, 0.01]
+  jacobian_fd_step: 0.01
   random_loss_derivative_backend: finite_difference
   random_loss_fd_stencil_inside: true
   random_loss_fd_boundary_scheme: central

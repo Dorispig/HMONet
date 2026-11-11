@@ -209,7 +209,7 @@ def validate_train_config(config: dict) -> None:
         raise ValueError(
             "hmonet_training.jacobian_method must be finite_difference or autograd"
         )
-    if not 0 < float(hmonet_training.get("jacobian_fd_step", 1e-3)) <= 1 / 3:
+    if not 0 < float(hmonet_training.get("jacobian_fd_step", 0.01)) <= 1 / 3:
         raise ValueError("hmonet_training.jacobian_fd_step must be in (0, 1/3]")
     if hmonet_training.get("target_interpolation", "bilinear") not in {
         "bilinear",
