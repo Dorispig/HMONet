@@ -39,3 +39,15 @@ python scripts/experiments/run.py ex7 e1_2 e1_3 --dataset air_t_ext_1_500_21_21 
 ```bash
 python scripts/experiments/run.py ex7 baseline e_2_1 e_2_2 --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1
 ```
+
+## 质量图评估
+
+二维 `--quality-plots` 可选项为：`all`、`max_angle`、`min_angle`、`jacobian`、`scaled_jacobian`、`skewness`、`aspect_ratio`、`orthogonality`、`concave_vertex_count`、`self_intersection`、`intersecting_cell`、`flipping_cell`、`degenerate_cell`。`all` 表示当前启用的全部指标；`cell_area` 已从统一评估中移除，不能作为质量图选项。
+
+默认只保存完整质量汇总、各方法网格图和网格对比图。对已有坐标增强变体补充指定质量图：
+
+```bash
+python scripts/experiments/run.py ex7 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --values 0.62 0.65 --tag v1 --evaluate-only --quality-plots scaled_jacobian max_angle
+```
+
+将末尾替换为 `--quality-plots all` 可生成当前启用的全部质量图及多方法质量对比图；数值质量汇总仍完整保存。
