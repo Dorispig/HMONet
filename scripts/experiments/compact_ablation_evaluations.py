@@ -90,8 +90,12 @@ def compact_suite(suite: Path, dry_run: bool = False) -> dict:
         if not dry_run:
             remove_empty_directories(evaluation_root)
 
-    for name in TEMPORARY_EVALUATION_DIRS:
-        temporary_root = suite / name
+    temporary_roots = [suite / name for name in TEMPORARY_EVALUATION_DIRS]
+    # Current concurrent runner stores staging outside each suite so jobs from
+    # ex1, ex2, ... remain isolated.  Keep the legacy in-suite paths above for
+    # already-created results, and compact the new suite-specific shared root.
+    temporary_roots.append(EXPERIMENTS_ROOT / ".eval_work" / suite.name)
+    for temporary_root in temporary_roots:
         if not temporary_root.is_dir():
             continue
         for path in list(temporary_root.rglob("*")):

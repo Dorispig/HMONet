@@ -5,6 +5,7 @@ from scripts.experiments.evaluation_paths import (
     EVALUATION_PATH_LIMIT,
     evaluation_collection_root,
     evaluation_result_root,
+    evaluation_staging_root,
 )
 
 
@@ -32,3 +33,27 @@ def test_longest_retained_variant_fits_windows_path_budget():
     )
     longest = result / "p/pi/p/q/q_sj.png"
     assert len(str(longest.resolve())) <= EVALUATION_PATH_LIMIT
+
+
+def test_staging_layout_isolated_by_suite_and_task_identity():
+    root = Path("C:/hmonet_test/experiments/ex6")
+    first = evaluation_staging_root(
+        root, "air_t_ext_1_500_21_21", "e1_6_fd0_008", 20261030, "v1", "101x101"
+    )
+    second = evaluation_staging_root(
+        root, "air_t_ext_1_500_21_21", "e1_7_fd0_02", 20261030, "v1", "101x101"
+    )
+    other_seed = evaluation_staging_root(
+        root, "air_t_ext_1_500_21_21", "e1_6_fd0_008", 20260917, "v1", "101x101"
+    )
+    other_suite = evaluation_staging_root(
+        Path("C:/hmonet_test/experiments/ex7"),
+        "air_t_ext_1_500_21_21", "e1_6_fd0_008", 20261030, "v1", "101x101"
+    )
+    assert len({first, second, other_seed, other_suite}) == 4
+    assert first.parts[-7:] == (
+        ".eval_work", "ex6", "air_t_ext_1_500_21_21", "e1_6_fd0_008",
+        "seed_20261030", "v1", "101x101",
+    )
+    assert ".eval_work" in first.parts
+    assert len(str(first.resolve())) + 1 + 96 <= EVALUATION_PATH_LIMIT

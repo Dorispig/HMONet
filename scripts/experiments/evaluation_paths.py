@@ -99,15 +99,25 @@ def evaluation_staging_root(
     run_tag,
     grid=None,
 ) -> Path:
-    """Return the suite-local temporary root used by serial evaluation.
+    """Return the task-isolated temporary root for one ablation evaluation.
 
-    The ablation runner evaluates one grid at a time and clears this directory
-    before starting the next grid.  A single deterministic directory therefore
-    avoids opaque hash folders while retaining the short path required by the
-    evaluator's deeply nested plot layout.
+    Evaluations can run concurrently on different GPUs.  The staging path is
+    therefore keyed by suite, dataset, variant, seed, tag, and grid instead of
+    using one shared ``.eval_work`` directory.  Every component is readable
+    and deterministic; no hash directory is needed.
     """
     experiment_root = Path(experiment_root).resolve()
-    result = experiment_root.parent / ".eval_work"
+    result = (
+        experiment_root.parent
+        / ".eval_work"
+        / _safe_text(experiment_root.name)
+        / _safe_text(dataset)
+        / _safe_text(variant)
+        / f"seed_{int(seed)}"
+        / _safe_text(run_tag)
+    )
+    if grid is not None:
+        result = result / _safe_text(grid)
     projected = len(str(result)) + 1 + EVALUATION_RELATIVE_PATH_RESERVE
     if projected > EVALUATION_PATH_LIMIT:
         raise OSError(
