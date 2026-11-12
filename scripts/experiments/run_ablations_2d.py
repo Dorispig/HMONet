@@ -434,6 +434,18 @@ def main(argv=None):
         )
     ).resolve()
     if args.gpus:
+        # GPU-queue dry-runs do not enter the individual worker process, so
+        # perform the same non-blocking portability preview here.
+        if args.dry_run:
+            config = run_ablation_2d._load_yaml_mapping(args.config)
+            for ablation in selected:
+                preview_args = copy.copy(args)
+                preview_args.ablation = ablation
+                run_ablation_2d.report_dry_run_output_paths(
+                    preview_args,
+                    config,
+                    _configured_variants(args, ablation),
+                )
         return _run_dynamic_gpu_queue(args, selected)
     started = datetime.now()
     records = []

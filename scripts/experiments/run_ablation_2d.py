@@ -29,6 +29,8 @@ from src.utils.paths import portable_project_path, resolve_project_path
 from src.utils.config import load_yaml_mapping
 from src.models.mapping_modes import fingerprint_mapping_mode
 from scripts.experiments.evaluation_paths import (
+    EVALUATION_PATH_LIMIT,
+    EVALUATION_RELATIVE_PATH_RESERVE,
     evaluation_experiment_root,
     evaluation_result_root,
     evaluation_staging_root,
@@ -100,7 +102,11 @@ DEFAULT_BASELINE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "basel
 DEFAULT_EVALUATE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/evaluate.yaml"
 EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*")
 RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-MAX_RUN_TAG_LENGTH = 24
+# The longest current permanent evaluation variant is
+# e7_modified_cross_boundary. Twelve characters leave the shared output
+# layout within the 234-character Windows-safe budget on the documented Linux
+# server checkout as well as on the local checkout.
+MAX_RUN_TAG_LENGTH = 12
 
 
 class BaselineCompatibilityError(RuntimeError):
@@ -851,6 +857,157 @@ def ablation_evaluation_settings(args) -> dict:
             "pimeshonet_boundary_projection", "none"
         ),
     }
+
+
+def _dry_run_parameter_values(args, dataset_name_value: str) -> list[object]:
+    """Return every parameter directory that a dry run could publish."""
+    explicit = getattr(args, "evaluation_values", None)
+    if explicit:
+        return list(explicit)
+    evaluation_config = _load_yaml_mapping(Path(args.evaluate_config))
+    values = evaluation_config.get("cases", {}).get(dataset_name_value, {}).get("values")
+    return list(values) if values else ["_parameter_"]
+
+
+def _path_length(path: Path) -> int:
+    """Use the absolute spelling that the operating system will receive."""
+    return len(str(Path(path).resolve()))
+
+
+def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> list[dict]:
+    """Report, but never reject, output paths that exceed portability budgets.
+
+    The path report is deliberately part of dry-run execution rather than a
+    hard validation. It previews every selected dataset/variant/seed/grid and
+    lets the user see exactly which output would be too long before spending
+    GPU time. The Windows-safe budget is stricter than Linux's ordinary
+    4096-character total limit, so a clean report is portable to both systems.
+    """
+    datasets = list(map(resolve_dataset, args.dataset or config.get("datasets", [])))
+    seeds = [int(seed) for seed in (args.seeds or config.get("seeds", []))]
+    if not datasets or not seeds:
+        return []
+    settings = ablation_evaluation_settings(args)
+    candidates: list[tuple[str, Path]] = []
+    suite_root = Path(args.experiment_root).resolve()
+    for dataset in datasets:
+        name = dataset_name(dataset)
+        for variant in variants:
+            for seed in seeds:
+                destination = (
+                    baseline_directory(suite_root, name, seed, args.run_tag)
+                    if args.ablation == BASELINE_ABLATION
+                    else run_directory(
+                        suite_root, args.ablation, name, variant.name, seed, args.run_tag
+                    )
+                )
+                candidates.extend(
+                    (
+                        (
+                            "training TensorBoard event",
+                            destination
+                            / "training"
+                            / "tensorboard"
+                            / "events.out.tfevents.9999999999.HMONet-worker.999999.0",
+                        ),
+                        (
+                            "training checkpoint",
+                            destination / "checkpoints" / "phase2_best_model.pth",
+                        ),
+                        (
+                            "training/evaluation manifest",
+                            destination
+                            / "evaluation_identities"
+                            / "401x401__global.json",
+                        ),
+                        (
+                            "aggregate report",
+                            suite_root
+                            / args.ablation
+                            / name
+                            / "aggregate"
+                            / args.run_tag
+                            / "mean_variance_by_case.csv",
+                        ),
+                    )
+                )
+                dataset_root = suite_root / args.ablation / name
+                for shape in settings["grid_shapes"]:
+                    grid = grid_shape_name(shape)
+                    staging = evaluation_staging_root(
+                        suite_root / args.ablation,
+                        name,
+                        variant.name,
+                        seed,
+                        args.run_tag,
+                        grid,
+                        validate=False,
+                    )
+                    candidates.append(
+                        (
+                            "temporary evaluation artifact",
+                            staging / ("x" * EVALUATION_RELATIVE_PATH_RESERVE),
+                        )
+                    )
+                    for value in _dry_run_parameter_values(args, name):
+                        result = evaluation_result_root(
+                            dataset_root,
+                            variant.name,
+                            seed,
+                            args.run_tag,
+                            grid,
+                            value,
+                            validate=False,
+                        )
+                        candidates.append(
+                            (
+                                "published evaluation artifact",
+                                result / ("x" * EVALUATION_RELATIVE_PATH_RESERVE),
+                            )
+                        )
+
+    violations: list[dict] = []
+    for category, path in candidates:
+        length = _path_length(path)
+        components = [part for part in Path(path).parts if len(part) > 255]
+        if length > EVALUATION_PATH_LIMIT or components:
+            violations.append(
+                {
+                    "category": category,
+                    "length": length,
+                    "limit": EVALUATION_PATH_LIMIT,
+                    "path": str(path),
+                    "component_limit": 255 if components else None,
+                    "components": components,
+                }
+            )
+
+    print(
+        "[dry-run paths] "
+        f"checked={len(candidates)} | Windows-safe={EVALUATION_PATH_LIMIT} | "
+        "Linux-total=4096 | Linux-component=255",
+        flush=True,
+    )
+    if not violations:
+        print("[dry-run paths] all selected output paths are within both limits.", flush=True)
+    else:
+        for item in violations:
+            detail = (
+                f"component>{item['component_limit']}: {item['components']}"
+                if item["components"]
+                else f"length={item['length']}, limit={item['limit']}"
+            )
+            print(
+                f"[dry-run paths] WARNING | {item['category']} | {detail} | "
+                f"{item['path']}",
+                flush=True,
+            )
+        print(
+            "[dry-run paths] warnings do not stop this dry run; shorten the "
+            "dataset, experiment alias, seed/tag, or grid label before execution.",
+            flush=True,
+        )
+    return violations
 
 
 def evaluated_model(summary: dict) -> str:
@@ -1751,9 +1908,15 @@ def organize_evaluation_results(
         validate_evaluation_destination(target, target)
         organized.append(published)
     shutil.rmtree(staging_root, ignore_errors=True)
+    # Prune only empty ancestors.  This preserves concurrent jobs sharing the
+    # same dataset/experiment prefix while preventing obsolete empty alias,
+    # seed, and tag folders from accumulating under .eval_work.
     staging_parent = staging_root.parent
-    if staging_parent.exists() and not any(staging_parent.iterdir()):
+    while staging_parent.name != ".eval_work":
+        if not staging_parent.exists() or any(staging_parent.iterdir()):
+            break
         staging_parent.rmdir()
+        staging_parent = staging_parent.parent
     return organized
 
 
@@ -2487,6 +2650,8 @@ def plot_metrics(rows: list[dict], output: Path):
 def execute(args, config, variants: list[Variant]):
     experiment_root = args.experiment_root.resolve() / args.ablation
     experiment_root.mkdir(parents=True, exist_ok=True)
+    if args.dry_run:
+        report_dry_run_output_paths(args, config, variants)
     failures = []
     completed = []
     baseline_compatibility_issues = []

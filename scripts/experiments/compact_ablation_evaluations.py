@@ -91,10 +91,11 @@ def compact_suite(suite: Path, dry_run: bool = False) -> dict:
             remove_empty_directories(evaluation_root)
 
     temporary_roots = [suite / name for name in TEMPORARY_EVALUATION_DIRS]
-    # Current concurrent runner stores staging outside each suite so jobs from
-    # ex1, ex2, ... remain isolated.  Keep the legacy in-suite paths above for
-    # already-created results, and compact the new suite-specific shared root.
-    temporary_roots.append(EXPERIMENTS_ROOT / ".eval_work" / suite.name)
+    # The current staging hierarchy is shared directly below
+    # ``experiments/.eval_work`` and deliberately has no suite component.
+    # Do not compact that shared live area from one suite's cleanup command:
+    # another suite may be evaluating there concurrently.  Normal evaluation
+    # removes its own task directory after publishing the final result.
     for temporary_root in temporary_roots:
         if not temporary_root.is_dir():
             continue

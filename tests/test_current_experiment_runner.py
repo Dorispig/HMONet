@@ -43,11 +43,11 @@ def test_only_consecutive_suite_names_are_accepted():
 
 def test_run_tag_is_portable_and_bounded_for_output_paths():
     assert run_ablation_2d.validate_run_tag("v1") == "v1"
-    assert run_ablation_2d.validate_run_tag("paper.v1-2026_11") == "paper.v1-2026_11"
+    assert run_ablation_2d.validate_run_tag("physics_v1") == "physics_v1"
     with pytest.raises(ValueError):
         run_ablation_2d.validate_run_tag("bad/tag")
     with pytest.raises(ValueError):
-        run_ablation_2d.validate_run_tag("x" * 25)
+        run_ablation_2d.validate_run_tag("x" * 13)
 
 
 def test_suite_local_all_and_baseline_selection():

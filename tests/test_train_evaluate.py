@@ -6,12 +6,20 @@ from scripts.train.train_evaluate import (
     _formal_queue_fingerprint,
     _without_value_options,
     evaluation_commands,
+    validate_formal_run_tag,
 )
 from src.evaluation.configuration import load_configuration
 import pytest
 
 
 class TestPipeline:
+    def test_formal_run_tag_is_portable_and_bounded(self):
+        assert validate_formal_run_tag("physics_v1") == "physics_v1"
+        with pytest.raises(ValueError):
+            validate_formal_run_tag("bad/tag")
+        with pytest.raises(ValueError):
+            validate_formal_run_tag("x" * 13)
+
     def test_formal_queue_fingerprint_is_stable_and_configuration_sensitive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 import yaml
@@ -16,6 +17,130 @@ if str(ROOT) not in sys.path:
 
 from scripts.train.model_selection import parse_model_selection
 from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
+
+
+# Keep formal queue-log paths within the same portable budget as ablations.
+FORMAL_RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+FORMAL_MAX_RUN_TAG_LENGTH = 12
+FORMAL_PATH_LIMIT = 234
+
+
+def validate_formal_run_tag(value: str) -> str:
+    """Validate the user-visible tag used in formal multi-GPU output paths."""
+    value = str(value).strip()
+    if not FORMAL_RUN_TAG_PATTERN.fullmatch(value):
+        raise ValueError(
+            "--run-tag must use letters, digits, '.', '_' or '-', and begin with a letter or digit"
+        )
+    if len(value) > FORMAL_MAX_RUN_TAG_LENGTH:
+        raise ValueError(
+            f"--run-tag must contain at most {FORMAL_MAX_RUN_TAG_LENGTH} characters "
+            "to keep Windows and server output paths portable"
+        )
+    return value
+
+
+def _formal_shape_names(value, fallback):
+    """Parse optional comma-separated formal evaluation grids for dry runs."""
+    if value is None:
+        return ["x".join(map(str, shape)) for shape in fallback]
+    names = []
+    for item in str(value).split(","):
+        pieces = item.strip().lower().split("x")
+        if len(pieces) < 2 or not all(piece.isdigit() for piece in pieces):
+            return ["x".join(map(str, shape)) for shape in fallback]
+        names.append("x".join(pieces))
+    return names or ["x".join(map(str, shape)) for shape in fallback]
+
+
+def _formal_values(value, fallback):
+    if value is None:
+        return list(fallback)
+    try:
+        return [float(item.strip()) for item in str(value).split(",") if item.strip()]
+    except ValueError:
+        return list(fallback)
+
+
+def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases, models):
+    """Preview formal output paths without writing, warning only on overflow."""
+    evaluation_root = Path(
+        _command_option(evaluate_extra, "--output-root", "outputs/results")
+    )
+    if not evaluation_root.is_absolute():
+        evaluation_root = ROOT / evaluation_root
+    if evaluation_root.name != f"{args.dimension}D":
+        evaluation_root /= f"{args.dimension}D"
+    train_root = Path(
+        _command_option(train_extra, "--output-root", f"outputs/training/{args.dimension}D")
+    )
+    if not train_root.is_absolute():
+        train_root = ROOT / train_root
+    configured = yaml.safe_load(
+        Path(args.train_config or f"configs/{args.dimension}D/train.yaml").read_text(
+            encoding="utf-8"
+        )
+    ) or {}
+    seed = int(_command_option(train_extra, "--seed", configured.get("training", {}).get("seed", 0)))
+    mappings = configured.get("model", {}).get("hmonet", {}).get(
+        "hmonet_mapping_mode", "corner_corrected_affine"
+    )
+    model_names = {
+        "hmonet": "HMONet", "qghmonet": "QG-HMONet",
+        "meshonet": "MeshONet", "pimeshonet": "PI-MeshONet",
+    }
+    candidates = []
+    grid_override = _command_option(evaluate_extra, "--grid-shapes")
+    value_override = _command_option(evaluate_extra, "--values")
+    for path in paths:
+        dataset_name = path.parent.name if path.is_file() else path.name
+        case = cases[dataset_name]
+        for grid in _formal_shape_names(grid_override, case.get("grid_shapes", [])):
+            for value in _formal_values(value_override, case.get("values", [])):
+                candidates.append((
+                    "formal evaluation",
+                    evaluation_root / dataset_name / grid / f"{value:g}"
+                    / "p/c/t_p_pi_m_h/q/q_scaled_jacobian_distribution.png",
+                ))
+        for model in models:
+            display = model_names.get(model, model)
+            mapping = mappings if model in {"hmonet", "qghmonet"} else None
+            training = train_root / dataset_name / display
+            if mapping:
+                training /= str(mapping)
+            candidates.append((
+                "formal training",
+                training / "20261112_0000" / "tensorboard"
+                / "events.out.tfevents.9999999999.HMONet-worker.999999.0",
+            ))
+        if args.gpus:
+            candidates.append((
+                "formal queue log",
+                ROOT / "outputs/gpu_queue/formal" / dataset_name / "_".join(models)
+                / f"seed_{seed}" / args.run_tag / "train_evaluate.log",
+            ))
+    violations = [
+        (category, path, len(str(path.resolve())))
+        for category, path in candidates
+        if len(str(path.resolve())) > FORMAL_PATH_LIMIT
+        or any(len(part) > 255 for part in path.parts)
+    ]
+    print(
+        f"[dry-run paths] checked={len(candidates)} | Windows-safe={FORMAL_PATH_LIMIT} | "
+        "Linux-total=4096 | Linux-component=255",
+        flush=True,
+    )
+    if not violations:
+        print("[dry-run paths] all selected formal output paths are within both limits.", flush=True)
+    else:
+        for category, path, length in violations:
+            print(
+                f"[dry-run paths] WARNING | {category} | length={length}, "
+                f"limit={FORMAL_PATH_LIMIT} | {path}",
+                flush=True,
+            )
+        print("[dry-run paths] warnings do not stop this dry run.", flush=True)
+    return violations
 
 
 def normalize_evaluate_methods(value):
@@ -378,6 +503,7 @@ def main(argv=None):
     parser.add_argument("--queue-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--queue-result", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    args.run_tag = validate_formal_run_tag(args.run_tag)
     import shlex
 
     train_extra = shlex.split(args.train_args, posix=True)
@@ -469,6 +595,11 @@ def main(argv=None):
             flush=True,
         )
         del data
+    if args.dry_run:
+        report_formal_dry_run_paths(
+            args, train_extra, evaluate_extra, paths, cases, sorted(trained)
+        )
+        return []
     if args.check_only:
         return []
     if args.gpus and args.queue_worker:
