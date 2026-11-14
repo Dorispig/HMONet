@@ -729,11 +729,24 @@ def plot_surface_slice_comparison(
     nz,
     save_png=True,
     save_pdf=False,
+    plot_metrics=None,
 ):
-    """Rows are surface/slice views; columns are TFI, PDE, MeshONet, HMONet."""
+    """Draw selected *volume* fields on outer faces and centre cuts.
+
+    These are views of hexahedral fields, not the intrinsic quadrilateral
+    quality of the physical middle sections.  The latter is calculated and
+    rendered separately by :func:`save_sections`.
+    """
     path.mkdir(parents=True, exist_ok=True)
     methods = ordered_methods(method_fields)
-    metrics = list(next(iter(method_fields.values())))
+    available = set.intersection(
+        *(set(method_fields[method]) for method in methods)
+    ) if methods else set()
+    metrics = (
+        [metric for metric in plot_metrics if metric in available]
+        if plot_metrics is not None
+        else list(next(iter(method_fields.values())))
+    )
     titles = [
         "+X surface",
         "+Y surface",

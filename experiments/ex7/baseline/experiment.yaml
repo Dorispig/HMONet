@@ -1,4 +1,6 @@
-# ex7 baseline: power-Fourier coordinate augmentation with maximum power P = 2.
+# ex7 baseline: the current formal 2-D HMONet configuration, with power-Fourier
+# coordinate augmentation of maximum power P = 2.  Only coordinate augmentation
+# is changed by the Ex7 variants.
 datasets:
   interpolation: data/raw/2D/air_t_ext_1_500_21_21
   extrapolation: data/raw/2D/air_t_ext_1_500_21_21
@@ -46,9 +48,9 @@ hmonet_training:
   random_mse_loss_weight: 0.0
   physics_pde_loss_weight: 1.0
   physics_scale_invariant_pde_enabled: true
-  physics_normalized_jacobian_loss_weight: 0.01
+  physics_normalized_jacobian_loss_weight: 0.0
   physics_normalized_jacobian_minimum: 0.02
-  physics_singular_value_loss_weight: 0.05
+  physics_singular_value_loss_weight: 0.0
   physics_singular_value_minimum: 0.05
   physics_barrier_reduction: all
   pde_fd_step: [0.01, 0.01]

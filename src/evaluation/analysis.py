@@ -148,6 +148,18 @@ def save_method(directory, method, points, shape, options):
             nz=shape[2],
         )
         save_sections(directory, {method: points}, shape, options)
+        # ``save_hex_quality`` persists the numeric volume fields and optional
+        # distributions.  A requested 3-D metric also needs an actual
+        # single-method spatial map, mirroring the 2-D per-method quality map.
+        # Intrinsic middle-section maps are emitted independently above.
+        if plot_enabled(options) and plot_metrics:
+            plot_volumes(
+                directory,
+                {method: points},
+                {method: quality["fields"]},
+                shape,
+                options,
+            )
     if selected:
         save_quality_table(
             quality_dir / "quality_summary.csv", {method: quality["summary"]}
@@ -444,6 +456,7 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
         write_csv(directory / "comparison_quality_data.csv", rows)
         save_sections(directory, meshes, shape, options)
         if plot_enabled(options):
+            volume_plot_metrics = selected_quality_plot_metrics(options, 3)
             plot_volumes(
                 directory,
                 meshes,
@@ -452,13 +465,14 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
                 options,
             )
             from .quality_3d import plot_surface_slice_comparison
-            if selected_quality_plot_metrics(options, 3, surface=True):
+            if volume_plot_metrics:
                 plot_surface_slice_comparison(
                     directory,
                     {m: q["fields"] for m, q in qualities.items()},
                     *shape,
                     save_png=options["save_png"],
                     save_pdf=options["save_pdf"],
+                    plot_metrics=volume_plot_metrics,
                 )
     save_quality_table(directory / "quality_summary.csv", summary)
     save_quality_table(
@@ -487,7 +501,23 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
                 )
             )
         ):
-            path.replace(quality_directory / path.name)
+            # A repeated invocation can overlap with another process finishing
+            # the same reusable evaluation directory.  In that case the first
+            # process has already moved this generated detail file; treating
+            # the second move as an error incorrectly fails an otherwise valid
+            # evaluation.  The operation is intentionally idempotent.
+            try:
+                path.replace(quality_directory / path.name)
+            except FileNotFoundError:
+                # The only writer that should normally touch this tree is the
+                # current evaluator.  A missing source here nevertheless can
+                # occur when an older already-running evaluator overlaps a
+                # newly started one and rewrites the same comparison root.
+                # These files are optional per-cell detail artifacts; the
+                # summary has already been written, and a fresh run owns the
+                # canonical output.  Do not fail the entire evaluation over
+                # this harmless cleanup race.
+                continue
     return summary
 
 

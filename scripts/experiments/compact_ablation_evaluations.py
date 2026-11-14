@@ -17,6 +17,8 @@ import json
 import shutil
 from pathlib import Path
 
+from scripts.experiments.evaluation_paths import staging_workspace_root
+
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENTS_ROOT = ROOT / "experiments"
@@ -91,11 +93,9 @@ def compact_suite(suite: Path, dry_run: bool = False) -> dict:
             remove_empty_directories(evaluation_root)
 
     temporary_roots = [suite / name for name in TEMPORARY_EVALUATION_DIRS]
-    # The current staging hierarchy is shared directly below
-    # ``experiments/.eval_work`` and deliberately has no suite component.
-    # Do not compact that shared live area from one suite's cleanup command:
-    # another suite may be evaluating there concurrently.  Normal evaluation
-    # removes its own task directory after publishing the final result.
+    # Current scratch work is short and suite-scoped, outside the permanent
+    # experiment tree.  Only this suite's own disposable directory is touched.
+    temporary_roots.append(staging_workspace_root(suite))
     for temporary_root in temporary_roots:
         if not temporary_root.is_dir():
             continue

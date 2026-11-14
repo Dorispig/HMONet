@@ -32,7 +32,7 @@ python scripts/train/train_3d.py --dataset data/raw/3D/sch_r_ext_0_1000_11_31_11
 
 - `--nx/--ny/--nz`：只校验数据集内的训练点数，不重采样数据集。
 - 正式 HMONet 配置与二维一致，使用 `200` 个全局均匀点和 `200` 个曲率自适应点；三维自适应点通过“曲率加权参数面锚点 + 向域内局部扰动”生成，避免构造候选点到全部面点的巨大距离矩阵。
-- 正式 HMONet 从头采用归一化椭圆网格 PDE、归一化 Jacobian 屏障和最小奇异值屏障进行自监督训练，不读取 PDE 网格作为坐标监督目标。
+- 正式 HMONet 从头仅采用归一化椭圆网格 PDE 残差进行自监督训练，不读取 PDE 网格作为坐标监督目标。归一化 Jacobian 屏障和最小奇异值屏障仍保留在配置中，默认权重均为 `0`，可作为后续消融项显式开启。
 - `--pi-fd-step HX HY HZ`：PI 模型三个计算坐标方向的有限差分步长。
 - `--hmonet-mapping-mode`：正式训练默认 `corner_corrected_affine`（CCAP），另可选 `rational_affine` 或 `coons_residual`。
 - `--boundary-self-attention-enabled`：启用三维六面联合边界注意力编码。

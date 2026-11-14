@@ -46,8 +46,7 @@ def test_run_tag_is_portable_and_bounded_for_output_paths():
     assert run_ablation_2d.validate_run_tag("physics_v1") == "physics_v1"
     with pytest.raises(ValueError):
         run_ablation_2d.validate_run_tag("bad/tag")
-    with pytest.raises(ValueError):
-        run_ablation_2d.validate_run_tag("x" * 13)
+    assert run_ablation_2d.validate_run_tag("x" * 64) == ("x" * 64)
 
 
 def test_suite_local_all_and_baseline_selection():

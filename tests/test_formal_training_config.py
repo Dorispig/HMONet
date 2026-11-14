@@ -26,7 +26,7 @@ def _options(config, name):
     return options
 
 
-def test_formal_hmonet_is_pure_self_supervised_derivative_suite_objective():
+def test_formal_hmonet_is_pure_normalized_pde_self_supervision():
     config = _formal_config()
     validate_train_config(config)
     h = config["hmonet_training"]
@@ -34,10 +34,11 @@ def test_formal_hmonet_is_pure_self_supervised_derivative_suite_objective():
     assert h["training_strategy"] == "random_loss_combo_from_start"
     assert h["best_model_metric"] == "training_loss"
     assert h["plateau_metric"] == "train_loss"
+    assert h["random_mse_loss_weight"] == 0.0
     assert h["physics_pde_loss_weight"] == 1.0
     assert h["physics_scale_invariant_pde_enabled"] is True
-    assert h["physics_normalized_jacobian_loss_weight"] == 0.01
-    assert h["physics_singular_value_loss_weight"] == 0.05
+    assert h["physics_normalized_jacobian_loss_weight"] == 0.0
+    assert h["physics_singular_value_loss_weight"] == 0.0
     assert h["pde_fd_step"] == [0.01, 0.01]
     assert h["jacobian_fd_step"] == 0.01
     assert h["random_loss_curvature_sample_count"] == 200
@@ -57,6 +58,40 @@ def test_formal_hmonet_is_pure_self_supervised_derivative_suite_objective():
         "boundary_normal_loss_weight",
     }
     assert removed_supervised_options.isdisjoint(h)
+
+
+def test_ex7_baseline_inherits_the_formal_2d_hmonet_training_configuration():
+    formal = _formal_config()["hmonet_training"]
+    baseline_path = ROOT / "experiments" / "ex7" / "baseline" / "experiment.yaml"
+    baseline = yaml.safe_load(baseline_path.read_text(encoding="utf-8"))["hmonet_training"]
+    inherited_keys = (
+        "learning_rate",
+        "lr_warmup_epochs",
+        "lr_update_interval",
+        "lr_decay_gamma",
+        "lr_stop_below",
+        "training_strategy",
+        "random_loss_sample_count",
+        "random_mse_loss_weight",
+        "physics_pde_loss_weight",
+        "physics_scale_invariant_pde_enabled",
+        "physics_normalized_jacobian_loss_weight",
+        "physics_normalized_jacobian_minimum",
+        "physics_singular_value_loss_weight",
+        "physics_singular_value_minimum",
+        "physics_barrier_reduction",
+        "pde_fd_step",
+        "jacobian_fd_step",
+        "random_loss_derivative_backend",
+        "random_loss_fd_stencil_inside",
+        "random_loss_fd_boundary_scheme",
+        "random_loss_sampling_mode",
+        "random_loss_global_sample_count",
+        "random_loss_curvature_sample_count",
+        "random_loss_boundary_band_sample_count",
+    )
+    for key in inherited_keys:
+        assert baseline[key] == formal[key]
 
 
 def test_formal_3d_hmonet_matches_2d_physics_objective_and_sampling():

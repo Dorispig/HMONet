@@ -6,6 +6,7 @@ import argparse
 import copy
 import csv
 import json
+import math
 import re
 import hashlib
 import os
@@ -28,12 +29,21 @@ if str(ROOT) not in sys.path:
 from src.utils.paths import portable_project_path, resolve_project_path
 from src.utils.config import load_yaml_mapping
 from src.models.mapping_modes import fingerprint_mapping_mode
+from src.evaluation.retention import (
+    compact_evaluation_directory,
+    readable_image_path,
+    reorganize_evaluation_images,
+)
 from scripts.experiments.evaluation_paths import (
     EVALUATION_PATH_LIMIT,
     EVALUATION_RELATIVE_PATH_RESERVE,
+    STAGING_RELATIVE_PATH_RESERVE,
+    exclusive_evaluation_staging_root,
     evaluation_experiment_root,
     evaluation_result_root,
     evaluation_staging_root,
+    staging_workspace_root,
+    system_path_limit,
     validate_evaluation_destination,
 )
 
@@ -102,11 +112,6 @@ DEFAULT_BASELINE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "basel
 DEFAULT_EVALUATE_CONFIG = ROOT / "experiments" / DEFAULT_EXPERIMENT_SET / "baseline/evaluate.yaml"
 EXPERIMENT_SET_PATTERN = re.compile(r"ex[1-9][0-9]*")
 RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-# The longest current permanent evaluation variant is
-# e7_modified_cross_boundary. Twelve characters leave the shared output
-# layout within the 234-character Windows-safe budget on the documented Linux
-# server checkout as well as on the local checkout.
-MAX_RUN_TAG_LENGTH = 12
 
 
 class BaselineCompatibilityError(RuntimeError):
@@ -174,11 +179,6 @@ def validate_run_tag(value: str) -> str:
         raise ValueError(
             "--run-tag must use letters, digits, '.', '_' or '-', and begin with "
             "a letter or digit"
-        )
-    if len(value) > MAX_RUN_TAG_LENGTH:
-        raise ValueError(
-            f"--run-tag must contain at most {MAX_RUN_TAG_LENGTH} characters "
-            "to keep Windows and server output paths portable"
         )
     return value
 
@@ -946,7 +946,7 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                     candidates.append(
                         (
                             "temporary evaluation artifact",
-                            staging / ("x" * EVALUATION_RELATIVE_PATH_RESERVE),
+                            staging / ("x" * STAGING_RELATIVE_PATH_RESERVE),
                         )
                     )
                     for value in _dry_run_parameter_values(args, name):
@@ -966,17 +966,20 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                             )
                         )
 
-    violations: list[dict] = []
+    warnings: list[dict] = []
     for category, path in candidates:
         length = _path_length(path)
         components = [part for part in Path(path).parts if len(part) > 255]
-        if length > EVALUATION_PATH_LIMIT or components:
-            violations.append(
+        would_fail = length >= system_path_limit() or bool(components)
+        if length > EVALUATION_PATH_LIMIT or would_fail:
+            warnings.append(
                 {
                     "category": category,
                     "length": length,
-                    "limit": EVALUATION_PATH_LIMIT,
+                    "reserve_limit": EVALUATION_PATH_LIMIT,
+                    "system_limit": system_path_limit(),
                     "path": str(path),
+                    "would_fail": would_fail,
                     "component_limit": 255 if components else None,
                     "components": components,
                 }
@@ -984,30 +987,34 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
 
     print(
         "[dry-run paths] "
-        f"checked={len(candidates)} | Windows-safe={EVALUATION_PATH_LIMIT} | "
-        "Linux-total=4096 | Linux-component=255",
+        f"checked={len(candidates)} | reserve-warning={EVALUATION_PATH_LIMIT} | "
+        f"system-limit={system_path_limit()} | Linux-component=255",
         flush=True,
     )
-    if not violations:
-        print("[dry-run paths] all selected output paths are within both limits.", flush=True)
+    if not warnings:
+        print("[dry-run paths] all selected output paths are within reserved headroom.", flush=True)
     else:
-        for item in violations:
+        for item in warnings:
             detail = (
                 f"component>{item['component_limit']}: {item['components']}"
                 if item["components"]
-                else f"length={item['length']}, limit={item['limit']}"
+                else (
+                    f"length={item['length']}, "
+                    f"reserve={item['reserve_limit']}, system={item['system_limit']}"
+                )
             )
             print(
-                f"[dry-run paths] WARNING | {item['category']} | {detail} | "
+                f"[dry-run paths] {'WOULD-FAIL' if item['would_fail'] else 'WARNING'} | "
+                f"{item['category']} | {detail} | "
                 f"{item['path']}",
                 flush=True,
             )
         print(
-            "[dry-run paths] warnings do not stop this dry run; shorten the "
-            "dataset, experiment alias, seed/tag, or grid label before execution.",
+            "[dry-run paths] reserve warnings do not stop this dry run. "
+            "WOULD-FAIL entries would exceed the real system limit during a run.",
             flush=True,
         )
-    return violations
+    return warnings
 
 
 def evaluated_model(summary: dict) -> str:
@@ -1567,120 +1574,18 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
 
 
 def compact_evaluation_result_directory(directory: Path) -> Path:
-    """Keep the reusable summary and publish images under short readable paths."""
-    directory = Path(directory)
-    result_file = directory / "results.json"
-    if not result_file.is_file():
-        raise FileNotFoundError(
-            f"Cannot compact evaluation without its summary: {result_file}"
-        )
-    image_files = [
-        child
-        for child in directory.rglob("*")
-        if child.is_file() and child.suffix.lower() in EVALUATION_IMAGE_SUFFIXES
-    ]
-    for child in image_files:
-        relative = child.relative_to(directory)
-        if relative.parts and relative.parts[0] == "p":
-            continue
-        source_relative = (
-            Path(*relative.parts[1:])
-            if relative.parts and relative.parts[0] == "plots"
-            else relative
-        )
-        destination = _compact_evaluation_image_path(directory, source_relative)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            stem, suffix = destination.stem, destination.suffix
-            index = 2
-            while destination.exists():
-                destination = destination.with_name(f"{stem}_{index}{suffix}")
-                index += 1
-        shutil.move(str(child), str(destination))
-
-    for child in list(directory.rglob("*")):
-        if not child.is_file():
-            continue
-        if child == result_file or child.suffix.lower() in EVALUATION_IMAGE_SUFFIXES:
-            continue
-        child.unlink()
-    for child in sorted(
-        (item for item in directory.rglob("*") if item.is_dir()),
-        key=lambda item: len(item.parts),
-        reverse=True,
-    ):
-        try:
-            child.rmdir()
-        except OSError:
-            pass
-    return result_file
+    """Keep one summary and readable public plot paths for an ablation case."""
+    return compact_evaluation_directory(directory)
 
 
 def migrate_evaluation_image_paths(directory: Path) -> int:
-    """Move only published images into the compact layout, preserving all data.
-
-    This migration intentionally leaves non-image artifacts and empty legacy
-    directories untouched.  It is therefore safe for previously completed
-    evaluations whose CSV/NPZ details may still be useful to the user.
-    """
-    directory = Path(directory)
-    moved = 0
-    for child in list(directory.rglob("*")):
-        if not child.is_file() or child.suffix.lower() not in EVALUATION_IMAGE_SUFFIXES:
-            continue
-        relative = child.relative_to(directory)
-        if relative.parts and relative.parts[0] == "p":
-            continue
-        source_relative = (
-            Path(*relative.parts[1:])
-            if relative.parts and relative.parts[0] == "plots"
-            else relative
-        )
-        destination = _compact_evaluation_image_path(directory, source_relative)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists():
-            stem, suffix = destination.stem, destination.suffix
-            index = 2
-            while destination.exists():
-                destination = destination.with_name(f"{stem}_{index}{suffix}")
-                index += 1
-        shutil.move(str(child), str(destination))
-        moved += 1
-    return moved
+    """Migrate legacy plot folders to the readable public hierarchy."""
+    return reorganize_evaluation_images(directory)
 
 
 def _compact_evaluation_image_path(root: Path, relative: Path) -> Path:
-    """Map evaluator-internal folders to the public compact plot hierarchy."""
-    parts = list(relative.parts)
-    filename = _short_plot_filename(parts[-1])
-    lowered = [part.lower() for part in parts]
-    if len(parts) == 1:
-        return root / "p" / filename
-    if parts[0].lower() == "grid_quality":
-        return root / "p" / "q" / filename
-    if parts[0].lower() in {"comparisons", "comparison"}:
-        category = ["p", "c", _comparison_method_group(parts[1:-1])]
-        if "grid_quality" in lowered or "quality" in lowered:
-            category.append("q")
-        return root / Path(*category) / filename
-
-    method_aliases = {
-        "pde_winslow": "pde",
-        "tfi": "tfi",
-        "hmonet": "hm",
-        "qg-hmonet": "qg",
-        "meshonet": "mo",
-        "pi-meshonet": "pi",
-    }
-    method = method_aliases.get(parts[0].lower(), _safe_plot_component(parts[0]))
-    category = ["p", method]
-    if "raw" in lowered:
-        category.append("r")
-    elif method in {"hm", "qg", "mo", "pi"}:
-        category.append("p")
-    if "grid_quality" in lowered or "quality" in lowered:
-        category.append("q")
-    return root / Path(*category) / filename
+    """Compatibility wrapper for the shared readable plot-path mapper."""
+    return readable_image_path(root, relative)
 
 
 def _comparison_method_group(parts) -> str:
@@ -1782,16 +1687,7 @@ def publish_evaluation_result(
         if not image.is_file() or image.suffix.lower() not in EVALUATION_IMAGE_SUFFIXES:
             continue
         relative = image.relative_to(source)
-        if relative.parts and relative.parts[0] == "p":
-            parts = list(relative.parts)
-            parts[-1] = _short_plot_filename(parts[-1])
-            destination = target / Path(*parts)
-        elif relative.parts and relative.parts[0] == "plots":
-            destination = _compact_evaluation_image_path(
-                target, Path(*relative.parts[1:])
-            )
-        else:
-            destination = _compact_evaluation_image_path(target, relative)
+        destination = readable_image_path(target, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             stem, suffix = destination.stem, destination.suffix
@@ -1910,9 +1806,10 @@ def organize_evaluation_results(
     shutil.rmtree(staging_root, ignore_errors=True)
     # Prune only empty ancestors.  This preserves concurrent jobs sharing the
     # same dataset/experiment prefix while preventing obsolete empty alias,
-    # seed, and tag folders from accumulating under .eval_work.
+    # seed, and tag folders from accumulating under the short scratch root.
     staging_parent = staging_root.parent
-    while staging_parent.name != ".eval_work":
+    workspace_root = staging_workspace_root(dataset_root.parent)
+    while staging_parent != workspace_root:
         if not staging_parent.exists() or any(staging_parent.iterdir()):
             break
         staging_parent.rmdir()
@@ -1967,10 +1864,59 @@ def read_results(destination: Path, grid: str | None = None):
             selected.append(result_path)
     return sorted(set(selected))
 
+def _requested_evaluation_values(identity: dict | None) -> list[float] | None:
+    """Return explicitly requested geometry values, if this is a subset run."""
+    if not isinstance(identity, dict) or "values" not in identity:
+        return None
+    values = identity.get("values")
+    if not isinstance(values, list):
+        return []
+    try:
+        return [float(value) for value in values]
+    except (TypeError, ValueError):
+        return []
+
+
+def _matching_requested_result_files(
+    result_files: list[Path], identity: dict | None
+) -> list[Path] | None:
+    """Select cached results that exactly cover an explicit parameter request.
+
+    A manifest can retain result files from a prior values-only evaluation. Its
+    fingerprint alone is therefore insufficient: a stale manifest may point at
+    a different geometry-value directory. For an explicit ``--values`` call,
+    require every requested value to be present in the actual ``results.json``
+    payload, and return only those matching files. ``None`` means that this
+    candidate must not be reused.
+    """
+    requested = _requested_evaluation_values(identity)
+    if requested is None:
+        return sorted(set(result_files))
+    if not requested:
+        return None
+
+    matched: list[Path] = []
+    found = [False] * len(requested)
+    for result_file in result_files:
+        try:
+            record = json.loads(result_file.read_text(encoding="utf-8"))
+            value = float(record["value"])
+        except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            continue
+        for index, expected in enumerate(requested):
+            if math.isclose(value, expected, rel_tol=1e-12, abs_tol=1e-12):
+                found[index] = True
+                matched.append(result_file)
+                break
+    if not all(found):
+        return None
+    return sorted(set(matched))
+
+
 def find_reusable_evaluation(
     experiment_root: Path, fingerprint: str, identity: dict | None = None
 ):
-    """Find a completed evaluation by exact or refactor-compatible identity."""
+    """Find a completed evaluation with matching identity and geometry values."""
     if not experiment_root.is_dir():
         return None
     candidates = []
@@ -2002,6 +1948,7 @@ def find_reusable_evaluation(
                 for item in entry.get("result_files", [])
                 if resolve_project_path(item).is_file()
             ]
+            result_files = _matching_requested_result_files(result_files, identity)
             if not result_files:
                 continue
             candidates.append(
@@ -2015,6 +1962,7 @@ def find_reusable_evaluation(
                 for item in manifest.get("evaluation_result_files", [])
                 if resolve_project_path(item).is_file()
             ]
+            result_files = _matching_requested_result_files(result_files, identity)
             if manifest.get("status") == "completed" and result_files:
                 candidates.append(
                     (manifest_path.stat().st_mtime_ns, manifest_path, None, sorted(result_files))
@@ -2908,6 +2856,12 @@ def execute(args, config, variants: list[Variant]):
                     ),
                     "evaluations": evaluations,
                 }
+                # ``failure.json`` describes the current attempt, not an old
+                # attempt whose successful manifest is being reused.  Clearing
+                # it here lets queue and serial completion summaries correctly
+                # report a later evaluation failure even when the old completed
+                # manifest is intentionally restored for reuse safety.
+                (destination / "failure.json").unlink(missing_ok=True)
                 if reusable:
                     write_json(destination / "training_identity.json", identity)
                     _write_resolved_training_config(
@@ -2972,7 +2926,6 @@ def execute(args, config, variants: list[Variant]):
                                     / "evaluation_identities"
                                     / f"{entry_key}.json"
                                 )
-                                write_json(evaluation_identity_path, evaluation_identity)
                                 reusable_evaluation = None
                                 if not force_evaluation:
                                     for search_root in cache_roots:
@@ -3017,21 +2970,29 @@ def execute(args, config, variants: list[Variant]):
                                         args.run_tag,
                                         grid,
                                     )
-                                    shutil.rmtree(grid_eval_root, ignore_errors=True)
-                                    evaluate_command = evaluate_one(
-                                        grid_args,
-                                        dataset,
-                                        evaluation_summary,
-                                        grid_eval_root,
-                                    )
-                                    result_files = organize_evaluation_results(
-                                        grid_eval_root,
-                                        evaluation_dataset_root,
-                                        storage_variant,
-                                        seed,
-                                        args.run_tag,
-                                        overwrite=force_evaluation,
-                                    )
+                                    # The staging root is deterministic and
+                                    # readable by design.  Serialize identical
+                                    # tasks so a duplicate evaluator cannot
+                                    # remove files while the first one is still
+                                    # writing its comparison artifacts.
+                                    with exclusive_evaluation_staging_root(
+                                        grid_eval_root
+                                    ):
+                                        shutil.rmtree(grid_eval_root, ignore_errors=True)
+                                        evaluate_command = evaluate_one(
+                                            grid_args,
+                                            dataset,
+                                            evaluation_summary,
+                                            grid_eval_root,
+                                        )
+                                        result_files = organize_evaluation_results(
+                                            grid_eval_root,
+                                            evaluation_dataset_root,
+                                            storage_variant,
+                                            seed,
+                                            args.run_tag,
+                                            overwrite=force_evaluation,
+                                        )
                                     tag_evaluation_results(result_files, stage)
                                     # A values-only repair run writes just the requested
                                     # parameter directories. Keep previously completed
@@ -3044,6 +3005,12 @@ def execute(args, config, variants: list[Variant]):
                                             args.run_tag,
                                             grid,
                                         )
+                                # Do not overwrite the cached identity before
+                                # reuse has been checked. Otherwise a stale
+                                # manifest can read the just-written identity
+                                # and incorrectly claim that old geometry
+                                # parameter values are compatible.
+                                write_json(evaluation_identity_path, evaluation_identity)
                                 evaluations[entry_key] = {
                                     "status": "completed",
                                     "grid_shape": grid,

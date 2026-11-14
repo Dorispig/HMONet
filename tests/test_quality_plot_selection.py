@@ -3,6 +3,7 @@
 import pytest
 
 from src.utils.quality_selection import (
+    HEX_METRICS,
     QUAD_METRICS,
     quality_settings,
     selected_quality_plot_metrics,
@@ -43,3 +44,32 @@ def test_quality_plot_all_expands_to_current_numeric_selection():
 def test_quality_plot_metric_must_be_known():
     with pytest.raises(ValueError, match="Unknown quality plot metrics"):
         selected_quality_plot_metrics(_options(quality_plot_metrics=["wrong"]), 2)
+
+
+def test_3d_quality_plots_route_shared_and_dimension_specific_metrics():
+    """A 3-D request may target volumes, slices, or both without an error."""
+    options = _options(
+        quality_plot_metrics=[
+            "minimum_scaled_jacobian",  # volume only
+            "scaled_jacobian",  # section only
+            "max_angle",  # both
+        ]
+    )
+    assert selected_quality_plot_metrics(options, 3) == (
+        "minimum_scaled_jacobian",
+        "max_angle",
+    )
+    assert selected_quality_plot_metrics(options, 3, surface=True) == (
+        "max_angle",
+        "scaled_jacobian",
+    )
+
+
+def test_3d_quality_plot_all_expands_independently_for_volume_and_slices():
+    options = _options(quality_plot_metrics=["all"])
+    assert selected_quality_plot_metrics(options, 3) == tuple(
+        metric for metric in HEX_METRICS if metric != "cell_area"
+    )
+    assert selected_quality_plot_metrics(options, 3, surface=True) == tuple(
+        metric for metric in QUAD_METRICS if metric != "cell_area"
+    )

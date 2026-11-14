@@ -267,6 +267,13 @@ def evaluation_options(config, case, args):
         value = getattr(args, key, None)
         if value is not None:
             result[key] = value
+    # The CLI spelling intentionally uses ``--quality-plots`` while the
+    # configuration spelling is ``quality_plot_metrics``.  This cannot be
+    # handled by the generic loop above, because argparse stores the former as
+    # ``args.quality_plots``.  Keep an omitted flag distinct from an explicitly
+    # empty configuration value: the default remains no metric figures.
+    if args.quality_plots is not None:
+        result["quality_plot_metrics"] = list(args.quality_plots)
     result["quality_switches"] = {
         **config.get("evaluation", {}).get("quality_switches", {}),
         **case.get("evaluation", {}).get("quality_switches", {}),

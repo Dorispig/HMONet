@@ -41,6 +41,8 @@ python scripts/evaluate/evaluate_2d.py ... --quality-plots all
 
 消融实验入口使用相同参数，例如：`python scripts/experiments/run.py ex1 baseline all --quality-plots all`。
 
+三维时按网格维度路由所选指标：公共指标（`max_angle`、`min_angle`、`skewness`、`orthogonality`、`degenerate_cell`）同时计算并绘制六面体体网格和物理中间切片；六面体专用指标仅用于体网格，四边形专用指标仅用于切片。因而，例如 `--quality-plots minimum_scaled_jacobian` 不会错误地产生切片指标图，而 `--quality-plots scaled_jacobian` 不会要求体网格计算该二维指标；`--quality-plots all` 会分别生成两类网格上全部启用的图。
+
 二维评估报告角度、Jacobian/Scaled Jacobian、偏斜、长宽比、正交性及非法/翻转/退化/凹/相交单元。三维评估报告六面体体质量、非法状态，并在配置要求时统计中间截面质量。三维截面的相交检测不等价于任意两个六面体的完整碰撞证明，解释结果时应注明检测范围。
 
 选择 PDE 且存在网络方法时，保存网络结果相对本次 PDE 网格的逐点坐标 MSE 和逐单元最大顶点 MSE。坐标分量按评估定义取平均；不得与采用不同维度缩放的训练损失直接混用。
@@ -122,6 +124,8 @@ experiments/<suite>/
 ```
 
 多 GPU 队列把同一数据集、实验、随机种子和 run-tag 对应的训练与评估输出放在上述同一个目录中；训练指纹仅保留在队列 JSON 元数据中。完整流程使用 `train_evaluate.log`，只训练或只评估分别使用 `training.log`、`evaluation.log`；重复运行该任务时旧日志会在新子进程启动前清空。正式训练采用对应的 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 结构。
+
+串行或多 GPU 批次结束后，主终端都会逐任务输出 `train=` 与 `evaluate=` 状态，以及失败任务的首个可读错误原因。消融实验的完整批次记录保存为 `experiments/<exN>/batch_runs/<run-tag>.json`；正式多 GPU 任务另保存 `outputs/gpu_queue/formal/completion_summary.json`。因失败未启动的队列任务会明确标记为 `skipped`，而不是从汇总中消失。
 
 强制重训前应归档或删除同一运行目录的旧 TensorBoard event 文件，否则曲线会叠加。评估目录默认保留 `results.json` 和启用的网格、质量及对比图片；`--no-plots` 不会删除历史图片。
 

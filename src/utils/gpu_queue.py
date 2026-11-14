@@ -411,6 +411,12 @@ def run_gpu_queue(
                     "status": "cancelled",
                     "returncode": None,
                     "command": list(task.command),
+                    "log": str(task_log_paths[index]),
+                    **(
+                        {"metadata": dict(task.metadata)}
+                        if task.metadata
+                        else {}
+                    ),
                 }
             )
             pending.task_done()
@@ -418,6 +424,30 @@ def run_gpu_queue(
         _write_summary(summary_path, records)
         raise GpuQueueInterrupted(records, received_signal[0])
     if any(record["status"] == "failed" for record in records) and not continue_on_error:
+        # A fail-fast queue deliberately leaves later tasks undispatched.  Keep
+        # them in the persisted/result records as ``skipped`` so the final
+        # runner summary can account for every requested process rather than
+        # making those jobs disappear.
+        while True:
+            try:
+                index, task = pending.get_nowait()
+            except Empty:
+                break
+            record = {
+                "index": index,
+                "task": task.name,
+                "gpu": None,
+                "status": "skipped",
+                "returncode": None,
+                "command": list(task.command),
+                "log": str(task_log_paths[index]),
+            }
+            if task.metadata:
+                record["metadata"] = dict(task.metadata)
+            records.append(record)
+            pending.task_done()
+        records = sorted(records, key=lambda item: item["index"])
+        _write_summary(summary_path, records)
         raise GpuQueueError(records)
     if len(records) != len(tasks):
         skipped = len(tasks) - len(records)

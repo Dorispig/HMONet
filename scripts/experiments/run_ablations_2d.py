@@ -20,7 +20,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.experiments import run_ablation_2d
-from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
+from src.utils.gpu_queue import (
+    GpuQueueError,
+    GpuQueueInterrupted,
+    GpuTask,
+    parse_gpu_ids,
+    run_gpu_queue,
+)
+from src.utils.run_status import ablation_process_status, print_completion_summary
 
 
 ALL_ABLATIONS = run_ablation_2d.ABLATIONS
@@ -274,6 +281,81 @@ def _configured_variants(args, ablation: str):
     return variants
 
 
+def _ablation_task_metadata(args, ablation: str, dataset: str, variant, seed: int):
+    """Describe one concrete train/evaluate process without a hash directory."""
+    root = args.experiment_root.resolve()
+    destination = (
+        run_ablation_2d.baseline_directory(root, dataset, seed, args.run_tag)
+        if ablation == run_ablation_2d.BASELINE_ABLATION
+        else run_ablation_2d.run_directory(
+            root, ablation, dataset, variant.name, seed, args.run_tag
+        )
+    )
+    return {
+        "ablation": ablation,
+        "dataset": dataset,
+        "experiment": variant.name,
+        "seed": int(seed),
+        "run_tag": args.run_tag,
+        "manifest_path": str(destination / "run_manifest.json"),
+        "failure_path": str(destination / "failure.json"),
+        "train_requested": not args.evaluate_only,
+        "evaluation_requested": not args.train_only,
+    }
+
+
+def _task_name(ablation: str, dataset: str, variant, seed: int) -> str:
+    return f"{ablation}__{dataset}__{variant.name}__seed_{int(seed)}"
+
+
+def _expected_serial_tasks(args, selected, config, experiment_records):
+    """Return one status record per requested dataset/variant/seed process."""
+    by_ablation = {record["ablation"]: record for record in experiment_records}
+    datasets = args.dataset or config.get("datasets", [])
+    seeds = args.seeds or config.get("seeds", [])
+    tasks = []
+    for ablation in selected:
+        outer = by_ablation.get(ablation, {})
+        # A baseline-compatibility error is raised only after this experiment's
+        # runnable tasks finished.  Preserve their individual completion state
+        # instead of labelling every task as failed.
+        completed_despite_report_error = bool(outer.get("tasks_completed"))
+        status = (
+            "dry_run"
+            if args.dry_run
+            else (
+                "completed"
+                if completed_despite_report_error
+                else outer.get("status", "not-run")
+            )
+        )
+        for dataset in datasets:
+            label = run_ablation_2d.dataset_name(
+                run_ablation_2d.resolve_dataset(str(dataset))
+            )
+            for variant in _configured_variants(args, ablation):
+                for seed in seeds:
+                    record = {
+                        "task": _task_name(ablation, label, variant, int(seed)),
+                        "status": status,
+                        "metadata": _ablation_task_metadata(
+                            args, ablation, label, variant, int(seed)
+                        ),
+                    }
+                    if outer.get("error") and not completed_despite_report_error:
+                        record["error"] = outer["error"]
+                    tasks.append(record)
+    return tasks
+
+
+def _attach_and_print_completion_summary(summary, task_records, *, title):
+    """Persist and render the per-process train/evaluate state once."""
+    processes = [ablation_process_status(record) for record in task_records]
+    summary["processes"] = processes
+    print_completion_summary(processes, title=title)
+    return summary
+
+
 def _run_dynamic_gpu_queue(args, selected):
     """Expand every experiment/dataset/seed/variant into one GPU task."""
     if args.device:
@@ -313,11 +395,14 @@ def _run_dynamic_gpu_queue(args, selected):
                         variant.name,
                         "--defer-finalization",
                     ]
+                    metadata = _ablation_task_metadata(
+                        args, ablation, dataset_label, variant, int(seed)
+                    )
+                    metadata["training_fingerprint"] = fingerprint
                     tasks.append(
                         GpuTask(
-                            name=(
-                                f"{ablation}__{dataset_label}__"
-                                f"{variant.name}__seed_{seed}"
+                            name=_task_name(
+                                ablation, dataset_label, variant, int(seed)
                             ),
                             command=command,
                             log_relative_path=(
@@ -328,34 +413,48 @@ def _run_dynamic_gpu_queue(args, selected):
                                 / phase_log_name
                             ),
                             clear_log_directory=True,
-                            metadata={
-                                "dataset": dataset_label,
-                                "experiment": variant.name,
-                                "seed": int(seed),
-                                "run_tag": args.run_tag,
-                                "training_fingerprint": fingerprint,
-                            },
+                            metadata=metadata,
                         )
                     )
     log_root = args.queue_log_root or (
         args.experiment_root / "queue_logs"
     )
-    records = run_gpu_queue(
-        tasks,
-        gpu_ids,
-        cwd=ROOT,
-        log_root=log_root,
-        continue_on_error=args.continue_on_error,
-        dry_run=args.dry_run,
-        terminal_interval=args.queue_terminal_interval,
-    )
+    try:
+        records = run_gpu_queue(
+            tasks,
+            gpu_ids,
+            cwd=ROOT,
+            log_root=log_root,
+            continue_on_error=args.continue_on_error,
+            dry_run=args.dry_run,
+            terminal_interval=args.queue_terminal_interval,
+        )
+    except (GpuQueueError, GpuQueueInterrupted) as error:
+        records = error.records
+        summary = {
+            "run_tag": args.run_tag,
+            "selected_ablations": selected,
+            "status": "interrupted" if isinstance(error, GpuQueueInterrupted) else "failed",
+            "gpu_ids": gpu_ids,
+            "tasks": records,
+            "queue_error": str(error),
+            "finalization": [],
+        }
+        _attach_and_print_completion_summary(
+            summary, records, title="Ablation GPU queue completion summary"
+        )
+        _write_batch_summary(args, summary)
+        raise
     if args.dry_run:
-        return {
+        summary = {
             "run_tag": args.run_tag,
             "selected_ablations": selected,
             "status": "dry_run",
             "tasks": records,
         }
+        return _attach_and_print_completion_summary(
+            summary, records, title="Ablation GPU queue dry-run summary"
+        )
 
     failed = [record for record in records if record["status"] == "failed"]
     # A deferred worker deliberately avoids shared aggregation and baseline
@@ -363,28 +462,46 @@ def _run_dynamic_gpu_queue(args, selected):
     # completed training/evaluation is fingerprint-reused, then summaries are
     # written without concurrent file races.
     finalize_records = []
+    finalization_error = None
     if not failed:
-        for ablation in selected:
-            finalize_args = copy.copy(args)
-            finalize_args.force = False
-            finalize_args.dry_run = False
-            finalize_args.device = "cuda:0"
-            finalize_args.gpus = None
-            command = _forward_common_arguments(finalize_args, ablation)
-            print(f"\n=== Finalizing ablation: {ablation} ===", flush=True)
-            completed = run_ablation_2d.main(command)
-            finalize_records.append(
-                {"ablation": ablation, "run_count": len(completed)}
-            )
+        try:
+            for ablation in selected:
+                finalize_args = copy.copy(args)
+                finalize_args.force = False
+                finalize_args.dry_run = False
+                finalize_args.device = "cuda:0"
+                finalize_args.gpus = None
+                command = _forward_common_arguments(finalize_args, ablation)
+                print(f"\n=== Finalizing ablation: {ablation} ===", flush=True)
+                completed = run_ablation_2d.main(command)
+                finalize_records.append(
+                    {"ablation": ablation, "run_count": len(completed)}
+                )
+        except Exception as error:
+            finalization_error = {
+                "error": repr(error),
+                "traceback": traceback.format_exc(),
+            }
     summary = {
         "run_tag": args.run_tag,
         "selected_ablations": selected,
-        "status": "completed_with_failures" if failed else "completed",
+        "status": (
+            "completed_with_failures"
+            if failed
+            else "failed_finalization" if finalization_error else "completed"
+        ),
         "gpu_ids": gpu_ids,
         "tasks": records,
         "finalization": finalize_records,
     }
+    if finalization_error:
+        summary["finalization_error"] = finalization_error
+    _attach_and_print_completion_summary(
+        summary, records, title="Ablation GPU queue completion summary"
+    )
     _write_batch_summary(args, summary)
+    if finalization_error:
+        raise RuntimeError(finalization_error["error"])
     return summary
 
 
@@ -447,6 +564,7 @@ def main(argv=None):
                     _configured_variants(args, ablation),
                 )
         return _run_dynamic_gpu_queue(args, selected)
+    config = run_ablation_2d._load_yaml_mapping(args.config)
     started = datetime.now()
     records = []
     failures = []
@@ -475,6 +593,9 @@ def main(argv=None):
                 "elapsed_seconds": time.perf_counter() - begin,
                 "arguments": command,
             }
+            failure["tasks_completed"] = isinstance(
+                error, run_ablation_2d.BaselineCompatibilityError
+            )
             records.append(failure)
             failures.append(failure)
             if isinstance(error, run_ablation_2d.BaselineCompatibilityError):
@@ -492,6 +613,11 @@ def main(argv=None):
                     "status": "failed",
                     "experiments": records,
                 }
+                _attach_and_print_completion_summary(
+                    summary,
+                    _expected_serial_tasks(args, selected, config, records),
+                    title="Ablation serial completion summary",
+                )
                 _write_batch_summary(args, summary)
                 raise
     summary = {
@@ -502,6 +628,11 @@ def main(argv=None):
         "status": "completed_with_failures" if failures else "completed",
         "experiments": records,
     }
+    _attach_and_print_completion_summary(
+        summary,
+        _expected_serial_tasks(args, selected, config, records),
+        title="Ablation serial completion summary",
+    )
     _write_batch_summary(args, summary)
     if baseline_compatibility_failures:
         names = ", ".join(

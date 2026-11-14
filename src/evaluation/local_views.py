@@ -76,7 +76,11 @@ def run_local_views(directory, dimension, options):
             dimension,
             surface=dimension == 3 and job.get("mode", "slice") == "slice",
         )
-        if metric not in selected or metric not in selected_plots:
+        # ``quality_plot_metrics`` controls the bulk per-metric figures only.
+        # An explicitly requested local view must still be allowed whenever its
+        # numeric field was evaluated: it can write its small provenance JSON
+        # even when global quality figures are disabled.
+        if metric not in selected:
             if job.get("center_on") == "worst" or job.get("plot") == "quality":
                 print(f"  skip quality/worst zoom: {metric} is disabled", flush=True)
                 continue

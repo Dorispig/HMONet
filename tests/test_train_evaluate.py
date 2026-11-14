@@ -17,8 +17,7 @@ class TestPipeline:
         assert validate_formal_run_tag("physics_v1") == "physics_v1"
         with pytest.raises(ValueError):
             validate_formal_run_tag("bad/tag")
-        with pytest.raises(ValueError):
-            validate_formal_run_tag("x" * 13)
+        assert validate_formal_run_tag("x" * 64) == ("x" * 64)
 
     def test_formal_queue_fingerprint_is_stable_and_configuration_sensitive(self):
         with tempfile.TemporaryDirectory() as directory:

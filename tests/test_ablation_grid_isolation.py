@@ -12,9 +12,25 @@ from scripts.experiments.run_ablation_2d import (
     migrate_evaluation_image_paths,
     read_results,
 )
+from scripts.experiments.evaluation_paths import (
+    EvaluationStagingBusyError,
+    exclusive_evaluation_staging_root,
+)
+import pytest
 
 
 class TestGridIsolation:
+    def test_identical_staging_evaluations_are_exclusive(self):
+        with TemporaryDirectory() as temporary:
+            staging = Path(temporary) / ".eval_work/dataset/e1_1/seed_1/v1/101x101"
+            with exclusive_evaluation_staging_root(staging):
+                with pytest.raises(EvaluationStagingBusyError, match="already owns"):
+                    with exclusive_evaluation_staging_root(staging):
+                        pass
+            # The normal completion path releases the lock for a later retry.
+            with exclusive_evaluation_staging_root(staging):
+                pass
+
     def test_compaction_keeps_summary_and_images_only(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -30,8 +46,8 @@ class TestGridIsolation:
 
             assert (result) == (root / "results.json")
             assert result.is_file()
-            assert (root / "p/mesh_comparison.png").is_file()
-            assert (root / "p/q/q_sj.pdf").is_file()
+            assert (root / "plots/mesh_comparison.png").is_file()
+            assert (root / "plots/quality/quality_scaled_jacobian.pdf").is_file()
             assert not (root / "per_cell.csv").exists()
             assert not (quality / "quality_data.npz").exists()
 
@@ -46,7 +62,10 @@ class TestGridIsolation:
             detail.write_text("metric,value\n", encoding="utf-8")
 
             assert migrate_evaluation_image_paths(root) == 1
-            assert (root / "p/c/t_p_h/q/q_sj.png").is_file()
+            assert (
+                root
+                / "plots/comparison/TFI_PDE_Winslow_HMONet/quality/quality_scaled_jacobian.png"
+            ).is_file()
             assert detail.is_file()
 
     def test_per_grid_manifest_entries_are_reused_independently(self):
@@ -89,6 +108,68 @@ class TestGridIsolation:
             assert (reuse_101["result_files"]) == ([result_101])
             assert (read_results(run, "51x51")) == ([result_51])
             assert (read_results(run, "101x101")) == ([result_101])
+
+    def test_reuse_rejects_stale_geometry_parameter_results(self):
+        """A rewritten identity must not relabel old parameter directories."""
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = root / "baseline/dataset/seed_1/v1"
+            old_result = root / "eval/101x101/0.62/results.json"
+            old_result.parent.mkdir(parents=True)
+            old_result.write_text(
+                json.dumps({"grid_shape": [101, 101], "value": 0.62}),
+                encoding="utf-8",
+            )
+            identity = run / "evaluation_identities/101x101.json"
+            identity.parent.mkdir(parents=True)
+            # This models the former bug: the current identity was written
+            # before checking a manifest whose result files are still old.
+            identity.write_text(
+                json.dumps({"values": [1.52, 1.55]}), encoding="utf-8"
+            )
+            run_manifest = {
+                "status": "completed",
+                "evaluations": {
+                    "101x101": {
+                        "status": "completed",
+                        "fingerprint": "new-values-fingerprint",
+                        "identity_file": str(identity),
+                        "result_files": [str(old_result)],
+                    }
+                },
+            }
+            (run / "run_manifest.json").write_text(
+                json.dumps(run_manifest), encoding="utf-8"
+            )
+
+            expected = {"values": [1.52, 1.55]}
+            assert (
+                find_reusable_evaluation(root, "new-values-fingerprint", expected)
+                is None
+            )
+
+            new_results = []
+            for value in (1.52, 1.55):
+                result = root / f"eval/101x101/{value}/results.json"
+                result.parent.mkdir(parents=True)
+                result.write_text(
+                    json.dumps({"grid_shape": [101, 101], "value": value}),
+                    encoding="utf-8",
+                )
+                new_results.append(result)
+            run_manifest["evaluations"]["101x101"]["result_files"] = [
+                str(old_result),
+                *map(str, new_results),
+            ]
+            (run / "run_manifest.json").write_text(
+                json.dumps(run_manifest), encoding="utf-8"
+            )
+
+            reusable = find_reusable_evaluation(
+                root, "new-values-fingerprint", expected
+            )
+            assert reusable is not None
+            assert reusable["result_files"] == new_results
 
     def test_aggregate_outputs_are_separated_by_grid(self):
         with TemporaryDirectory() as temporary:

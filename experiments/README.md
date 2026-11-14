@@ -25,7 +25,7 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 - `--seed S...`：一个或多个随机种子；
 - `--grids N...`：评估网格规模；
 - `--values V...`：评估参数；
-- `--tag TAG`：输出标签（仅限字母、数字、`.`、`_`、`-`，最长 12 字符）；
+- `--tag TAG`：输出标签（仅限字母、数字、`.`、`_`、`-`；超出预留路径空间时仅提示警告）；
 - `--gpus 0 1 2 3`：动态多GPU任务队列；
 - `--train-only`或`--evaluate-only`：只执行一个阶段；
 - `--force`：替换所选训练与评估；
@@ -33,13 +33,15 @@ python scripts/experiments/run.py <suite> [baseline] <experiment|all> [options]
 - `--quality-plots all`：额外生成全部质量指标图与对应比较图；
 - `--quality-plots scaled_jacobian max_angle`：只生成指定指标的单方法图和多方法对比图。默认不生成质量图片，完整数值汇总仍会保留。
 
+三维评估中，`--quality-plots` 会按指标适用维度分别输出：`max_angle`、`min_angle`、`skewness`、`orthogonality`、`degenerate_cell` 等公共指标同时生成体网格和中间切片图；`minimum_scaled_jacobian`、`center_jacobian`、`center_condition_number`、`edge_aspect_ratio`、`cell_volume`、`flipped_cell` 仅生成体网格图；`jacobian`、`scaled_jacobian`、`aspect_ratio`、`concave_vertex_count`、`self_intersection`、`intersecting_cell`、`flipping_cell` 仅生成切片图。`all` 会生成两类网格上全部当前启用的质量图。
+
 完整评估结果统一写入：
 
 ```text
 experiments/<exN>/eval/<dataset>/seed_<seed>/<run-tag>/<experiment>/<grid>/<value>/
 ```
 
-其中图片采用紧凑子目录 `p/`：默认仅保留各方法的原始/后处理网格图与 `p/c/<methods>/mesh_comparison.png`。显式传入 `--quality-plots` 后，质量图才会写入 `p/c/<methods>/q/` 和 `p/<method>/r|p/q/`。方法和完整指标名称始终保留在同层 `results.json` 中。
+图片统一写入可读的 `plots/` 子目录：默认保留各方法的原始/后处理网格图，以及 `plots/comparison/<方法组合>/mesh_comparison.png`。显式传入 `--quality-plots` 后，质量图写入对应的 `quality/` 目录，例如 `plots/comparison/TFI_PDE_Winslow_HMONet/quality/` 或 `plots/HMONet/processed/quality/`。方法名称和完整指标名称同时保留在同层 `results.json` 中。
 
 多GPU日志写入：
 

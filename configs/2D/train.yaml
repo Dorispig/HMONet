@@ -194,12 +194,15 @@ hmonet_training: &hard_operator_training  # HMONet纯自监督训练参数
   random_loss_fd_stencil_inside: true
   random_loss_fd_boundary_scheme: central
 
-  # L = L_PDE,norm + 0.01 L_J,norm + 0.05 L_sigma,norm。
+  # 正式默认：仅优化归一化PDE残差。Jacobian/SVD屏障保留为可选消融项，
+  # 其权重为零时不参与反向传播；对应阈值保留，便于后续显式启用时复现。
+  # L = L_PDE,norm。
+  random_mse_loss_weight: 0.0
   physics_pde_loss_weight: 1.0
   physics_scale_invariant_pde_enabled: true
-  physics_normalized_jacobian_loss_weight: 0.01
+  physics_normalized_jacobian_loss_weight: 0.0
   physics_normalized_jacobian_minimum: 0.02
-  physics_singular_value_loss_weight: 0.05
+  physics_singular_value_loss_weight: 0.0
   physics_singular_value_minimum: 0.05
   physics_barrier_reduction: all
 

@@ -109,12 +109,21 @@ def selected_quality_plot_metrics(options, dimension=2, *, surface=False):
     requested = _normalize_plot_selection(options.get("quality_plot_metrics"))
     if not requested or requested == ("none",):
         return ()
+    # A three-dimensional evaluation has two independent quality domains:
+    # hexahedral volume cells and quadrilateral middle sections.  A requested
+    # name may be meaningful for only one of them (for example
+    # ``minimum_scaled_jacobian`` for volumes and ``scaled_jacobian`` for
+    # sections).  Validate against the union first, then let each domain keep
+    # its applicable subset.  Shared names such as ``max_angle`` are therefore
+    # rendered for both domains, rather than being rejected during the second
+    # pass through the section renderer.
+    available = QUAD_METRICS if dimension == 2 else ALL_METRICS
     applicable = QUAD_METRICS if dimension == 2 or surface else HEX_METRICS
-    unknown = set(requested) - {"all", "none"} - set(applicable)
+    unknown = set(requested) - {"all", "none"} - set(available)
     if unknown:
         raise ValueError(
             f"Unknown quality plot metrics {sorted(unknown)}; choose "
-            f"'all' or {list(applicable)}"
+            f"'all' or {list(available)}"
         )
     if "all" in requested:
         if len(requested) != 1:

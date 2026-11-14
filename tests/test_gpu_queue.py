@@ -215,3 +215,23 @@ class TestGpuQueue:
             assert (statuses["running"]) == ("interrupted")
             assert (statuses["pending"]) == ("cancelled")
             assert not marker.exists()
+
+    def test_fail_fast_marks_undispatched_tasks_as_skipped(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tasks = [
+                GpuTask("fails", (sys.executable, "-c", "raise SystemExit(1)")),
+                GpuTask("later", (sys.executable, "-c", "pass")),
+            ]
+            with pytest.raises(Exception) as raised:
+                run_gpu_queue(
+                    tasks,
+                    [0],
+                    cwd=root,
+                    log_root=root / "logs",
+                    validate_devices=False,
+                    continue_on_error=False,
+                )
+            statuses = {item["task"]: item["status"] for item in raised.value.records}
+            assert statuses["fails"] == "failed"
+            assert statuses["later"] == "skipped"

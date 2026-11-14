@@ -121,6 +121,7 @@ python scripts/train/train_2d.py --model both --dataset-mode interpolation --epo
 - `--alpha 1.0`：覆盖 `meshonet_training.alpha`，修改 MeshONet 内部坐标损失权重。
 - `--beta 5.0`：覆盖 `meshonet_training.beta`，修改 MeshONet 边界坐标损失权重。
 - `--hmonet-mapping-mode corner_corrected_affine`：覆盖 `model.hmonet.hmonet_mapping_mode`；正式训练默认使用CCAP，另支持 `rational_affine` 与 `coons_residual`。
+- 当前正式 HMONet 的自监督目标为归一化 PDE 残差；`physics_normalized_jacobian_loss_weight` 与 `physics_singular_value_loss_weight` 均默认为 `0`。二者保留为损失消融的可选屏障项，不会在默认训练中参与反向传播。
 - `--residual-regularization-weight 0.0`：覆盖 `model.hmonet.residual_regularization_weight`，修改 Coons 残差位移的正则权重；0 关闭，值必须非负，仅 Coons 残差模式具有对应位移项。
 - `--target-interpolation curved_boundary_cell`：使用精确参数边界位移的 IDW 修正训练目标；也可设为 `bilinear`。
 - 曲边目标修正固定使用全部边界支持点的全局 IDW，不再提供局部近邻模式。

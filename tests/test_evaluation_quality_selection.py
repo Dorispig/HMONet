@@ -18,6 +18,7 @@ from src.utils.quality_selection import (
     QUAD_METRICS,
     HEX_METRICS,
     selected_quality_metrics,
+    selected_quality_plot_metrics,
 )
 import pytest
 
@@ -68,6 +69,28 @@ class TestQualitySelection:
                 selected_quality_metrics(
                     {"quality_switches": {"min_angle": "false"}}, dimension
                 )
+
+    def test_cli_quality_plots_reach_evaluation_options(self):
+        parser = build_parser(3)
+        defaults = evaluation_options({}, {}, parser.parse_args([]))
+        assert defaults["quality_plot_metrics"] == []
+        options = evaluation_options(
+            {},
+            {},
+            parser.parse_args(
+                ["--quality-plots", "minimum_scaled_jacobian", "scaled_jacobian"]
+            ),
+        )
+        assert options["quality_plot_metrics"] == [
+            "minimum_scaled_jacobian",
+            "scaled_jacobian",
+        ]
+        assert selected_quality_plot_metrics(options, 3) == (
+            "minimum_scaled_jacobian",
+        )
+        assert selected_quality_plot_metrics(options, 3, surface=True) == (
+            "scaled_jacobian",
+        )
 
     def test_timing_trim_exactly_two_and_short_repeat_fallback(self):
         # Ties at the extremes must not discard every repeated extreme value.

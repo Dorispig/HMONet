@@ -11,7 +11,7 @@ import numpy as np
 
 from scripts.evaluate.plot_result_zoom import load_comparison, save_zoom
 from src.data.mesh.sampling import logical_grid
-from src.evaluation.analysis import plot_volumes, save_sections
+from src.evaluation.analysis import plot_volumes, save_method, save_sections
 from src.evaluation.configuration import selected_methods
 from src.evaluation.quality_3d import plot_surface_slice_comparison
 from src.evaluation.quality_output import compute_quad_quality, save_quality_comparison
@@ -186,3 +186,35 @@ class TestEvaluationPlotOrder:
 
         with patch("matplotlib.figure.Figure.savefig", new=capture):
             plot_surface_slice_comparison(self.root, fields, 3, 3, 3)
+
+    def test_3d_volume_slice_plot_filters_are_independent(self):
+        fields = {
+            name: {
+                "minimum_scaled_jacobian": np.ones(8),
+                "max_angle": np.ones(8),
+            }
+            for name in self.ordered
+        }
+        with patch("matplotlib.figure.Figure.savefig") as saved:
+            plot_surface_slice_comparison(
+                self.root,
+                fields,
+                3,
+                3,
+                3,
+                plot_metrics=("minimum_scaled_jacobian",),
+            )
+            assert saved.call_count == 1
+
+    def test_3d_single_method_gets_requested_volume_quality_map(self):
+        with patch("src.evaluation.analysis.plot_volumes") as volumes, patch(
+            "src.evaluation.analysis.save_sections"
+        ):
+            save_method(
+                self.root / "single",
+                "TFI",
+                logical_grid((3, 3, 3)),
+                (3, 3, 3),
+                self.options,
+            )
+        volumes.assert_called_once()

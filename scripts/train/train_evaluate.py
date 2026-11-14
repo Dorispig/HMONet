@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import traceback
 
 import yaml
 
@@ -16,13 +17,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.train.model_selection import parse_model_selection
-from src.utils.gpu_queue import GpuTask, parse_gpu_ids, run_gpu_queue
+from src.utils.gpu_queue import (
+    GpuQueueError,
+    GpuQueueInterrupted,
+    GpuTask,
+    parse_gpu_ids,
+    run_gpu_queue,
+)
+from src.utils.run_status import log_error, print_completion_summary
 
 
 # Keep formal queue-log paths within the same portable budget as ablations.
 FORMAL_RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-FORMAL_MAX_RUN_TAG_LENGTH = 12
 FORMAL_PATH_LIMIT = 234
+FORMAL_SYSTEM_PATH_LIMIT = 260 if os.name == "nt" else 4096
 
 
 def validate_formal_run_tag(value: str) -> str:
@@ -31,11 +39,6 @@ def validate_formal_run_tag(value: str) -> str:
     if not FORMAL_RUN_TAG_PATTERN.fullmatch(value):
         raise ValueError(
             "--run-tag must use letters, digits, '.', '_' or '-', and begin with a letter or digit"
-        )
-    if len(value) > FORMAL_MAX_RUN_TAG_LENGTH:
-        raise ValueError(
-            f"--run-tag must contain at most {FORMAL_MAX_RUN_TAG_LENGTH} characters "
-            "to keep Windows and server output paths portable"
         )
     return value
 
@@ -119,28 +122,40 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
                 ROOT / "outputs/gpu_queue/formal" / dataset_name / "_".join(models)
                 / f"seed_{seed}" / args.run_tag / "train_evaluate.log",
             ))
-    violations = [
-        (category, path, len(str(path.resolve())))
+    warnings = [
+        (
+            category,
+            path,
+            len(str(path.resolve())),
+            len(str(path.resolve())) >= FORMAL_SYSTEM_PATH_LIMIT
+            or any(len(part) > 255 for part in path.parts),
+        )
         for category, path in candidates
         if len(str(path.resolve())) > FORMAL_PATH_LIMIT
+        or len(str(path.resolve())) >= FORMAL_SYSTEM_PATH_LIMIT
         or any(len(part) > 255 for part in path.parts)
     ]
     print(
-        f"[dry-run paths] checked={len(candidates)} | Windows-safe={FORMAL_PATH_LIMIT} | "
-        "Linux-total=4096 | Linux-component=255",
+        f"[dry-run paths] checked={len(candidates)} | reserve-warning={FORMAL_PATH_LIMIT} | "
+        f"system-limit={FORMAL_SYSTEM_PATH_LIMIT} | Linux-component=255",
         flush=True,
     )
-    if not violations:
-        print("[dry-run paths] all selected formal output paths are within both limits.", flush=True)
+    if not warnings:
+        print("[dry-run paths] all selected formal output paths are within reserved headroom.", flush=True)
     else:
-        for category, path, length in violations:
+        for category, path, length, would_fail in warnings:
             print(
-                f"[dry-run paths] WARNING | {category} | length={length}, "
-                f"limit={FORMAL_PATH_LIMIT} | {path}",
+                f"[dry-run paths] {'WOULD-FAIL' if would_fail else 'WARNING'} | "
+                f"{category} | length={length}, reserve={FORMAL_PATH_LIMIT}, "
+                f"system={FORMAL_SYSTEM_PATH_LIMIT} | {path}",
                 flush=True,
             )
-        print("[dry-run paths] warnings do not stop this dry run.", flush=True)
-    return violations
+        print(
+            "[dry-run paths] reserve warnings do not stop this dry run. "
+            "WOULD-FAIL entries would exceed the real system limit during a run.",
+            flush=True,
+        )
+    return warnings
 
 
 def normalize_evaluate_methods(value):
@@ -305,6 +320,105 @@ def _command_option(tokens, name, default=None):
     return default
 
 
+def _queue_status_path(result_path: Path) -> Path:
+    """Store worker phase state beside, but separately from, final summaries."""
+    return Path(result_path).with_name("queue_status.json")
+
+
+def _write_queue_worker_status(result_path: Path, **payload) -> None:
+    """Persist a small, readable train/evaluate status for the queue parent."""
+    path = _queue_status_path(result_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default),
+        encoding="utf-8",
+    )
+
+
+def _formal_queue_process_rows(records):
+    """Render per-dataset formal queue tasks with separate phase outcomes."""
+    rows = []
+    for record in records:
+        metadata = dict(record.get("metadata") or {})
+        status_path = metadata.get("queue_status_path")
+        try:
+            state = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            state = state if isinstance(state, dict) else {}
+        except (OSError, TypeError, ValueError):
+            state = {}
+        status = str(record.get("status", "unknown"))
+        training = state.get("training")
+        evaluation = state.get("evaluation")
+        if status == "dry_run":
+            training = evaluation = "dry_run"
+        elif status == "completed":
+            training = training or "completed"
+            evaluation = evaluation or "completed"
+        elif status in {"failed", "interrupted", "cancelled"}:
+            training = training or "not-started"
+            evaluation = evaluation or "not-started"
+        else:
+            training = training or "unknown"
+            evaluation = evaluation or "unknown"
+        error = (
+            state.get("error")
+            or record.get("error")
+            or (log_error(record.get("log")) if status != "completed" else None)
+        )
+        rows.append(
+            {
+                "task": record.get("task", "formal-task"),
+                "status": status,
+                "dataset": metadata.get("dataset"),
+                "variant": metadata.get("experiment"),
+                "seed": metadata.get("seed"),
+                "training": training,
+                "evaluation": evaluation,
+                "error": error,
+                "log": record.get("log"),
+            }
+        )
+    return rows
+
+
+def _formal_local_process_rows(summaries, *, training, evaluation, error=None):
+    """Describe serial formal-model runs with the same columns as GPU jobs."""
+    rows = []
+    for summary in summaries:
+        rows.append(
+            {
+                "task": f"train_evaluate__{summary.get('dataset_name', 'dataset')}__{summary.get('model', 'model')}",
+                "status": "failed" if error else "completed",
+                "dataset": summary.get("dataset_name"),
+                "variant": summary.get("model"),
+                "seed": summary.get("seed"),
+                "training": training,
+                "evaluation": evaluation,
+                "error": error,
+            }
+        )
+    if not rows and error:
+        rows.append(
+            {
+                "task": "train_evaluate",
+                "status": "failed",
+                "training": training,
+                "evaluation": evaluation,
+                "error": repr(error),
+            }
+        )
+    return rows
+
+
+def _write_formal_completion_summary(queue_root: Path, payload: dict) -> None:
+    """Keep the latest queue-level completion view beside queue_summary.json."""
+    Path(queue_root).mkdir(parents=True, exist_ok=True)
+    (Path(queue_root) / "completion_summary.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default),
+        encoding="utf-8",
+    )
+
+
 def _queued_formal_run(
     args,
     train_extra,
@@ -396,6 +510,7 @@ def _queued_formal_run(
             / args.run_tag
         )
         result_file = queue_root / task_directory / "queue_result.json"
+        status_file = _queue_status_path(result_file)
         if not args.dry_run:
             result_file.parent.mkdir(parents=True, exist_ok=True)
         result_files.append(result_file)
@@ -432,25 +547,56 @@ def _queued_formal_run(
                     "seed": seed,
                     "run_tag": args.run_tag,
                     "task_fingerprint": fingerprint,
+                    "queue_result_path": str(result_file),
+                    "queue_status_path": str(status_file),
                 },
             )
         )
-    task_records = run_gpu_queue(
-        tasks,
-        gpu_ids,
-        cwd=ROOT,
-        log_root=queue_root,
-        continue_on_error=args.continue_on_error,
-        dry_run=args.dry_run,
-        terminal_interval=args.queue_terminal_interval,
-    )
+    try:
+        task_records = run_gpu_queue(
+            tasks,
+            gpu_ids,
+            cwd=ROOT,
+            log_root=queue_root,
+            continue_on_error=args.continue_on_error,
+            dry_run=args.dry_run,
+            terminal_interval=args.queue_terminal_interval,
+        )
+    except (GpuQueueError, GpuQueueInterrupted) as error:
+        task_records = error.records
+        completion = {
+            "status": "interrupted" if isinstance(error, GpuQueueInterrupted) else "failed",
+            "gpu_ids": gpu_ids,
+            "tasks": task_records,
+            "processes": _formal_queue_process_rows(task_records),
+            "error": str(error),
+        }
+        print_completion_summary(
+            completion["processes"], title="Formal GPU queue completion summary"
+        )
+        _write_formal_completion_summary(queue_root, completion)
+        raise
     if args.dry_run:
+        print_completion_summary(
+            _formal_queue_process_rows(task_records),
+            title="Formal GPU queue dry-run summary",
+        )
         return []
     summaries = []
     for result_file in result_files:
         if result_file.is_file():
             summaries.extend(json.loads(result_file.read_text(encoding="utf-8")))
     failed = [record for record in task_records if record["status"] == "failed"]
+    completion = {
+        "status": "completed_with_failures" if failed else "completed",
+        "gpu_ids": gpu_ids,
+        "tasks": task_records,
+        "processes": _formal_queue_process_rows(task_records),
+    }
+    print_completion_summary(
+        completion["processes"], title="Formal GPU queue completion summary"
+    )
+    _write_formal_completion_summary(queue_root, completion)
     if failed and not summaries:
         return []
     return summaries
@@ -487,6 +633,15 @@ def main(argv=None):
         help="Quoted evaluation CLI overrides, including --model; cases and checkpoints remain automatic",
     )
     parser.add_argument(
+        "--quality-plots",
+        nargs="+",
+        metavar="METRIC",
+        help=(
+            "Optional per-metric quality figures for evaluation: 'all' or "
+            "named metrics. Default: numeric summaries and mesh figures only."
+        ),
+    )
+    parser.add_argument(
         "--gpus",
         nargs="+",
         help="Dynamic GPU queue, e.g. --gpus 0 1 2 3 or --gpus 0,1,2,3.",
@@ -508,6 +663,12 @@ def main(argv=None):
 
     train_extra = shlex.split(args.train_args, posix=True)
     evaluate_extra = shlex.split(args.evaluate_args, posix=True)
+    if args.quality_plots:
+        if any(token.split("=", 1)[0] == "--quality-plots" for token in evaluate_extra):
+            parser.error(
+                "Use --quality-plots either directly or inside --evaluate-args, not both"
+            )
+        evaluate_extra += ["--quality-plots", *args.quality_plots]
     try:
         selected, evaluate_extra = extract_evaluation_model(
             evaluate_extra, args.evaluate_methods
@@ -618,19 +779,70 @@ def main(argv=None):
         )
     train = importlib.import_module(f"scripts.train.train_{args.dimension}d")
     evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
-    summaries = train.main(["--config", str(train_config)] + train_extra)
-    for command in evaluation_commands(
-        summaries, evaluate_config, cases, args.checkpoint, selected
-    ):
-        evaluate.main(command + evaluate_extra)
     if args.queue_worker:
         if not args.queue_result:
             parser.error("Internal queue workers require --queue-result")
         result_path = Path(args.queue_result)
         result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.unlink(missing_ok=True)
+        _queue_status_path(result_path).unlink(missing_ok=True)
+        _write_queue_worker_status(
+            result_path, training="running", evaluation="not-started"
+        )
+    else:
+        result_path = None
+    summaries = []
+    try:
+        summaries = train.main(["--config", str(train_config)] + train_extra)
+        if result_path is not None:
+            _write_queue_worker_status(
+                result_path,
+                training="completed",
+                evaluation="running",
+                summaries=summaries,
+            )
+        for command in evaluation_commands(
+            summaries, evaluate_config, cases, args.checkpoint, selected
+        ):
+            evaluate.main(command + evaluate_extra)
+    except Exception as error:
+        if result_path is not None:
+            _write_queue_worker_status(
+                result_path,
+                training="completed" if summaries else "failed",
+                evaluation="failed" if summaries else "not-started",
+                summaries=summaries,
+                error=repr(error),
+                traceback=traceback.format_exc(),
+            )
+        elif not args.queue_worker:
+            print_completion_summary(
+                _formal_local_process_rows(
+                    summaries,
+                    training="completed" if summaries else "failed",
+                    evaluation="failed" if summaries else "not-started",
+                    error=repr(error),
+                ),
+                title="Formal serial completion summary",
+            )
+        raise
+    if result_path is not None:
         result_path.write_text(
             json.dumps(summaries, ensure_ascii=False, indent=2, default=_json_default),
             encoding="utf-8",
+        )
+        _write_queue_worker_status(
+            result_path,
+            training="completed",
+            evaluation="completed",
+            summaries=summaries,
+        )
+    elif not args.queue_worker:
+        print_completion_summary(
+            _formal_local_process_rows(
+                summaries, training="completed", evaluation="completed"
+            ),
+            title="Formal serial completion summary",
         )
     return summaries
 

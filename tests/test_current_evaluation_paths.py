@@ -3,9 +3,11 @@
 from pathlib import Path
 from scripts.experiments.evaluation_paths import (
     EVALUATION_PATH_LIMIT,
+    STAGING_RELATIVE_PATH_RESERVE,
     evaluation_collection_root,
     evaluation_result_root,
     evaluation_staging_root,
+    staging_workspace_root,
     staging_experiment_name,
 )
 
@@ -48,12 +50,23 @@ def test_staging_layout_uses_short_alias_and_task_identity():
         root, "air_t_ext_1_500_21_21", "e1_6_fd0_008", 20260917, "v1", "101x101"
     )
     assert len({first, second, other_seed}) == 3
-    assert first.parts[-6:] == (
-        ".eval_work", "air_t_ext_1_500_21_21", "e1_6",
-        "seed_20261030", "v1", "101x101",
+    assert first.parts[-7:] == (
+        ".w", "e6", "air_t_ext_1_500_21_21", "e1_6",
+        "20261030", "v1", "101x101",
     )
-    assert ".eval_work" in first.parts
-    assert len(str(first.resolve())) + 1 + 96 <= EVALUATION_PATH_LIMIT
+    assert first.is_relative_to(staging_workspace_root(root))
+    # The projected reserve is advisory; actual paths only fail at MAX_PATH.
+    assert len(str(first.resolve())) + 1 + STAGING_RELATIVE_PATH_RESERVE < 260
+
+
+def test_staging_workspace_uses_suite_name_when_called_from_variant_directory():
+    root = Path("C:/hmonet_test/experiments/ex8/e2_pde_jacobian")
+    staging = evaluation_staging_root(
+        root, "run_ext_1_500_41_41", "e2_pde_jacobian", 20261030, "v1", "101x101"
+    )
+    assert staging.parts[-7:] == (
+        ".w", "e8", "run_ext_1_500_41_41", "e2", "20261030", "v1", "101x101"
+    )
 
 
 def test_staging_alias_honours_declared_alias_and_checkpoint_suffix(tmp_path):
