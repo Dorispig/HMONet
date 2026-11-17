@@ -155,7 +155,7 @@ hmonet_training: &hard_operator_training
 
   # 与二维一样从头进行纯物理自监督训练，不读取PDE网格坐标作为监督目标。
   training_strategy: random_loss_combo_from_start
-  random_loss_sample_count: 600
+  random_loss_sample_count: 400
   pde_fd_step: [0.01, 0.01, 0.01]
   jacobian_fd_step: 0.01
   random_loss_derivative_backend: finite_difference
@@ -174,17 +174,17 @@ hmonet_training: &hard_operator_training
   physics_singular_value_minimum: 0.05
   physics_barrier_reduction: all
 
-  # 正式三维训练：600个全局均匀随机点。
+  # 正式三维训练：400个全局均匀随机点；与两个基线的内部点预算一致。
   # 三类计数之和必须等于random_loss_sample_count。
   random_loss_sampling_mode: uniform
-  random_loss_global_sample_count: 600
+  random_loss_global_sample_count: 400
   random_loss_curvature_sample_count: 0
   random_loss_boundary_band_sample_count: 0
 
 hmonet_sampling:  # HMONet采样参数
-  mode: uniform  # 正式三维默认：600个全局均匀随机点
+  mode: uniform  # 正式三维默认：400个全局均匀随机点
   fixed_grid_count: 0
-  global_random_count: 600
+  global_random_count: 400
   curvature_adaptive_count: 0
   candidate_multiplier: 10
   curvature_quantile: 0.95
@@ -211,7 +211,7 @@ pimeshonet_training:
   lr_stop_below: 1.0e-5  # 学习率停止衰减下限
   pde_loss_weight: 1.0e-4  # 原始PDE损失权重
   boundary_loss_weight: 1.0
-  interior_sample_count: 128  # 每批共享内部采样点数
+  interior_sample_count: 400  # 每批共享内部PDE采样点数；与HMONet、MeshONet一致
   fd_step: [0.01, 0.01, 0.01]  # PI-MeshONet PDE有限差分步长，分别对应三个计算轴
 
 qghmonet_training: *hard_operator_training
