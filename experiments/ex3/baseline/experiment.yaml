@@ -8,7 +8,6 @@
 
 datasets:  # 数据集路径配置
   # 分别指定内插集和外推集；训练选择由 training.dataset 控制。
-  interpolation: data/raw/2D/run_int_0_1000_61_21  # 圆角深U形凹槽内插训练数据集
   extrapolation: data/raw/2D/run_ext_1_500_41_41
 
 grid:  # 二维训练网格尺寸

@@ -26,7 +26,7 @@ class TestAblationTrainingReuse:
         return SimpleNamespace(
             experiment_root=Path(root),
             ablation="rational_affine",
-            dataset=["air_t_int_0_1000_21_20"],
+            dataset=["air_t_ext_1_500_21_21"],
             seeds=[7],
             run_tag=tag,
             dry_run=False,
@@ -81,7 +81,7 @@ class TestAblationTrainingReuse:
             assert (train.call_count) == (1)
             second = (
                 Path(temporary)
-                / "rational_affine/air_t_int_0_1000_21_20/samples/seed_7/second/run_manifest.json"
+                / "rational_affine/air_t_ext_1_500_21_21/samples/seed_7/second/run_manifest.json"
             )
             manifest = json.loads(second.read_text(encoding="utf-8"))
             assert manifest["training_reused"]
@@ -145,9 +145,9 @@ class TestAblationTrainingReuse:
     ):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
-            dataset = root / "air_t_int_0_1000_21_20"
+            dataset = root / "air_t_ext_1_500_21_21"
             dataset.mkdir()
-            baseline = root / "baseline/air_t_int_0_1000_21_20/seed_7/paper"
+            baseline = root / "baseline/air_t_ext_1_500_21_21/seed_7/paper"
             baseline_training = baseline / "training"
             baseline_checkpoint = baseline / "checkpoints/best.pt"
             baseline_final_checkpoint = baseline / "checkpoints/final.pt"
@@ -284,9 +284,9 @@ class TestAblationTrainingReuse:
     def test_force_evaluate_only_preserves_baseline_training(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
-            dataset = root / "air_t_int_0_1000_21_20"
+            dataset = root / "air_t_ext_1_500_21_21"
             dataset.mkdir()
-            destination = root / "baseline/air_t_int_0_1000_21_20/seed_7/paper"
+            destination = root / "baseline/air_t_ext_1_500_21_21/seed_7/paper"
             training = destination / "training"
             checkpoint = destination / "checkpoints/best.pt"
             final_checkpoint = destination / "checkpoints/final.pt"
@@ -366,9 +366,9 @@ class TestAblationTrainingReuse:
     def test_existing_baseline_training_is_not_deleted_without_force(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as temporary:
             root = Path(temporary)
-            dataset = root / "air_t_int_0_1000_21_20"
+            dataset = root / "air_t_ext_1_500_21_21"
             dataset.mkdir()
-            destination = root / "baseline/air_t_int_0_1000_21_20/seed_7/paper"
+            destination = root / "baseline/air_t_ext_1_500_21_21/seed_7/paper"
             destination.mkdir(parents=True)
             sentinel = destination / "keep.pt"
             sentinel.write_bytes(b"preserve")

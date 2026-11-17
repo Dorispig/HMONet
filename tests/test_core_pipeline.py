@@ -221,7 +221,7 @@ class TestPipeline:
 
     def test_2d_pde_supports_nonuniform_parameters(self):
         from src.data.geometry.boundary_generator_2d import rectangular_boundary
-        from scripts.pde.pde_2d import solve_winslow_2d
+        from src.numerics.traditional.winslow_2d import solve_winslow_2d
 
         g = rectangular_boundary()
         params = {

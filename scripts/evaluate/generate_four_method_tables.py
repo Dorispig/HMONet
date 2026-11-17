@@ -5,7 +5,7 @@ Command-line usage
 Generate all available cases for one dataset:
 
     python scripts/evaluate/generate_four_method_tables.py \
-        --dataset run_int_0_1000_61_21
+        --dataset run_ext_1_500_41_41
 
 Generate both interpolation and extrapolation datasets:
 
@@ -14,8 +14,8 @@ Generate both interpolation and extrapolation datasets:
 Restrict the generated tables to selected grids and parameters:
 
     python scripts/evaluate/generate_four_method_tables.py \
-        --dataset run_ext_0_1000_61_21 \
-        --grid-shapes 61x21,81x41 \
+        --dataset run_ext_1_500_41_41 \
+        --grid-shapes 101x101,201x201 \
         --parameters 1.52,1.535
 
 Overwrite existing generated CSV files:
@@ -49,8 +49,8 @@ METHODS = ("TFI", "PDE_Winslow", "MeshONet", "HMONet")
 # User-editable defaults. Command-line arguments override these values.
 DEFAULT_OUTPUT_DIR = "outputs/results/2D"
 DEFAULT_DATASETS = (
-    "run_int_0_1000_61_21",
-    "run_ext_0_1000_61_21",
+    "air_t_ext_1_500_21_21",
+    "run_ext_1_500_41_41",
 )
 DEFAULT_GRID_SHAPES = None
 DEFAULT_PARAMETERS = None

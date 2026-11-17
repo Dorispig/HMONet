@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.train.training_common import (
+from src.engine.training import (
     BatchLossTotals,
     calculate_fixed_grid_metrics,
     hmonet_main_loss,
@@ -32,7 +32,7 @@ from scripts.train.training_common import (
     sample_shared_random_points,
     update_learning_rate,
 )
-from scripts.train.training_state import TrainingState, prepare_training_config
+from src.engine.state import TrainingState, prepare_training_config
 from src.data.dataset import ParametricDataset2D, ParametricDataset3D
 from src.models.model import HMONet2D, MeshONet2D
 from src.utils.config_validation import remove_deprecated_projection_config
@@ -260,7 +260,7 @@ class TestTrainingMath:
     def test_linear_fallback_matches_parametric_rectangles_for_batched_queries(self):
         from src.data.geometry.boundary_generator_2d import rectangular_boundary
         from src.data.mesh.sampling import sample_rectangle_boundary_uniform
-        from scripts.tfi.tfi_2d import tfi_from_parameter_grid
+        from src.numerics.traditional.tfi_2d import tfi_from_parameter_grid
 
         geometry = rectangular_boundary(x_min=0, x_max=1, y_min=0, y_max=1)
         q_boundary, _ = sample_rectangle_boundary_uniform(5, 4)

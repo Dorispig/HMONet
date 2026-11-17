@@ -18,8 +18,8 @@ from src.data.geometry.boundary_generator_3d import (
     cylindrical_domain_with_airfoil_hole,
 )
 from src.data.mesh.sampling import logical_grid, sample_boundary, boundary_indices
-from scripts.tfi.tfi_3d import tfi_from_surfaces
-from scripts.pde.pde_3d import solve_winslow_3d
+from src.numerics.traditional.tfi_3d import tfi_from_surfaces
+from src.numerics.traditional.winslow_3d import solve_winslow_3d
 from src.models.model import HMONet2D, MeshONet2D, HMONet3D, MeshONet3D
 import pytest
 

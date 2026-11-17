@@ -1,55 +1,42 @@
-# 三维训练命令行说明
+# 三维正式训练命令行
 
-入口为 `scripts/train/train_3d.py`，默认配置为 `configs/3D/train.yaml`。本文只说明三维特有内容；公共的收敛、优化器和日志参数与[二维训练说明](../2D/train_cli.md)一致。
+三维单独训练入口为 `scripts/train/train_3d.py`。日常正式运行建议使用 `scripts/train/train_evaluate.py`；完整串联流程见 [三维训练—评估说明](train_evaluate_cli.md)。
 
-## 常用命令
+## 短数据集名
 
-按 YAML 训练：
+`--dataset` 可直接写 `swb_a_ext_1_500_11_21_11`，无需再书写 `data/raw/3D/`。项目相对路径和绝对路径仍兼容；短名称自动在 `data/raw/3D` 中解析。训练网格由数据集元数据决定。
 
-```bash
-python scripts/train/train_3d.py --config configs/3D/train.yaml
-```
+## 推荐的训练—评估命令
 
-只训练外推 HMONet：
+~~~powershell
+python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 --values 0.02 0.34 --seed 20261030 --run-tag v1
+~~~
 
-```bash
-python scripts/train/train_3d.py --config configs/3D/train.yaml --model hmonet --dataset-mode extrapolation --device cuda
-```
+`--grids` 的每个显式形状均按 `n_x×n_y×n_z` 书写，例如 `11x31x11 21x61x21`。纯数字 `--grids 21 31` 才表示两个立方网格 `21×21×21`、`31×31×31`；旧式 `--grid-shapes 11x31x11,21x61x21` 也兼容。
 
-训练 HMONet、MeshONet 和 PI-MeshONet：
+## 仅训练
 
-```bash
-python scripts/train/train_3d.py --model hmonet,meshonet,pimeshonet --dataset-mode both
-```
+~~~powershell
+python scripts/train/train_3d.py --dataset swb_a_ext_1_500_11_21_11 --dataset-mode extrapolation --model hmonet --seed 20261030
 
-显式指定一个数据集并检查其训练网格：
+python scripts/train/train_3d.py --dataset swb_a_ext_1_500_11_21_11 --dataset-mode extrapolation --model hmonet,meshonet,pimeshonet --seed 20261030
 
-```bash
-python scripts/train/train_3d.py --dataset data/raw/3D/sch_r_ext_0_1000_11_31_11 --dataset-mode extrapolation --model hmonet --nx 11 --ny 31 --nz 11
-```
+python scripts/train/train_3d.py --dataset-mode both --model hmonet,meshonet,pimeshonet --seed 20261030
+~~~
 
-## 三维专有参数
+| 参数 | 示例 | 含义 |
+|---|---|---|
+| `--model` | `hmonet` | 选择模型，多个模型使用逗号分隔。 |
+| `--dataset` | `swb_a_ext_1_500_11_21_11` | 三维数据集短名称。 |
+| `--dataset-mode` | `extrapolation` | 未指定数据集时选择训练划分。 |
+| `--epochs` | `50000` | 最大训练轮数。 |
+| `--batch-size` | `8` | 训练批大小。 |
+| `--lr` | `0.0004` | 初始学习率。 |
+| `--seed` | `20261030` | 随机种子。 |
+| `--device` | `cuda:0` | 训练设备。 |
 
-- `--nx/--ny/--nz`：只校验数据集内的训练点数，不重采样数据集。
-- 正式 HMONet 配置与二维一致，使用 `200` 个全局均匀点和 `200` 个曲率自适应点；三维自适应点通过“曲率加权参数面锚点 + 向域内局部扰动”生成，避免构造候选点到全部面点的巨大距离矩阵。
-- 正式 HMONet 从头仅采用归一化椭圆网格 PDE 残差进行自监督训练，不读取 PDE 网格作为坐标监督目标。归一化 Jacobian 屏障和最小奇异值屏障仍保留在配置中，默认权重均为 `0`，可作为后续消融项显式开启。
-- `--pi-fd-step HX HY HZ`：PI 模型三个计算坐标方向的有限差分步长。
-- `--hmonet-mapping-mode`：正式训练默认 `corner_corrected_affine`（CCAP），另可选 `rational_affine` 或 `coons_residual`。
-- `--boundary-self-attention-enabled`：启用三维六面联合边界注意力编码。
+模型和别名与二维完全相同：`hmonet`、`meshonet`、`pimeshonet`、`qghmonet`；`both`、`pi`、`all`。
 
-`--sample-count`、`--jacobian-fd-step` 和 `--target-interpolation` 仅用于兼容旧的监督式 HMONet 配置，不改变当前正式自监督配置中的 `random_loss_*` 与 `pde_fd_step`。
-
-模型别名：`both` 为 HMONet 与 MeshONet，`pi` 为三个 PI 模型，`all` 为五种神经网络；也可以传逗号分隔的任意列表。
-
-训练规模始终从 `dataset.npy` 的 `grid_shape` 读取。更换 `11×31×11`、`21×21×21` 等训练规模时，应切换到对应数据集，不能仅修改 `--nx/--ny/--nz`。
-
-## 输出
-
-默认训练记录位于 `outputs/training/3D/`，检查点位于 `outputs/checkpoints/3D/`。每个模型、数据集和随机种子使用独立目录。TensorBoard、输出保留和检查点选择规则见[评估体系与输出结构](../../docs/evaluation_system.md)及[复现与兼容性说明](../../docs/reproducibility.md)。
-
-查看当前版本的完整参数：
-
-```bash
+~~~powershell
 python scripts/train/train_3d.py --help
-```
-
+~~~

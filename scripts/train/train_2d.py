@@ -45,6 +45,7 @@ from src.engine.training import (
     logical_grid_and_interior_indices,
     make_data_loader,
     predict_coordinates,
+    resolve_explicit_dataset_path,
     resolve_dataset_paths,
     safe_optimizer_step,
     sample_fixed_grid_batch,
@@ -1996,52 +1997,11 @@ def main(argv=None):
     parser.add_argument("--pi-pde-loss-weight", type=float)
     parser.add_argument("--pi-interior-sample-count", type=int)
     parser.add_argument("--pi-fd-step", type=float, nargs="+")
-    parser.add_argument(
-        "--pihmonet-mapping-mode", choices=mapping_mode_choices()
-    )
-    parser.add_argument(
-        "--attentionpihmonet-mapping-mode", choices=mapping_mode_choices()
-    )
-    for prefix in ("pimeshonet", "pihmonet"):
+    for prefix in ("pimeshonet",):
         parser.add_argument(f"--{prefix}-pde-loss-weight", type=float)
         parser.add_argument(f"--{prefix}-interior-sample-count", type=int)
         parser.add_argument(f"--{prefix}-fd-step", type=float, nargs="+")
     parser.add_argument("--pimeshonet-boundary-loss-weight", type=float)
-    parser.add_argument(
-        "--pihmonet-jacobian-loss-enabled",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
-    parser.add_argument("--pihmonet-jacobian-loss-weight", type=float)
-    parser.add_argument("--pihmonet-jacobian-minimum", type=float)
-    parser.add_argument("--pihmonet-normalized-pde-loss-weight", type=float)
-    parser.add_argument("--pihmonet-anchor-loss-weight", type=float)
-    parser.add_argument("--pihmonet-anchor-decay-end-epoch", type=int)
-    parser.add_argument("--pihmonet-anchor-points-per-axis", type=int)
-    parser.add_argument("--pihmonet-anchor-margin", type=float)
-    parser.add_argument("--pihmonet-smoothness-loss-weight", type=float)
-    parser.add_argument("--pihmonet-orthogonality-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-pde-backend", choices=["autograd", "finite_difference"])
-    parser.add_argument("--attentionpihmonet-interior-sample-count", type=int)
-    parser.add_argument("--attentionpihmonet-interior-margin", type=float)
-    parser.add_argument("--attentionpihmonet-fd-step", type=float, nargs="+")
-    parser.add_argument("--attentionpihmonet-normalized-pde-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-alpha-penalty-weight", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-loss-sample-count", type=int)
-    parser.add_argument("--attentionpihmonet-boundary-alpha-initial-value", type=float)
-    parser.add_argument("--attentionpihmonet-jacobian-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-jacobian-minimum", type=float)
-    parser.add_argument("--attentionpihmonet-anchor-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-anchor-decay-end-epoch", type=int)
-    parser.add_argument("--attentionpihmonet-anchor-points-per-axis", type=int)
-    parser.add_argument("--attentionpihmonet-anchor-margin", type=float)
-    parser.add_argument("--attentionpihmonet-smoothness-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-pde-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-jacobian-loss-weight", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-physics-sample-count", type=int)
-    parser.add_argument("--attentionpihmonet-boundary-physics-offset", type=float)
-    parser.add_argument("--attentionpihmonet-boundary-physics-tangential-margin", type=float)
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[2]
     config = load_yaml_mapping(args.config)
@@ -2167,14 +2127,6 @@ def main(argv=None):
     ):
         if getattr(args, source) is not None:
             training[source] = getattr(args, source)
-    if args.pihmonet_mapping_mode:
-        config.setdefault("model", {}).setdefault("pihmonet", {})[
-            "hmonet_mapping_mode"
-        ] = args.pihmonet_mapping_mode
-    if args.attentionpihmonet_mapping_mode:
-        config.setdefault("model", {}).setdefault("attentionpihmonet", {})[
-            "hmonet_mapping_mode"
-        ] = args.attentionpihmonet_mapping_mode
     if args.hmonet_mapping_mode:
         config.setdefault("model", {}).setdefault("hmonet", {})[
             "hmonet_mapping_mode"
@@ -2282,40 +2234,9 @@ def main(argv=None):
     ):
         if getattr(args, source) is not None:
             htraining[source] = getattr(args, source)
-    attention_training = config.setdefault("attentionpihmonet_training", {})
-    for key in (
-        "pde_backend",
-        "interior_sample_count",
-        "interior_margin",
-        "fd_step",
-        "normalized_pde_loss_weight",
-        "boundary_loss_weight",
-        "alpha_penalty_weight",
-        "boundary_loss_sample_count",
-        "jacobian_loss_weight",
-        "jacobian_minimum",
-        "anchor_loss_weight",
-        "anchor_decay_end_epoch",
-        "anchor_points_per_axis",
-        "anchor_margin",
-        "smoothness_loss_weight",
-        "boundary_pde_loss_weight",
-        "boundary_jacobian_loss_weight",
-        "boundary_physics_sample_count",
-        "boundary_physics_offset",
-        "boundary_physics_tangential_margin",
-    ):
-        value = getattr(args, f"attentionpihmonet_{key}")
-        if value is not None:
-            attention_training[key] = value
-    alpha_initial = getattr(args, "attentionpihmonet_boundary_alpha_initial_value")
-    if alpha_initial is not None:
-        config.setdefault("model", {}).setdefault("attentionpihmonet", {})[
-            "boundary_alpha_initial_value"
-        ] = alpha_initial
     mode = args.dataset_mode or training.get("dataset", "interpolation")
     paths = (
-        [Path(args.dataset)]
+        [resolve_explicit_dataset_path(args.dataset, dimension=2, project_root=root)]
         if args.dataset
         else resolve_dataset_paths(config, mode, root)
     )

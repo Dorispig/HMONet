@@ -15,8 +15,8 @@ from src.evaluation.configuration import create_geometry
 class TestDatasetFamily:
     def test_family_defaults_and_endpoints(self):
         for family, prefix, grid in [
-            ("rect_top_semiellipse", "rse", [20, 20]),
-            ("eccentric_semiannulus", "esa", [20, 20]),
+            ("rect_top_semiellipse", "rse", [41, 41]),
+            ("eccentric_semiannulus", "esa", [41, 41]),
             ("symmetric_convex_tri", "tri", [21, 20]),
         ]:
             spec = gen.DATASET_FAMILIES[family]
@@ -28,7 +28,7 @@ class TestDatasetFamily:
                     path = gen.generate_dataset(
                         family, split, size=4, output_dir=tmp, timing_samples=0
                     )
-                    assert (path.name) == (f"{prefix}_{split}_0_4_{grid[0]}_{grid[1]}")
+                    assert (path.name) == (f"{prefix}_{split}_1_4_{grid[0]}_{grid[1]}")
                     meta = read_dataset_metadata(path)
                     assert meta["all_pde_converged"]
                     assert (meta["interval_sample_counts"]) == (
@@ -67,16 +67,10 @@ class TestDatasetFamily:
         )
         assert (list(config["cases"])) == (sorted(config["cases"]))
         expected = {
-            "rse_int_0_1000_20_20": [0.225, 0.25, 0.275],
-            "rse_ext_0_1000_20_20": [0.42, 0.46, 0.50, 0.55, 0.60],
-            "esa_int_0_1000_20_20": [0.475, 0.50, 0.525],
-            "esa_ext_0_1000_20_20": [0.72, 0.75],
-            "tri_int_0_1000_21_20": [0.225, 0.25, 0.275],
-            "tri_ext_0_1000_21_20": [0.42, 0.46, 0.50],
+            "air_t_ext_1_500_21_21": [0.62, 0.65],
+            "run_ext_1_500_41_41": [1.52, 1.55],
         }
-        assert (
-            set(expected) | {"air_t_int_0_1000_21_20", "air_t_ext_0_1000_21_20"}
-        ).issubset(config["cases"])
+        assert set(config["cases"]) == set(expected)
         for name, values in expected.items():
             case = config["cases"][name]
             assert (case["values"]) == (values)
@@ -96,13 +90,7 @@ class TestDatasetFamily:
         np.testing.assert_allclose(rse.top.sample(20)[:, 1], 1.0)
 
 
-FAMILIES = [
-    "smooth_constricted_channel",
-    "variable_width_s_channel",
-    "variable_width_s_channel_bend",
-    "gear_spline",
-    "rounded_u_notch_compact",
-]
+FAMILIES = ["smooth_constricted_channel", "variable_width_s_channel", "rounded_u_notch_compact"]
 
 
 class TestStressDataset:
@@ -112,18 +100,19 @@ class TestStressDataset:
             (root / "configs/2D/evaluate.yaml").read_text(encoding="utf-8")
         )["cases"]
         assert (list(cases)) == (sorted(cases))
-        for family in FAMILIES:
-            spec = gen.DATASET_FAMILIES[family]
-            for split in ["interpolation", "extrapolation"]:
-                case = cases[
-                    gen.build_dataset_name(family, split, 0, 1000, *spec["grid_shape"])
-                ]
-                assert (case["parameter"]) == (spec["parameter"])
-                assert (case["fixed_parameters"]) == (spec["fixed_parameters"])
-                for value in case["values"]:
-                    assert not any(a <= value <= b for a, b in spec[split])
-                    boundary, _ = create_geometry(2, case, value)
-                    boundary.validate()
+        assert set(cases) == {"air_t_ext_1_500_21_21", "run_ext_1_500_41_41"}
+        for case in cases.values():
+            boundary_type = case["boundary_type"]
+            family = (
+                "rounded_u_notch_compact"
+                if boundary_type == "rounded_u_notch"
+                else boundary_type
+            )
+            specification = gen.DATASET_FAMILIES[family]
+            assert case["parameter"] == specification["parameter"]
+            for value in case["values"]:
+                boundary, _ = create_geometry(2, case, value)
+                boundary.validate()
 
     def test_parallel_identity_and_numerics(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(

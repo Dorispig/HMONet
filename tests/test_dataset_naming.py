@@ -11,8 +11,8 @@ import pytest
 class TestDatasetNaming:
     def test_round_trip_for_two_and_three_dimensions(self):
         cases = (
-            ("air_t", "int", 0, 1000, (21, 20)),
-            ("sch_r", "extrapolation", 2, 500, (21, 21, 21)),
+            ("air_t", "int", 1, 500, (21, 21)),
+            ("swb_a", "extrapolation", 2, 500, (21, 21, 21)),
         )
         for boundary, split, version, size, grid in cases:
             name = build_dataset_name(boundary, split, version, size, *grid)
@@ -35,17 +35,18 @@ class TestDatasetNaming:
                 build_dataset_name(*arguments)
         for dimension in (1, 4, 2.5, True):
             with pytest.raises(ValueError):
-                parse_dataset_name("air_t_int_0_10_21_20", dimension)
+                parse_dataset_name("air_t_int_1_10_21_21", dimension)
 
     def test_airfoil_default_matches_current_training_grid(self):
         specification = generator_2d.DATASET_FAMILIES["circle_airfoil_t"]
-        assert (specification["grid_shape"]) == ([21, 20])
+        assert (specification["grid_shape"]) == ([41, 41])
         assert (
             generator_2d.build_dataset_name(
                 "circle_airfoil_t",
                 "interpolation",
-                0,
-                1000,
-                *specification["grid_shape"],
+                1,
+                500,
+                21,
+                21,
             )
-        ) == ("air_t_int_0_1000_21_20")
+        ) == ("air_t_int_1_500_21_21")

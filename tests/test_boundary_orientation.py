@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.tfi.tfi_2d import tfi_from_curves
+from src.numerics.traditional.tfi_2d import tfi_from_curves
 from src.data.geometry.boundary_generator_2d import (
     BOUNDARY_GENERATORS,
     circle_airfoil_boundary,

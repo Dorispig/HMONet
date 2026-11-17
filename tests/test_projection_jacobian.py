@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from scripts.train.training_common import jacobian_positive_loss
+from src.engine.training import jacobian_positive_loss
 from src.data.backend.curve_kernels import kernel_status
 from src.data.geometry.parametric_curve_2d import (
     FunctionalCurve,

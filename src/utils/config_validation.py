@@ -95,16 +95,6 @@ def validate_train_config(config: dict) -> None:
         )
     if int(hmonet.get("attention_layers", 2)) <= 0:
         raise ValueError("model.hmonet.attention_layers must be positive")
-    pi_mapping = (
-        config["model"].get("pihmonet", {}).get(
-            "hmonet_mapping_mode", "rational_affine"
-        )
-    )
-    normalize_mapping_mode(pi_mapping)
-    attention_mapping = config["model"].get("attentionpihmonet", {}).get(
-        "hmonet_mapping_mode", "rational_affine"
-    )
-    normalize_mapping_mode(attention_mapping)
     if min(int(config["grid"]["nx"]), int(config["grid"]["ny"])) < 2:
         raise ValueError("grid.nx and grid.ny must be at least 2")
     metric = config["training"].get("best_model_metric", "dataset_mse")
@@ -191,8 +181,6 @@ def validate_train_config(config: dict) -> None:
         "hmonet_training",
         "meshonet_training",
         "pimeshonet_training",
-        "pihmonet_training",
-        "attentionpihmonet_training",
     ):
         section = config.get(section_name, {})
         for name in (
@@ -364,88 +352,45 @@ def validate_train_config(config: dict) -> None:
     if float(sampling.get("uniform_probability", 0.05)) < 0:
         raise ValueError("hmonet_sampling.uniform_probability must be non-negative")
 
-    pihmonet_training = config.get("pihmonet_training", {})
-    if "jacobian_loss_enabled" in pihmonet_training and not isinstance(
-        pihmonet_training["jacobian_loss_enabled"], bool
-    ):
-        raise ValueError("pihmonet_training.jacobian_loss_enabled must be true or false")
-    for name in ("jacobian_loss_weight", "jacobian_minimum"):
-        value = float(pihmonet_training.get(name, 0.01 if name.endswith("weight") else 1e-4))
-        if not np.isfinite(value) or value < 0:
-            raise ValueError(f"pihmonet_training.{name} must be finite and non-negative")
-
-    attention = config.get("attentionpihmonet_training", {})
-    alpha_initial = float(
-        config.get("model", {}).get("attentionpihmonet", {}).get(
-            "boundary_alpha_initial_value", 1.01
-        )
-    )
-    if not np.isfinite(alpha_initial):
-        raise ValueError(
-            "model.attentionpihmonet.boundary_alpha_initial_value must be finite"
-        )
-    if attention.get("pde_backend", "finite_difference") not in {
-        "autograd",
-        "finite_difference",
-    }:
-        raise ValueError(
-            "attentionpihmonet_training.pde_backend must be autograd or "
-            "finite_difference"
-        )
-    for name in (
-        "normalized_pde_loss_weight",
-        "jacobian_loss_weight",
-        "jacobian_minimum",
-        "smoothness_loss_weight",
-        "boundary_pde_loss_weight",
-        "boundary_jacobian_loss_weight",
-        "anchor_loss_weight",
-        "boundary_loss_weight",
-        "alpha_penalty_weight",
-    ):
-        value = float(attention.get(name, 0.0))
-        if not np.isfinite(value) or value < 0:
-            raise ValueError(
-                f"attentionpihmonet_training.{name} must be finite and non-negative"
-            )
-    if int(attention.get("interior_sample_count", 1)) < 1:
-        raise ValueError(
-            "attentionpihmonet_training.interior_sample_count must be positive"
-        )
-    if float(attention.get("interior_margin", 0.0)) != 0.0:
-        raise ValueError(
-            "attentionpihmonet_training.interior_margin must be 0 so autograd "
-            "samples the complete open computational domain"
-        )
-    if int(attention.get("boundary_physics_sample_count", 4)) < 4:
-        raise ValueError(
-            "attentionpihmonet_training.boundary_physics_sample_count is too small"
-        )
-    if int(attention.get("boundary_loss_sample_count", 4)) < 4:
-        raise ValueError(
-            "attentionpihmonet_training.boundary_loss_sample_count is too small"
-        )
-    offset = float(attention.get("boundary_physics_offset", 0.0))
-    if not 0 <= offset < 0.5:
-        raise ValueError(
-            "attentionpihmonet_training.boundary_physics_offset must be in [0, 0.5)"
-        )
-    tangential_margin = float(
-        attention.get("boundary_physics_tangential_margin", 0.05)
-    )
-    if not 0 <= tangential_margin < 0.5:
-        raise ValueError(
-            "attentionpihmonet_training.boundary_physics_tangential_margin must "
-            "be in [0, 0.5)"
-        )
 
 
-def validate_evaluate_config(config: dict) -> None:
+def _validate_grid_counts(name: str, value, dimension: int) -> None:
+    """Validate a fixed-size evaluation grid without assuming a dimension."""
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must contain {dimension} integer values")
+    if len(value) != dimension or min(map(int, value)) < 2:
+        raise ValueError(f"{name} must contain {dimension} values >= 2")
+
+
+def _infer_evaluation_dimension(cases: dict) -> int:
+    """Infer the 2-D/3-D case convention for backwards-compatible validation."""
+    for case in cases.values():
+        if "grid_shape" in case:
+            return 3
+        if "train_grid" in case or "grid_shapes" in case:
+            return 2
+    raise ValueError("evaluate config must define at least one case grid")
+
+
+def validate_evaluate_config(config: dict, *, dimension: int | None = None) -> None:
+    """Validate either the 2-D or the 3-D evaluation YAML schema.
+
+    Two-dimensional cases use ``boundary_type``, ``train_grid`` and a list of
+    ``grid_shapes``.  Three-dimensional cases use ``boundary`` and one
+    ``grid_shape``.  Keeping both schemas explicit prevents a valid 3-D YAML
+    from being rejected by legacy 2-D-only checks.
+    """
     if "cases" not in config or "evaluation" not in config:
         raise ValueError("evaluate config requires cases and evaluation sections")
+    if not isinstance(config["cases"], dict) or not config["cases"]:
+        raise ValueError("evaluate config requires a non-empty cases mapping")
+    if dimension is None:
+        dimension = _infer_evaluation_dimension(config["cases"])
+    if dimension not in (2, 3):
+        raise ValueError("evaluation dimension must be 2 or 3")
     evaluation = config["evaluation"]
     methods = evaluation.get("methods", [])
-    if not isinstance(methods, list) or set(methods) - {
+    if not isinstance(methods, list) or not methods or set(methods) - {
         "hmonet",
         "meshonet",
         "pimeshonet",
@@ -454,7 +399,8 @@ def validate_evaluate_config(config: dict) -> None:
         "pde",
     }:
         raise ValueError(
-            "evaluation.methods must contain hmonet, meshonet, tfi and/or pde"
+            "evaluation.methods must be a non-empty list drawn from tfi, pde, "
+            "meshonet, pimeshonet, hmonet and qghmonet"
         )
     for key in (
         "hmonet_boundary_projection",
@@ -491,10 +437,6 @@ def validate_evaluate_config(config: dict) -> None:
         )
     normalize_mapping_mode(
         evaluation.get("hmonet_mapping_mode", "rational_affine"),
-        allow_both=True,
-    )
-    normalize_mapping_mode(
-        evaluation.get("attentionpihmonet_mapping_mode", "rational_affine"),
         allow_both=True,
     )
     if not isinstance(evaluation.get("include_tfi", True), bool):
@@ -535,34 +477,39 @@ def validate_evaluate_config(config: dict) -> None:
     ):
         raise ValueError("evaluation.inference_timing_repeats must be an integer >= 1")
     for name, case in config["cases"].items():
-        for field in (
-            "boundary_type",
-            "split",
-            "parameter",
-            "values",
-            "train_grid",
-            "grid_shapes",
-        ):
-            if field not in case:
-                raise ValueError(f"case {name} is missing field: {field}")
-        if len(case["train_grid"]) != 2 or min(map(int, case["train_grid"])) < 2:
-            raise ValueError(f"case {name}.train_grid must contain two values >= 2")
-        for grid in case["grid_shapes"]:
-            if isinstance(grid, dict):
-                if case["boundary_type"] == "double_semiellipse_hole":
-                    required = {"n_half_top", "n_right", "ny"}
+        if not isinstance(case, dict):
+            raise ValueError(f"case {name} must be a mapping")
+        if dimension == 3:
+            for field in ("boundary", "parameter", "values", "grid_shape"):
+                if field not in case:
+                    raise ValueError(f"case {name} is missing field: {field}")
+            _validate_grid_counts(f"case {name}.grid_shape", case["grid_shape"], 3)
+        else:
+            for field in (
+                "boundary_type",
+                "split",
+                "parameter",
+                "values",
+                "train_grid",
+                "grid_shapes",
+            ):
+                if field not in case:
+                    raise ValueError(f"case {name} is missing field: {field}")
+            _validate_grid_counts(f"case {name}.train_grid", case["train_grid"], 2)
+            for grid in case["grid_shapes"]:
+                if isinstance(grid, dict):
+                    if case["boundary_type"] == "double_semiellipse_hole":
+                        required = {"n_half_top", "n_right", "ny"}
+                    else:
+                        required = {"nx", "ny"}
+                    missing = required.difference(grid)
+                    if missing:
+                        raise ValueError(
+                            f"case {name} grid shape is missing: {', '.join(sorted(missing))}"
+                        )
+                    if min(int(grid[field]) for field in required) < 2:
+                        raise ValueError(f"case {name} grid shape values must be >= 2")
                 else:
-                    required = {"nx", "ny"}
-                missing = required.difference(grid)
-                if missing:
-                    raise ValueError(
-                        f"case {name} grid shape is missing: {', '.join(sorted(missing))}"
-                    )
-                if min(int(grid[field]) for field in required) < 2:
-                    raise ValueError(f"case {name} grid shape values must be >= 2")
-            elif len(grid) != 2 or min(map(int, grid)) < 2:
-                raise ValueError(
-                    f"case {name} grid shapes must contain two values >= 2"
-                )
+                    _validate_grid_counts(f"case {name}.grid_shapes", grid, 2)
 
 

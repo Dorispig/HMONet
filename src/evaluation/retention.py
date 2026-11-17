@@ -24,8 +24,6 @@ _METHOD_NAMES = {
     "hmonet": "HMONet",
     "qghmonet": "QG-HMONet",
     "qg-hmonet": "QG-HMONet",
-    "pihmonet": "PI-HMONet",
-    "attentionpihmonet": "Attention-PI-HMONet",
 }
 _LEGACY_METHOD_NAMES = {
     "tfi": "TFI",
@@ -38,7 +36,6 @@ _LEGACY_METHOD_NAMES = {
     "mo": "MeshONet",
     "m": "MeshONet",
     "pi": "PI-MeshONet",
-    "pih": "PI-HMONet",
 }
 
 
@@ -125,10 +122,7 @@ def readable_image_path(root: Path, relative: Path) -> Path:
     destination = root / "plots" / method
     if "raw" in lowered:
         destination /= "raw"
-    elif method in {
-        "HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet",
-        "PI-HMONet", "Attention-PI-HMONet",
-    }:
+    elif method in {"HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"}:
         destination /= "processed"
     if "grid_quality" in lowered or "quality" in lowered:
         destination /= "quality"

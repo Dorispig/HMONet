@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+from src.utils.paths import prepare_output_file
+
 
 def json_value(value):
     """Convert NumPy/path values and represent undefined statistics as null."""
@@ -26,8 +28,7 @@ def json_value(value):
 
 
 def write_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = prepare_output_file(path, context="Evaluation JSON artifact")
     path.write_text(
         json.dumps(json_value(value), indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
@@ -61,8 +62,7 @@ def array_digest(values):
 
 
 def write_csv(path, rows, headers=None):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = prepare_output_file(path, context="Evaluation CSV artifact")
     rows = list(rows)
     headers = headers or (list(rows[0]) if rows else [])
     with path.open("w", newline="", encoding="utf-8-sig") as stream:

@@ -3,9 +3,9 @@
 import numpy as np
 from src.data.generation.make_dataset_parametric_2d import to_computational_boundary
 from src.data.geometry.boundary_generator_2d import generate_boundary
-from scripts.pde.pde_2d import solve_winslow_2d
-from scripts.pde.vectorized_winslow_2d import solve_winslow_2d_vectorized
-from scripts.tfi.tfi_2d import tfi_from_curves
+from src.numerics.traditional.winslow_2d import solve_winslow_2d
+from src.numerics.traditional.winslow_vectorized_2d import solve_winslow_2d_vectorized
+from src.numerics.traditional.tfi_2d import tfi_from_curves
 
 
 class TestVectorizedWinslow:

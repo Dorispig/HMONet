@@ -10,6 +10,7 @@ from .artifacts import digest, file_digest, array_digest, read_json, write_json
 from .configuration import ROOT, resolve_path
 from .inference import load_network, predict, resolve_device
 from src.data.mesh.sampling import boundary_indices, logical_grid, sample_boundary
+from src.utils.paths import ensure_output_directory, prepare_output_file
 
 
 def implementation_version():
@@ -19,9 +20,8 @@ def implementation_version():
         "src/data",
         "src/evaluation",
         "src/metrics",
+        "src/numerics",
         "src/utils",
-        "scripts/tfi",
-        "scripts/pde",
         "scripts/evaluate",
     )
     return digest(
@@ -91,15 +91,14 @@ def generate(
     defer=False,
 ):
     """Reuse only the matching method's mesh; an unavailable method is never TFI."""
-    directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet")
+    directory = ensure_output_directory(directory, context="Evaluation generation cache")
+    network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
     signature_data = {
         "implementation": version,
         "method": method,
         "shape": shape,
         "geometry": geometry.to_dict(),
-        "mapping": mapping if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet") else None,
+        "mapping": mapping if method in ("HMONet", "QG-HMONet") else None,
     }
     if network:
         signature_data.update(
@@ -119,7 +118,7 @@ def generate(
                 )
             },
         )
-        if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet"):
+        if method in ("HMONet", "QG-HMONet"):
             signature_data["inference_path"] = "direct-no-setup-v1"
             signature_data["curve_kernel_backend"] = options.get(
                 "curve_kernel_backend", "auto"
@@ -223,7 +222,10 @@ def generate(
         or not np.isfinite(points).all()
     ):
         raise ValueError(f"Invalid {method} mesh shape/coordinates: {points.shape}")
-    np.savez_compressed(cache_path, points=points)
+    np.savez_compressed(
+        prepare_output_file(cache_path, context="Evaluation generation cache artifact"),
+        points=points,
+    )
     timing["cache_hit"] = False
     write_json(
         directory / "generation_metadata.json",
@@ -291,7 +293,12 @@ def execute_prediction_batches(requests, models):
                 ):
                     raise ValueError("Invalid mesh produced by batched inference")
                 cache_path = request["cache_path"]
-                np.savez_compressed(cache_path, points=mesh)
+                np.savez_compressed(
+                    prepare_output_file(
+                        cache_path, context="Evaluation generation cache artifact"
+                    ),
+                    points=mesh,
+                )
                 write_json(
                     cache_path.parent / "generation_metadata.json",
                     {

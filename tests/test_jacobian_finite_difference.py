@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from scripts.train.training_common import (
+from src.engine.training import (
     jacobian_finite_difference_queries,
     jacobian_positive_loss,
     jacobian_positive_loss_autograd,

@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 import yaml
-from scripts.train.physics_loss import stencil_queries, elliptic_residual
+from src.losses.physics import stencil_queries, elliptic_residual
 from scripts.train.train_pimeshonet import train_pimeshonet
 from src.evaluation.inference import load_network
 from tests.test_paired_dataset_training import SMALL_MODEL

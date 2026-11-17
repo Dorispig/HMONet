@@ -6,13 +6,13 @@
 
 ```bash
 # 二维
-python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case air_t_ext_1_500_21_21 --values 0.62,0.65 --grid-shapes 101x101,201x201,401x401 --methods tfi,pde,meshonet,pimeshonet,hmonet
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --values 0.62 0.65 --grids 101 201 401 --methods tfi,pde,meshonet,pimeshonet,hmonet
 
 # 三维
-python scripts/evaluate/evaluate_3d.py --config configs/3D/evaluate.yaml --case sch_r_ext_0_1000_11_31_11 --grid-shapes 21x21x21 --methods tfi,pde,meshonet,hmonet
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --values 0.02 0.34 --grids 11x21x11 21x41x21 --methods tfi,pde,meshonet,pimeshonet,hmonet
 ```
 
-只选传统方法时不会生成模型占位文件。方法名称不区分输入大小写；图中顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet 的相对顺序。显式 checkpoint 必须与模型和 HMONet 映射模式匹配，错误身份会报错，不会静默替换。
+三维显式网格按 `n_x×n_y×n_z` 写为一个参数，例如 `11x31x11`；只有纯数字 `21 31` 才被解释为两个立方网格。旧式 `--grid-shapes 11x31x11,21x61x21` 仍兼容。只选传统方法时不会生成模型占位文件。方法名称不区分输入大小写；图中顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet、QG-HMONet。显式 checkpoint 必须与模型和 HMONet 映射模式匹配，错误身份会报错，不会静默替换。
 
 YAML case 可直接构造指定参数的精确边界；`--dataset`/`--parameter-index` 用于选择已保存样本。PDE 结果由当前设置求解或从严格匹配缓存复用，不以旧 TFI 文件冒充 PDE。默认要求 PDE 收敛；允许保留未收敛结果时必须在摘要中明确状态。
 

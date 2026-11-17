@@ -17,6 +17,7 @@ from src.data.mesh.topology import QuadMeshXY
 from .method_order import ordered_methods
 from src.metrics import QuadMeshQualityEvaluator
 from src.utils.quality_selection import QUAD_METRICS, metric_names
+from src.utils.paths import ensure_output_directory, prepare_output_file
 from src.utils.visualize import (
     plot_quad_meshXY,
     plot_quad_mesh_colored,
@@ -214,9 +215,18 @@ def save_figure_formats(
 ) -> None:
     """Save a figure in the enabled formats using a suffix-free path."""
     if save_png:
-        fig.savefig(path.with_suffix(".png"), dpi=dpi)
+        fig.savefig(
+            prepare_output_file(
+                path.with_suffix(".png"), context="Evaluation figure"
+            ),
+            dpi=dpi,
+        )
     if save_pdf:
-        fig.savefig(path.with_suffix(".pdf"))
+        fig.savefig(
+            prepare_output_file(
+                path.with_suffix(".pdf"), context="Evaluation figure"
+            )
+        )
 
 
 def quality_plot_style(
@@ -504,11 +514,18 @@ def save_invalid_cells(
     save_png: bool = True,
     save_pdf: bool = True,
 ) -> None:
-    (out_dir / "invalid_cells.json").write_text(
+    out_dir = ensure_output_directory(out_dir, context="Evaluation quality directory")
+    invalid_json = prepare_output_file(
+        out_dir / "invalid_cells.json", context="Evaluation quality artifact"
+    )
+    invalid_csv = prepare_output_file(
+        out_dir / "invalid_cells.csv", context="Evaluation quality artifact"
+    )
+    invalid_json.write_text(
         json.dumps(invalid, indent=2, ensure_ascii=False, allow_nan=True),
         encoding="utf-8",
     )
-    with (out_dir / "invalid_cells.csv").open(
+    with invalid_csv.open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -576,6 +593,7 @@ def save_boundary_error(
     save_pdf: bool = True,
 ) -> dict:
     """Save pre-projection boundary errors for one learned model output."""
+    out_dir = ensure_output_directory(out_dir, context="Evaluation boundary-error directory")
     predicted = np.asarray(predicted_boundary, dtype=float)
     target = np.asarray(target_boundary, dtype=float)
     if (
@@ -602,10 +620,16 @@ def save_boundary_error(
         "maximum_error_boundary_index": maximum_index,
         "nonfinite_count": int(distance.size - finite.size),
     }
-    (out_dir / "boundary_error_summary.json").write_text(
+    boundary_json = prepare_output_file(
+        out_dir / "boundary_error_summary.json", context="Evaluation boundary-error artifact"
+    )
+    boundary_csv = prepare_output_file(
+        out_dir / "boundary_error_data.csv", context="Evaluation boundary-error artifact"
+    )
+    boundary_json.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    with (out_dir / "boundary_error_data.csv").open(
+    with boundary_csv.open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -688,7 +712,7 @@ def save_quad_quality(
     save_distribution_plots: bool = False,
     plot_metrics: tuple[str, ...] | list[str] = (),
 ) -> dict:
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_output_directory(out_dir, context="Evaluation quality directory")
     # Prevent disabled formats from leaving stale figures from an older run.
     if not save_png:
         for path in out_dir.glob("*.png"):
@@ -699,16 +723,21 @@ def save_quad_quality(
     quality = quality or compute_quad_quality(vertices, nx, ny)
     fields, mesh = quality["fields"], quality["mesh"]
     np.savez_compressed(
-        out_dir / "mesh_data.npz",
+        prepare_output_file(out_dir / "mesh_data.npz", context="Evaluation quality artifact"),
         vertices=mesh.vertices,
         faces=mesh.faces,
         nx=nx,
         ny=ny,
         indexing="index=j*nx+i",
     )
-    np.savez_compressed(out_dir / "quality_data.npz", **fields)
+    np.savez_compressed(
+        prepare_output_file(out_dir / "quality_data.npz", context="Evaluation quality artifact"),
+        **fields,
+    )
     names = list(fields)
-    with (out_dir / "quality_data.csv").open(
+    with prepare_output_file(
+        out_dir / "quality_data.csv", context="Evaluation quality artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -717,7 +746,9 @@ def save_quad_quality(
             writer.writerow([index, *(fields[name][index] for name in names)])
     summary = quality["summary"]
     invalid = quality["invalid_cells"]
-    (out_dir / "quality_summary.json").write_text(
+    prepare_output_file(
+        out_dir / "quality_summary.json", context="Evaluation quality artifact"
+    ).write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     if make_plots and (save_png or save_pdf):
@@ -781,7 +812,7 @@ def save_quality_comparison(
 ) -> dict:
     """Save paper-oriented same-scale quality comparisons for available methods."""
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_output_directory(out_dir, context="Evaluation comparison directory")
     method_fields = {}
     method_meshes = {}
     summaries = {}
@@ -802,9 +833,16 @@ def save_quality_comparison(
             },
         }
 
-    np.savez_compressed(out_dir / "comparison_mesh_data.npz", **meshes)
     np.savez_compressed(
-        out_dir / "comparison_quality_data.npz",
+        prepare_output_file(
+            out_dir / "comparison_mesh_data.npz", context="Evaluation comparison artifact"
+        ),
+        **meshes,
+    )
+    np.savez_compressed(
+        prepare_output_file(
+            out_dir / "comparison_quality_data.npz", context="Evaluation comparison artifact"
+        ),
         **{
             f"{method}__{metric}": values
             for method, fields in method_fields.items()
@@ -812,7 +850,9 @@ def save_quality_comparison(
         },
     )
     metrics = list(next(iter(method_fields.values())))
-    with (out_dir / "comparison_quality_data.csv").open(
+    with prepare_output_file(
+        out_dir / "comparison_quality_data.csv", context="Evaluation comparison artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -839,14 +879,20 @@ def save_quality_comparison(
         "method_order": list(meshes),
         "method_display_names": [DISPLAY_NAMES.get(name, name) for name in meshes],
     }
-    (out_dir / "metadata.json").write_text(
+    prepare_output_file(
+        out_dir / "metadata.json", context="Evaluation comparison artifact"
+    ).write_text(
         json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     summary_payload = {"metadata": metadata, "methods": summaries}
-    (out_dir / "quality_summary.json").write_text(
+    prepare_output_file(
+        out_dir / "quality_summary.json", context="Evaluation comparison artifact"
+    ).write_text(
         json.dumps(summary_payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    with (out_dir / "quality_summary.csv").open(
+    with prepare_output_file(
+        out_dir / "quality_summary.csv", context="Evaluation comparison artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -866,8 +912,6 @@ def save_quality_comparison(
                 projection = metadata["boundary_projection"].get("HMONet", "")
             elif method in {"MeshONet2D", "MeshONet"}:
                 projection = metadata["boundary_projection"].get("MeshONet", "")
-            elif method == "PI-HMONet":
-                projection = metadata["boundary_projection"].get("PI-HMONet", "")
             elif method == "PI-MeshONet":
                 projection = metadata["boundary_projection"].get("PI-MeshONet", "")
             else:
@@ -907,14 +951,18 @@ def save_quality_comparison(
                         ),
                     }
                 )
-    with (out_dir / "pairwise_quality_differences.csv").open(
+    with prepare_output_file(
+        out_dir / "pairwise_quality_differences.csv", context="Evaluation comparison artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         columns = list(pairwise[0]) if pairwise else []
         writer = csv.DictWriter(stream, fieldnames=columns)
         writer.writeheader()
         writer.writerows(pairwise)
-    (out_dir / "pairwise_quality_differences.json").write_text(
+    prepare_output_file(
+        out_dir / "pairwise_quality_differences.json", context="Evaluation comparison artifact"
+    ).write_text(
         json.dumps(pairwise, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
@@ -1016,9 +1064,9 @@ def save_hex_quality(
         if quality_fields is not None
         else evaluate_hexahedral_grid_quality(grid)
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_output_directory(out_dir, context="Evaluation 3-D quality directory")
     np.savez_compressed(
-        out_dir / "mesh_data.npz",
+        prepare_output_file(out_dir / "mesh_data.npz", context="Evaluation 3-D quality artifact"),
         vertices=mesh.vertices,
         cells=mesh.cells,
         nx=nx,
@@ -1026,10 +1074,15 @@ def save_hex_quality(
         nz=nz,
         indexing="index=(k*ny+j)*nx+i",
     )
-    np.savez_compressed(out_dir / "quality_data.npz", **fields)
+    np.savez_compressed(
+        prepare_output_file(out_dir / "quality_data.npz", context="Evaluation 3-D quality artifact"),
+        **fields,
+    )
     summary = summarize_fields(fields)
     metric_names = list(fields)
-    with (out_dir / "quality_data.csv").open(
+    with prepare_output_file(
+        out_dir / "quality_data.csv", context="Evaluation 3-D quality artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -1038,10 +1091,14 @@ def save_hex_quality(
             writer.writerow(
                 [cell_index, *[fields[name][cell_index] for name in metric_names]]
             )
-    (out_dir / "quality_summary.json").write_text(
+    prepare_output_file(
+        out_dir / "quality_summary.json", context="Evaluation 3-D quality artifact"
+    ).write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
-    with (out_dir / "quality_summary.csv").open(
+    with prepare_output_file(
+        out_dir / "quality_summary.csv", context="Evaluation 3-D quality artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -1080,10 +1137,14 @@ def save_hex_quality(
         }
         for cell_index in np.flatnonzero(invalid_mask)
     ]
-    (out_dir / "invalid_cells.json").write_text(
+    prepare_output_file(
+        out_dir / "invalid_cells.json", context="Evaluation 3-D quality artifact"
+    ).write_text(
         json.dumps(invalid_records, indent=2), encoding="utf-8"
     )
-    with (out_dir / "invalid_cells.csv").open(
+    with prepare_output_file(
+        out_dir / "invalid_cells.csv", context="Evaluation 3-D quality artifact"
+    ).open(
         "w", newline="", encoding="utf-8"
     ) as stream:
         writer = csv.writer(stream)
@@ -1106,8 +1167,19 @@ def save_hex_quality(
             axis.set(title=f"3D {name}", xlabel=name, ylabel="cell count")
             fig.tight_layout()
             if save_png:
-                fig.savefig(out_dir / f"quality_{name}.png", dpi=180)
+                fig.savefig(
+                    prepare_output_file(
+                        out_dir / f"quality_{name}.png",
+                        context="Evaluation 3-D quality figure",
+                    ),
+                    dpi=180,
+                )
             if save_pdf:
-                fig.savefig(out_dir / f"quality_{name}.pdf")
+                fig.savefig(
+                    prepare_output_file(
+                        out_dir / f"quality_{name}.pdf",
+                        context="Evaluation 3-D quality figure",
+                    )
+                )
             plt.close(fig)
     return summary

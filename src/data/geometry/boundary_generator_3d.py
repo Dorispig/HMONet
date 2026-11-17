@@ -95,6 +95,73 @@ def stadium_cylinder_with_circular_hole(
     })
 
 
+def sidewall_deformed_block_boundary(
+    length_x=3.0, width_y=2.0, length_z=2.5,
+    sidewall_amplitude=0.15, z_min=0.0,
+):
+    """Box with two opposing concave sidewalls extruded along the z axis."""
+    if min(length_x, width_y, length_z) <= 0:
+        raise ValueError("block dimensions must be positive")
+    if not 0.0 <= sidewall_amplitude <= 0.35:
+        raise ValueError("sidewall_amplitude must lie in [0, 0.35]")
+    parameters = {
+        "length_x": float(length_x), "width_y": float(width_y),
+        "length_z": float(length_z), "sidewall_amplitude": float(sidewall_amplitude),
+        "z_min": float(z_min),
+    }
+    return _mapped_boundary("sidewall_deformed_block", parameters, {
+        "family": "sidewall_deformed_block", "topology": "symmetric_constricted_block", **parameters,
+    })
+
+
+def rounded_u_groove_extrusion_boundary(
+    width=3.0, height=2.0, groove_width=0.9, groove_depth=0.8,
+    corner_smoothing=0.08, length=2.5, z_min=0.0,
+):
+    """Extrude the 2-D rounded-U-notch concept along the z direction.
+
+    The top wall has a flat-bottomed smooth U depression.  It preserves the
+    rectangular logical topology while exposing the same concave-wall effect
+    as the 2-D rounded U-notch family.
+    """
+    if min(width, height, groove_width, groove_depth, corner_smoothing, length) <= 0:
+        raise ValueError("U-groove dimensions must be positive")
+    if groove_width >= width or groove_depth >= height:
+        raise ValueError("groove width/depth must remain below the outer block dimensions")
+    if corner_smoothing >= 0.5 * groove_width:
+        raise ValueError("corner_smoothing must be below half the groove width")
+    parameters = {
+        "width": float(width), "height": float(height), "groove_width": float(groove_width),
+        "groove_depth": float(groove_depth), "corner_smoothing": float(corner_smoothing),
+        "length": float(length), "z_min": float(z_min),
+    }
+    return _mapped_boundary("rounded_u_groove_extrusion", parameters, {
+        "family": "rounded_u_groove_extrusion", "topology": "concave_u_groove_extrusion", **parameters,
+    })
+
+
+def tapered_elliptic_bore_block_boundary(
+    inner_major_axis=0.32, inner_minor_axis_in=0.18, minor_axis_out=0.24,
+    outer_half_width=1.5, outer_half_height=1.0, length=2.5, z_min=0.0,
+):
+    """Rectangular casing containing a z-tapered elliptical through-bore."""
+    if min(inner_major_axis, inner_minor_axis_in, minor_axis_out, outer_half_width, outer_half_height, length) <= 0:
+        raise ValueError("elliptic-bore dimensions must be positive")
+    if inner_major_axis >= outer_half_width or max(inner_minor_axis_in, minor_axis_out) >= outer_half_height:
+        raise ValueError("elliptic bore must remain strictly inside the rectangular casing")
+    parameters = {
+        "inner_major_axis": float(inner_major_axis),
+        "inner_minor_axis_in": float(inner_minor_axis_in),
+        "minor_axis_out": float(minor_axis_out),
+        "outer_half_width": float(outer_half_width),
+        "outer_half_height": float(outer_half_height),
+        "length": float(length), "z_min": float(z_min),
+    }
+    return _mapped_boundary("tapered_elliptic_bore_block", parameters, {
+        "family": "tapered_elliptic_bore_block", "topology": "rectangular_o_grid", **parameters,
+    })
+
+
 def annular_nozzle_diffuser_boundary(
     inner_radius_in=0.30, inner_radius_out=0.35,
     outer_radius_in=1.00, outer_radius_out=1.30,
@@ -191,6 +258,9 @@ def box_boundary(xmin=-1, xmax=1, ymin=-1, ymax=1, zmin=-1, zmax=1):
 BOUNDARY_GENERATORS = {
     "cylindrical_domain_with_airfoil_hole": cylindrical_domain_with_airfoil_hole,
     "stadium_cylinder_with_circular_hole": stadium_cylinder_with_circular_hole,
+    "sidewall_deformed_block": sidewall_deformed_block_boundary,
+    "rounded_u_groove_extrusion": rounded_u_groove_extrusion_boundary,
+    "tapered_elliptic_bore_block": tapered_elliptic_bore_block_boundary,
     "annular_nozzle_diffuser": annular_nozzle_diffuser_boundary,
     "twisted_elliptic_annulus": twisted_elliptic_annulus_boundary,
     "bent_annular_duct": bent_annular_duct_boundary,

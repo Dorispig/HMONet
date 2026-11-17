@@ -11,9 +11,6 @@ class TestComparisonDirectory:
             "hmonet_boundary_projection": "none",
             "meshonet_boundary_projection": "none",
             "pimeshonet_boundary_projection": pimeshonet_projection,
-            "pihmonet_mapping_mode": "rational_affine",
-            "pihmonet_boundary_projection": "none",
-            "attentionpihmonet_mapping_mode": "rational_affine",
         }
 
     def test_default_five_method_path_has_no_extra_pi_layer(self):

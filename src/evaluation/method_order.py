@@ -11,7 +11,7 @@ def ordered_methods(names):
     def rank(name):
         key = str(name).strip().lower()
         for index, family in enumerate(
-            ("tfi", "pde", "meshonet", "pi-meshonet", "hmonet", "qg-hmonet", "pi-hmonet", "attention-pi-hmonet")
+            ("tfi", "pde", "meshonet", "pi-meshonet", "hmonet", "qg-hmonet")
         ):
             if key.startswith(family):
                 return index

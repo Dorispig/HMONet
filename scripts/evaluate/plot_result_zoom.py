@@ -54,8 +54,6 @@ def method_title(path: Path) -> str:
         return "HMONet (Adaptive)"
     if "non_adp" in parts or "non_adaptive" in parts:
         return "HMONet (Non-adaptive)"
-    if "pi-hmonet" in parts:
-        return "PI-HMONet"
     if "pi-meshonet" in parts:
         return "PI-MeshONet"
     if "meshonet" in parts:

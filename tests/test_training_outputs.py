@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import yaml
-from scripts.train.training_state import (
+from src.engine.state import (
     create_run_directories,
     config_archive_directory,
     save_training_snapshot,
@@ -13,7 +13,7 @@ from scripts.train.training_state import (
 import sys
 import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from scripts.train.training_state import (
+from src.engine.state import (
     TrainingState,
     checkpoint_directory,
     create_run_directories,
@@ -25,7 +25,7 @@ import csv
 import io
 import json
 import time
-from scripts.train.training_state import (
+from src.engine.state import (
     TrainingState,
     prepare_training_config,
     print_training_summaries,
@@ -52,7 +52,7 @@ class TestConfigArchive:
                     "hmonet": {"hmonet_mapping_mode": "rational_affine"},
                 },
             }
-            with patch("scripts.train.training_state.datetime") as clock:
+            with patch("src.engine.state.datetime") as clock:
                 clock.now.return_value.strftime.return_value = "20260920_1200"
                 for expected in ("20260920_1200", "20260920_1200_02"):
                     run, output, checkpoint = create_run_directories(
@@ -91,7 +91,7 @@ class TestTrainingRunDirectory:
     def test_separate_tensorboard_runs_share_checkpoint_timestamps(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            with patch("scripts.train.training_state.datetime") as clock:
+            with patch("src.engine.state.datetime") as clock:
                 clock.now.return_value.strftime.return_value = "20260915_0807"
                 for dimension in (2, 3):
                     for name, mapping in (
@@ -180,7 +180,7 @@ class TestTrainingRunDirectory:
                 mode="interpolation",
             )
             config = {"model": {"hmonet": {"hmonet_mapping_mode": "rational_affine"}}}
-            with patch("scripts.train.training_state.datetime") as clock:
+            with patch("src.engine.state.datetime") as clock:
                 clock.now.return_value.strftime.return_value = "20260915_0807"
                 old = checkpoint_directory(args, config, "hmonet", "2D")
                 old.mkdir(parents=True)
@@ -204,7 +204,7 @@ class TestTrainingRunDirectory:
                 mode="interpolation",
             )
             config = {"training": {"tensorboard_enabled": True}}
-            with patch("scripts.train.training_state.datetime") as clock:
+            with patch("src.engine.state.datetime") as clock:
                 clock.now.return_value.strftime.return_value = "20260915_0807"
                 mirror = tensorboard_mirror_directory(
                     args, config, "interpolation", "meshonet", "2D", "20260915_0807"
@@ -283,9 +283,9 @@ class TestTrainingSummary:
                             state.started = time.perf_counter() - 65.5
                             with (
                                 patch(
-                                    "scripts.train.training_state.write_loss_outputs"
+                                    "src.engine.state.write_loss_outputs"
                                 ),
-                                patch("scripts.train.training_state.write_mse_outputs"),
+                                patch("src.engine.state.write_mse_outputs"),
                             ):
                                 history = state.finish()
                         summary = json.loads(

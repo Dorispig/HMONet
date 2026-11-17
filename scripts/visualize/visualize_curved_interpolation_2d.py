@@ -3,7 +3,7 @@
 Example
 -------
 python scripts/visualize/visualize_curved_interpolation_2d.py \
-    --dataset data/raw/2D/air_t_int_0_1000_41_20 \
+    --dataset data/raw/2D/air_t_ext_1_500_21_21 \
     --parameter t --value 0.20 --points-per-side 600
 """
 
@@ -95,7 +95,7 @@ def save_figure(path, boundary, mesh, shape, limits, title, draw):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--dataset", default="data/raw/2D/air_t_int_0_1000_41_20"
+        "--dataset", default="data/raw/2D/air_t_ext_1_500_21_21"
     )
     parser.add_argument("--parameter", default="t")
     parser.add_argument("--value", type=float, default=0.20)

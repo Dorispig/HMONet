@@ -51,7 +51,7 @@ def main():
     device = torch.device("cuda")
     source = (
         ROOT
-        / "outputs/results/2D/air_t_int_0_1000_21_20/51x50/0.3/evaluation_parameters.json"
+        / "outputs/results/2D/air_t_ext_1_500_21_21/101x101/0.62/evaluation_parameters.json"
     )
     parameters = json.loads(source.read_text("utf-8"))
     report = {

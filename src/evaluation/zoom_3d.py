@@ -550,7 +550,7 @@ def load_meshes(directory):
                 p.name
                 for p in [directory, *directory.parents]
                 if p.name
-                in ("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "TFI", "PDE")
+                in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "TFI", "PDE")
             ),
             directory.name,
         )

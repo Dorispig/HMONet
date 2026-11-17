@@ -2,7 +2,7 @@
 
 import torch
 
-from scripts.train.training_common import boundary_normal_loss, normal_alignment_loss
+from src.engine.training import boundary_normal_loss, normal_alignment_loss
 from src.data.geometry.boundary_generator_2d import rectangular_boundary
 from src.data.geometry.boundary_generator_3d import box_boundary
 from src.data.mesh.sampling import logical_grid, sample_boundary

@@ -6,7 +6,7 @@ All notable changes to HMONet are documented here. The format follows [Keep a Ch
 
 ### Added
 
-- Initial research-preview implementation of two- and three-dimensional HMONet, MeshONet, PI-MeshONet, PI-HMONet, and Attention-PI-HMONet workflows.
+- Initial research-preview implementation of two- and three-dimensional HMONet, QG-HMONet, MeshONet, and PI-MeshONet workflows.
 - Parameterized-boundary dataset generation and paired dataset schema.
 - TFI and Winslow reference mesh generation.
 - Formal training, evaluation, compact result retention, mesh-quality analysis, and dynamic multi-GPU task queues.

@@ -1,4 +1,4 @@
-"""TFI anchor targets and validity masks for PI-HMONet training."""
+"""TFI anchor targets and validity masks for optional HMONet warm-up stages."""
 
 import math
 import torch

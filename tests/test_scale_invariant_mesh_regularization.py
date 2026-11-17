@@ -1,6 +1,6 @@
 import torch
 
-from scripts.train.physics_loss import (
+from src.losses.physics import (
     normalized_mapping_barriers,
     normalized_mapping_barriers_from_jacobian,
     scale_invariant_pde_loss,

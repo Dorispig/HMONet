@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import json
 import argparse
+import shutil
 import time
 import numpy as np
 
@@ -28,9 +29,9 @@ DEFAULT_OUTPUT_ROOT = ROOT / "data" / "raw" / "3D"
 
 DATASET_GENERATORS = {
     "cylindrical_domain_with_airfoil_hole": "cylindrical_domain_with_airfoil_hole",
-    "stadium_cylinder_with_circular_hole": "stadium_cylinder_with_circular_hole",
-    "annular_nozzle_diffuser": "annular_nozzle_diffuser",
-    "twisted_elliptic_annulus": "twisted_elliptic_annulus",
+    "sidewall_deformed_block": "sidewall_deformed_block",
+    "rounded_u_groove_extrusion": "rounded_u_groove_extrusion",
+    "tapered_elliptic_bore_block": "tapered_elliptic_bore_block",
     "bent_annular_duct": "bent_annular_duct",
     "lobed_annular_duct": "lobed_annular_duct",
 }
@@ -43,43 +44,43 @@ DATASET_FAMILIES = {
         "parameter": "thickness",
         "description": "圆柱外域与贯穿轴向的NACA4翼型孔；变化翼型相对厚度。",
         "fixed_parameters": {"outer_radius": 1.5, "chord": 1.0, "camber": 0.02, "camber_position": 0.4, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
+        "grid_shape": [11, 21, 11],
         "interpolation": [[0.06, 0.15], [0.25, 0.35]], "extrapolation": [[0.08, 0.34]],
         "evaluation_values": {"interpolation": [0.18, 0.20, 0.22], "extrapolation": [0.06, 0.38]},
     },
-    "stadium_cylinder_with_circular_hole": {
-        "output_name": "sch_r", "function": "stadium_cylinder_with_circular_hole",
-        "parameter": "hole_radius",
-        "description": "操场形柱状外域与同心圆柱孔；变化圆孔半径。",
-        "fixed_parameters": {"straight_half_length": 0.8, "stadium_radius": 0.7, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
-        "interpolation": [[0.12, 0.24], [0.36, 0.48]], "extrapolation": [[0.16, 0.44]],
-        "evaluation_values": {"interpolation": [0.27, 0.30, 0.33], "extrapolation": [0.10, 0.50]},
+    "sidewall_deformed_block": {
+        "output_name": "swb_a", "function": "sidewall_deformed_block",
+        "parameter": "sidewall_amplitude",
+        "description": "左右侧壁同时向中心收缩、沿前后方向贯通的凹椭圆柱面块体；变化无量纲收缩幅值。",
+        "fixed_parameters": {"length_x": 3.0, "width_y": 2.0, "length_z": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 21, 11],
+        "interpolation": [[0.03, 0.10], [0.20, 0.30]], "extrapolation": [[0.04, 0.30]],
+        "evaluation_values": {"interpolation": [0.13, 0.15, 0.17], "extrapolation": [0.02, 0.34]},
     },
-    "annular_nozzle_diffuser": {
-        "output_name": "and_ro", "function": "annular_nozzle_diffuser",
-        "parameter": "outer_radius_out",
-        "description": "同轴环形喷管/扩压器；变化出口外半径。",
-        "fixed_parameters": {"inner_radius_in": 0.30, "inner_radius_out": 0.35, "outer_radius_in": 1.0, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
-        "interpolation": [[1.10, 1.25], [1.40, 1.55]], "extrapolation": [[1.15, 1.50]],
-        "evaluation_values": {"interpolation": [1.30, 1.325, 1.35], "extrapolation": [1.05, 1.60]},
+    "rounded_u_groove_extrusion": {
+        "output_name": "ugc_d", "function": "rounded_u_groove_extrusion",
+        "parameter": "groove_depth",
+        "description": "二维圆角 U 形凹槽沿轴向延伸形成的三维凹槽块体；变化槽深。",
+        "fixed_parameters": {"width": 3.0, "height": 2.0, "groove_width": 0.9, "corner_smoothing": 0.08, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 21, 11],
+        "interpolation": [[0.30, 0.65], [1.00, 1.30]], "extrapolation": [[0.30, 1.30]],
+        "evaluation_values": {"interpolation": [0.75, 0.80, 0.85], "extrapolation": [0.20, 1.45]},
     },
-    "twisted_elliptic_annulus": {
-        "output_name": "tea_a", "function": "twisted_elliptic_annulus",
-        "parameter": "twist_angle_deg",
-        "description": "同心椭圆环形通道沿轴向共同扭转；变化累计扭转角。",
-        "fixed_parameters": {"inner_a": 0.35, "inner_b": 0.22, "outer_a": 1.10, "outer_b": 0.75, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
-        "interpolation": [[10.0, 30.0], [50.0, 70.0]], "extrapolation": [[15.0, 65.0]],
-        "evaluation_values": {"interpolation": [35.0, 40.0, 45.0], "extrapolation": [0.0, 80.0]},
+    "tapered_elliptic_bore_block": {
+        "output_name": "teb_b", "function": "tapered_elliptic_bore_block",
+        "parameter": "minor_axis_out",
+        "description": "矩形块体中带轴向渐变椭圆贯通孔；变化出口椭圆短半轴。",
+        "fixed_parameters": {"inner_major_axis": 0.32, "inner_minor_axis_in": 0.18, "outer_half_width": 1.5, "outer_half_height": 1.0, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [11, 21, 11],
+        "interpolation": [[0.12, 0.18], [0.27, 0.32]], "extrapolation": [[0.12, 0.32]],
+        "evaluation_values": {"interpolation": [0.21, 0.225, 0.24], "extrapolation": [0.08, 0.36]},
     },
     "bent_annular_duct": {
         "output_name": "bad_a", "function": "bent_annular_duct",
         "parameter": "bend_angle_deg",
         "description": "沿圆弧中心线扫掠的环形弯管；变化弯曲角。",
         "fixed_parameters": {"inner_radius": 0.25, "outer_radius": 0.60, "bend_radius": 3.0, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
+        "grid_shape": [11, 21, 11],
         "interpolation": [[20.0, 45.0], [65.0, 90.0]], "extrapolation": [[25.0, 85.0]],
         "evaluation_values": {"interpolation": [50.0, 55.0, 60.0], "extrapolation": [10.0, 105.0]},
     },
@@ -88,7 +89,7 @@ DATASET_FAMILIES = {
         "parameter": "amplitude",
         "description": "带轴向相位旋转的星形波瓣环形通道；变化波瓣幅值。",
         "fixed_parameters": {"inner_radius": 0.35, "outer_radius": 1.0, "lobes": 5, "phase_twist_deg": 45.0, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 31, 11],
+        "grid_shape": [11, 21, 11],
         "interpolation": [[0.02, 0.08], [0.12, 0.18]], "extrapolation": [[0.04, 0.16]],
         "evaluation_values": {"interpolation": [0.09, 0.10, 0.11], "extrapolation": [0.0, 0.20]},
     },
@@ -102,22 +103,19 @@ SPLIT_ALIASES = {
 }
 
 SELECTED_DATASETS = [
-    ("cylindrical_domain_with_airfoil_hole", "interpolation", 0),
-    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 0),
-    ("stadium_cylinder_with_circular_hole", "interpolation", 0),
-    ("stadium_cylinder_with_circular_hole", "extrapolation", 0),
-    ("annular_nozzle_diffuser", "interpolation", 0),
-    ("annular_nozzle_diffuser", "extrapolation", 0),
-    ("twisted_elliptic_annulus", "interpolation", 0),
-    ("twisted_elliptic_annulus", "extrapolation", 0),
-    ("bent_annular_duct", "interpolation", 0),
-    ("bent_annular_duct", "extrapolation", 0),
-    ("lobed_annular_duct", "interpolation", 0),
-    ("lobed_annular_duct", "extrapolation", 0),
+    # The no-argument batch creates the six current v1/500 extrapolation sets.
+    # Existing directories are reported and skipped; interpolation sets remain
+    # explicit because each family uses two disjoint parameter intervals.
+    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 1, 11, 21, 11),
+    ("sidewall_deformed_block", "extrapolation", 1, 11, 21, 11),
+    ("rounded_u_groove_extrusion", "extrapolation", 1, 11, 21, 11),
+    ("tapered_elliptic_bore_block", "extrapolation", 1, 11, 21, 11),
+    ("bent_annular_duct", "extrapolation", 1, 11, 21, 11),
+    ("lobed_annular_duct", "extrapolation", 1, 11, 21, 11),
 ]
 
 DEFAULT_GENERATION_OPTIONS = {
-    "size": 1000,
+    "size": 500,
     "version": None,
     "nx": None,
     "ny": None,
@@ -142,7 +140,7 @@ def normalize_split(split):
 
 
 def resolve_family(value):
-    """Accept either the registry key or short output name such as sch_r."""
+    """Accept either the registry key or a short output name such as swb_a."""
     if value in DATASET_FAMILIES:
         return value
     matches = [
@@ -197,11 +195,66 @@ def sample_parameter_ranges(ranges, count):
     return np.sort(merged)
 
 
+def update_dataset_catalog(output_root=DEFAULT_OUTPUT_ROOT):
+    """Rebuild CATALOG.md without replacing the family-level README guide."""
+    root = Path(output_root)
+    records = []
+    if root.is_dir():
+        for directory in root.iterdir():
+            metadata_path = directory / "metadata.json"
+            if not directory.is_dir() or not metadata_path.is_file():
+                continue
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if metadata.get("dimension") == 3:
+                records.append((directory.name, metadata))
+    records.sort(key=lambda item: item[0])
+    text = [
+        "# 三维数据集目录（自动生成）",
+        "",
+        "本文件由三维数据集生成器自动更新，只列出当前磁盘上实际存在的数据集。",
+        "边界族、命名和复现说明见 [README.md](README.md)。",
+        "",
+        "## 当前数据集",
+        "",
+        "| 数据集 | 参数边界 | 变化参数 | 训练范围 | 数据量 | 网格规模 |",
+        "| --- | --- | --- | --- | ---: | --- |",
+    ]
+    if records:
+        for name, metadata in records:
+            ranges = metadata.get("parameter_ranges", {})
+            text.append(
+                "| `{}` | `{}` | `{}` | `{}` | {} | {} |".format(
+                    name,
+                    metadata.get("boundary_type", "unknown"),
+                    metadata.get("parameter", "unknown"),
+                    json.dumps(ranges, ensure_ascii=False),
+                    metadata.get("size", "unknown"),
+                    "×".join(map(str, metadata.get("grid_shape", []))),
+                )
+            )
+    else:
+        text.append("| — | — | — | — | — | — |")
+    text += [
+        "",
+        "每个数据集保存六面边界采样、参数曲面描述、Winslow PDE 网格、参数值和生成元数据。",
+        "改变参数范围、边界公式或边界定向时，应递增版本号；只改变样本数或网格规模时保持版本号。",
+        "",
+    ]
+    destination = root / "CATALOG.md"
+    temporary = root / "CATALOG.tmp"
+    temporary.write_text("\n".join(text), encoding="utf-8")
+    temporary.replace(destination)
+    return destination
+
+
 def generate_dataset(
     name,
     boundary_type,
     parameters,
-    grid_shape=(21, 31, 11),
+    grid_shape=(11, 21, 11),
     sample_count=400,
     output_root="data/raw/3D",
     seed=20260905,
@@ -209,11 +262,17 @@ def generate_dataset(
     winslow_tolerance=1e-6,
     timing_samples=3,
     generation_metadata=None,
+    overwrite=False,
 ):
     """Generate matching parameter surfaces, boundary samples, and PDE meshes."""
     rng = np.random.default_rng(seed)
     nx, ny, nz = grid_shape
     out = Path(output_root) / name
+    if out.exists():
+        if not overwrite:
+            print(f"[skip] Dataset already exists: {out}", flush=True)
+            return out
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     geoms = []
     boundary = []
@@ -345,6 +404,7 @@ def generate_dataset(
         metadata=metadata,
         parameters=parameters,
     )
+    update_dataset_catalog(out.parent)
     return out
 
 
@@ -353,8 +413,8 @@ def generate_family_dataset(
     family,
     split,
     *,
-    size=1000,
-    version=0,
+    size=500,
+    version=1,
     nx=None,
     ny=None,
     nz=None,
@@ -364,6 +424,8 @@ def generate_family_dataset(
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
     timing_samples=3,
+    overwrite=False,
+    parameter_ranges=None,
 ):
     """Generate one registered dataset family and split."""
     if family not in DATASET_FAMILIES:
@@ -383,7 +445,8 @@ def generate_family_dataset(
         raise ValueError("nx, ny, and nz must be integers >= 3")
     nx, ny, nz = (int(value) for value in raw_shape)
 
-    values = sample_parameter_ranges(specification[split], size)
+    requested_ranges = specification[split] if parameter_ranges is None else parameter_ranges
+    values = sample_parameter_ranges(requested_ranges, size)
     parameter_name = specification["parameter"]
     parameters = [
         dict(specification["fixed_parameters"], **{parameter_name: float(value)})
@@ -394,7 +457,7 @@ def generate_family_dataset(
     print(f"Dataset: {name}", flush=True)
     print(f"Description: {specification['description']}", flush=True)
     print(f"Parameter: {parameter_name}", flush=True)
-    print(f"Training ranges: {specification[split]}", flush=True)
+    print(f"Training ranges: {requested_ranges}", flush=True)
     print(f"Size: {size}; grid: {nx}x{ny}x{nz}", flush=True)
     return generate_dataset(
         name,
@@ -412,11 +475,22 @@ def generate_family_dataset(
             "split": split,
             "version": version,
             "parameter": parameter_name,
-            "parameter_ranges": specification[split],
+            "parameter_ranges": requested_ranges,
+            "parameter_ranges_source": (
+                "family_default" if parameter_ranges is None else "command_override"
+            ),
             "fixed_parameters": specification["fixed_parameters"],
-            "evaluation_values": specification["evaluation_values"][split],
+            "evaluation_values": (
+                specification["evaluation_values"][split]
+                if parameter_ranges is None
+                else [
+                    float(np.asarray(requested_ranges, dtype=float)[:, 0].min()),
+                    float(np.asarray(requested_ranges, dtype=float)[:, 1].max()),
+                ]
+            ),
             "seed": int(seed),
         },
+        overwrite=overwrite,
     )
 
 
@@ -424,16 +498,16 @@ def generate_cylindrical_domain_with_airfoil_hole_dataset(split, **kwargs):
     return generate_family_dataset("cylindrical_domain_with_airfoil_hole", split, **kwargs)
 
 
-def generate_stadium_cylinder_with_circular_hole_dataset(split, **kwargs):
-    return generate_family_dataset("stadium_cylinder_with_circular_hole", split, **kwargs)
+def generate_sidewall_deformed_block_dataset(split, **kwargs):
+    return generate_family_dataset("sidewall_deformed_block", split, **kwargs)
 
 
-def generate_annular_nozzle_diffuser_dataset(split, **kwargs):
-    return generate_family_dataset("annular_nozzle_diffuser", split, **kwargs)
+def generate_rounded_u_groove_extrusion_dataset(split, **kwargs):
+    return generate_family_dataset("rounded_u_groove_extrusion", split, **kwargs)
 
 
-def generate_twisted_elliptic_annulus_dataset(split, **kwargs):
-    return generate_family_dataset("twisted_elliptic_annulus", split, **kwargs)
+def generate_tapered_elliptic_bore_block_dataset(split, **kwargs):
+    return generate_family_dataset("tapered_elliptic_bore_block", split, **kwargs)
 
 
 def generate_bent_annular_duct_dataset(split, **kwargs):
@@ -457,12 +531,18 @@ def generate_selected_datasets(selected=None, **kwargs):
         if len(item) == 2:
             family, split = item
             selected_version = default_version_for_split(normalize_split(split))
+            selected_shape = None
         elif len(item) == 3:
             family, split, selected_version = item
+            selected_shape = None
+        elif len(item) == 6:
+            family, split, selected_version, selected_nx, selected_ny, selected_nz = item
+            selected_shape = (selected_nx, selected_ny, selected_nz)
         else:
             raise ValueError(
                 "Each selected dataset must be (family, split) or "
-                "(family, split, version)"
+                "(family, split, version), or "
+                "(family, split, version, nx, ny, nz)"
             )
         if family not in DATASET_FAMILIES:
             raise ValueError(f"unsupported dataset family: {family}")
@@ -472,26 +552,42 @@ def generate_selected_datasets(selected=None, **kwargs):
         specification = DATASET_FAMILIES[family]
         if specification["function"] not in DATASET_GENERATORS:
             raise ValueError(f"unregistered parametric boundary for {family!r}")
-        default_shape = specification["grid_shape"]
+        default_shape = (
+            selected_shape if selected_shape is not None else specification["grid_shape"]
+        )
         shape = tuple(
             default_shape[index] if kwargs.get(axis) is None else kwargs[axis]
             for index, axis in enumerate(("nx", "ny", "nz"))
         )
         name = build_dataset_name(
-            family, split, version, kwargs.get("size", 1000), *shape
+            family,
+            split,
+            version,
+            kwargs.get("size", DEFAULT_GENERATION_OPTIONS["size"]),
+            *shape,
         )
         if name in names:
             raise ValueError(f"duplicate selected dataset: {name}")
         output_path = destination / name
-        if output_path.exists():
-            raise FileExistsError(f"dataset already exists: {output_path}")
-        sample_parameter_ranges(specification[split], kwargs.get("size", 1000))
+        if output_path.exists() and not kwargs.get("overwrite", False):
+            print(f"[skip] Dataset already exists: {output_path}", flush=True)
+            continue
+        sample_parameter_ranges(
+            specification[split], kwargs.get("size", DEFAULT_GENERATION_OPTIONS["size"])
+        )
         names.add(name)
-        jobs.append((family, split, version))
+        jobs.append((family, split, version, *shape))
 
     outputs = []
-    for family, split, version in jobs:
-        outputs.append(generate_family_dataset(family, split, version=version, **kwargs))
+    for family, split, version, nx, ny, nz in jobs:
+        generation_kwargs = {
+            key: value for key, value in kwargs.items() if key not in {"nx", "ny", "nz"}
+        }
+        outputs.append(
+            generate_family_dataset(
+                family, split, version=version, nx=nx, ny=ny, nz=nz, **generation_kwargs
+            )
+        )
     return outputs
 
 
@@ -520,6 +616,19 @@ if __name__ == "__main__":
     parser.add_argument("--nz", type=int)
     parser.add_argument("--grid-shape", type=parse_grid_shape)
     parser.add_argument(
+        "--parameter-range",
+        "--range",
+        dest="parameter_ranges",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("MIN", "MAX"),
+        help=(
+            "Override the varying-parameter interval for one --family/--split. "
+            "Repeat this option to define disjoint intervals."
+        ),
+    )
+    parser.add_argument(
         "--sample-count", type=int, default=DEFAULT_GENERATION_OPTIONS["sample_count"]
     )
     parser.add_argument("--seed", type=int, default=DEFAULT_GENERATION_OPTIONS["seed"])
@@ -538,6 +647,11 @@ if __name__ == "__main__":
         type=int,
         default=DEFAULT_GENERATION_OPTIONS["timing_samples"],
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing same-name 3-D dataset after regenerating it.",
+    )
     arguments = parser.parse_args()
     if arguments.grid_shape is not None:
         if any(value is not None for value in (arguments.nx, arguments.ny, arguments.nz)):
@@ -545,6 +659,8 @@ if __name__ == "__main__":
         arguments.nx, arguments.ny, arguments.nz = arguments.grid_shape
     if (arguments.family is None) != (arguments.split is None):
         parser.error("--family and --split must be supplied together")
+    if arguments.parameter_ranges is not None and arguments.family is None:
+        parser.error("--parameter-range requires --family and --split")
     common = dict(
         size=arguments.size,
         version=arguments.version,
@@ -557,9 +673,11 @@ if __name__ == "__main__":
         winslow_max_iter=arguments.winslow_max_iter,
         winslow_tolerance=arguments.winslow_tolerance,
         timing_samples=arguments.timing_samples,
+        overwrite=arguments.force,
+        parameter_ranges=arguments.parameter_ranges,
     )
     if arguments.family is not None:
-        common["version"] = 0 if arguments.version is None else arguments.version
+        common["version"] = 1 if arguments.version is None else arguments.version
         generate_family_dataset(resolve_family(arguments.family), arguments.split, **common)
         raise SystemExit(0)
     generate_selected_datasets(

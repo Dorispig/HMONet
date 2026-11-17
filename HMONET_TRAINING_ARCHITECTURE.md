@@ -7,8 +7,8 @@
 - `src/models/model.py`：HMONet 网络及边界硬约束；
 - `src/models/modules.py`：MLP 等基础网络模块；
 - `scripts/train/train_2d.py`：二维 HMONet 完整训练流程；
-- `scripts/train/training_common.py`：采样、目标插值与损失函数；
-- `scripts/train/training_state.py`：收敛判断、日志及模型保存；
+- `src/engine/training.py`：采样、目标插值与损失函数；
+- `src/engine/state.py`：收敛判断、日志及模型保存；
 - `configs/2D/train.yaml`：当前二维训练参数。
 
 ## 1. 问题定义
@@ -443,4 +443,4 @@ final_model.pth
 3. 最佳模型按固定网格 MSE 选择，而平台停止默认使用随机点训练损失，两者目标不同。
 4. `current` 硬约束保证边界坐标精确，但不能单独保证内部 Jacobian 为正，因此仍需 Jacobian 损失。
 5. 正式结论应在多类边界和至少三个随机种子上报告均值与标准差。
-6. 当前 HMONet 使用 PDE 网格标签监督训练，不应称为纯物理自监督方法；PI-HMONet 才属于 PDE 残差自监督模型。
+6. 当前 HMONet 采用归一化 PDE 残差、Jacobian 屏障和奇异值屏障进行自监督训练；训练流程不依赖 PDE 网格标签。

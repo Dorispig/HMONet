@@ -9,7 +9,7 @@ Generate examples for every stored three-dimensional dataset::
 Generate one named dataset::
 
     python scripts/data/generate_dataset_examples_3d.py \
-        --dataset sch_r_ext_0_1000_11_31_11
+        --dataset swb_a_ext_1_500_11_21_11
 """
 
 from __future__ import annotations

@@ -147,9 +147,9 @@ VARIANTS_2D = {
 }
 VARIANTS_3D = {
     "cylindrical_domain_with_airfoil_hole": {"thickness": 0.20},
-    "stadium_cylinder_with_circular_hole": {"hole_radius": 0.45},
-    "annular_nozzle_diffuser": {"outer_radius_out": 1.55},
-    "twisted_elliptic_annulus": {"twist_angle_deg": 70.0},
+    "sidewall_deformed_block": {"sidewall_amplitude": 0.30},
+    "rounded_u_groove_extrusion": {"groove_depth": 1.30},
+    "tapered_elliptic_bore_block": {"minor_axis_out": 0.32},
     "bent_annular_duct": {"bend_angle_deg": 100.0},
     "lobed_annular_duct": {"amplitude": 0.18},
     "box": {"xmax": 3.0},

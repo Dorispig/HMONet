@@ -13,6 +13,7 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from src.metrics import evaluate_hexahedral_grid_quality
 from src.utils.quality_selection import QUAD_METRICS, metric_names
+from src.utils.paths import ensure_output_directory, prepare_output_file
 from .method_order import ordered_methods, method_label
 
 HIGHER = {
@@ -292,9 +293,9 @@ def load_or_compute_surface_analysis(path, meshes, nx, ny, nz, signature, reuse=
         method: compute_all_surface_quality(np.asarray(mesh).reshape(nz, ny, nx, 3))
         for method, mesh in meshes.items()
     }
-    path.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_directory(path, context="Evaluation 3-D surface cache")
     np.savez_compressed(
-        archive_path,
+        prepare_output_file(archive_path, context="Evaluation 3-D surface cache artifact"),
         **{
             f"{method}__{surface}__{metric}": values
             for method, surfaces in result.items()
@@ -302,7 +303,9 @@ def load_or_compute_surface_analysis(path, meshes, nx, ny, nz, signature, reuse=
             for metric, values in fields.items()
         },
     )
-    metadata_path.write_text(
+    prepare_output_file(
+        metadata_path, context="Evaluation 3-D surface cache artifact"
+    ).write_text(
         json.dumps(
             {
                 "signature": signature,
@@ -320,23 +323,36 @@ def save_surface_quality_data(path, surface_fields):
     """Save per-cell NPZ/CSV and summaries for every middle section."""
     from src.evaluation.quality_output import summarize_fields
 
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "metric_definitions.json").write_text(
+    path = ensure_output_directory(path, context="Evaluation 3-D surface directory")
+    prepare_output_file(
+        path / "metric_definitions.json", context="Evaluation 3-D surface artifact"
+    ).write_text(
         json.dumps(SURFACE_METRIC_DEFINITIONS, indent=2), encoding="utf-8"
     )
     for surface_name, fields in surface_fields.items():
         surface_path = path / surface_name
-        surface_path.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(surface_path / "quality_data.npz", **fields)
+        surface_path = ensure_output_directory(
+            surface_path, context="Evaluation 3-D surface directory"
+        )
+        np.savez_compressed(
+            prepare_output_file(
+                surface_path / "quality_data.npz", context="Evaluation 3-D surface artifact"
+            ),
+            **fields,
+        )
         metrics = list(fields)
-        with (surface_path / "quality_data.csv").open(
+        with prepare_output_file(
+            surface_path / "quality_data.csv", context="Evaluation 3-D surface artifact"
+        ).open(
             "w", newline="", encoding="utf-8"
         ) as stream:
             writer = csv.writer(stream)
             writer.writerow(["surface_cell_index", *metrics])
             for index in range(len(fields[metrics[0]])):
                 writer.writerow([index, *[fields[name][index] for name in metrics]])
-        (surface_path / "quality_summary.json").write_text(
+        prepare_output_file(
+            surface_path / "quality_summary.json", context="Evaluation 3-D surface artifact"
+        ).write_text(
             json.dumps(summarize_fields(fields), indent=2), encoding="utf-8"
         )
 
@@ -455,11 +471,16 @@ def plot_boundary_surface_quality_comparison(
     path, method_surface_fields, save_png=True, save_pdf=False
 ):
     """Plot middle sections with physical cells and shared scales across methods."""
-    path.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_directory(path, context="Evaluation 3-D comparison directory")
     save_section_comparison_tables(path, method_surface_fields)
     boundary_faces_directory = path / "boundary_faces"
-    boundary_faces_directory.mkdir(parents=True, exist_ok=True)
-    (boundary_faces_directory / "metric_definitions.json").write_text(
+    boundary_faces_directory = ensure_output_directory(
+        boundary_faces_directory, context="Evaluation 3-D face comparison directory"
+    )
+    prepare_output_file(
+        boundary_faces_directory / "metric_definitions.json",
+        context="Evaluation 3-D face comparison artifact",
+    ).write_text(
         json.dumps(
             {
                 "coordinate_system": "physical_3d",
@@ -569,16 +590,29 @@ def plot_boundary_surface_quality_comparison(
             )
         output = path / f"surface_quality_{metric}"
         if save_png:
-            figure.savefig(output.with_suffix(".png"), dpi=220, bbox_inches="tight")
+            figure.savefig(
+                prepare_output_file(
+                    output.with_suffix(".png"), context="Evaluation 3-D comparison figure"
+                ),
+                dpi=220,
+                bbox_inches="tight",
+            )
         if save_pdf:
-            figure.savefig(output.with_suffix(".pdf"), bbox_inches="tight")
+            figure.savefig(
+                prepare_output_file(
+                    output.with_suffix(".pdf"), context="Evaluation 3-D comparison figure"
+                ),
+                bbox_inches="tight",
+            )
         plt.close(figure)
 
         # Save every physical face separately as a paper-ready method
         # comparison. The overview above remains useful for quick inspection.
         for surface_name in SURFACE_NAMES:
             face_directory = boundary_faces_directory / surface_name
-            face_directory.mkdir(parents=True, exist_ok=True)
+            face_directory = ensure_output_directory(
+                face_directory, context="Evaluation 3-D face comparison directory"
+            )
             face_figure = plt.figure(figsize=(4.6 * len(methods) + 0.8, 4.2))
             face_axes = []
             face_colored = None
@@ -609,14 +643,25 @@ def plot_boundary_surface_quality_comparison(
             face_output = face_directory / f"quality_{metric}"
             if save_png:
                 face_figure.savefig(
-                    face_output.with_suffix(".png"), dpi=220, bbox_inches="tight"
+                    prepare_output_file(
+                        face_output.with_suffix(".png"),
+                        context="Evaluation 3-D face comparison figure",
+                    ),
+                    dpi=220,
+                    bbox_inches="tight",
                 )
             if save_pdf:
                 face_figure.savefig(
-                    face_output.with_suffix(".pdf"), bbox_inches="tight"
+                    prepare_output_file(
+                        face_output.with_suffix(".pdf"),
+                        context="Evaluation 3-D face comparison figure",
+                    ),
+                    bbox_inches="tight",
                 )
             plt.close(face_figure)
-    (path / "surface_plot_version.json").write_text(
+    prepare_output_file(
+        path / "surface_plot_version.json", context="Evaluation 3-D comparison artifact"
+    ).write_text(
         json.dumps(
             {
                 "version": 6,
@@ -651,14 +696,18 @@ def save_section_comparison_tables(path, method_surface_fields):
 
     for name in SURFACE_NAMES:
         target = path / "boundary_faces" / name
-        target.mkdir(parents=True, exist_ok=True)
+        target = ensure_output_directory(
+            target, context="Evaluation 3-D face comparison directory"
+        )
         summaries = {
             method: summarize_fields(
                 {k: v for k, v in surfaces[name].items() if not k.startswith("_")}
             )
             for method, surfaces in method_surface_fields.items()
         }
-        (target / "quality_comparison.json").write_text(
+        prepare_output_file(
+            target / "quality_comparison.json", context="Evaluation 3-D face comparison artifact"
+        ).write_text(
             json.dumps(summaries, indent=2), encoding="utf-8"
         )
         save_quality_table(target / "paper_surface_quality_table.csv", summaries)
@@ -690,11 +739,12 @@ def load_or_compute_analysis(path: Path, meshes, nx, ny, nz, signature, reuse=Tr
         except (OSError, ValueError, json.JSONDecodeError):
             pass
     result = {m: fields_for(v, nx, ny, nz) for m, v in meshes.items()}
-    path.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_directory(path, context="Evaluation 3-D analysis cache")
     np.savez_compressed(
-        archive, **{f"{m}__{k}": v for m, d in result.items() for k, v in d.items()}
+        prepare_output_file(archive, context="Evaluation 3-D analysis cache artifact"),
+        **{f"{m}__{k}": v for m, d in result.items() for k, v in d.items()},
     )
-    meta.write_text(
+    prepare_output_file(meta, context="Evaluation 3-D analysis cache artifact").write_text(
         json.dumps(
             {
                 "signature": signature,
@@ -737,7 +787,7 @@ def plot_surface_slice_comparison(
     quality of the physical middle sections.  The latter is calculated and
     rendered separately by :func:`save_sections`.
     """
-    path.mkdir(parents=True, exist_ok=True)
+    path = ensure_output_directory(path, context="Evaluation 3-D slice comparison directory")
     methods = ordered_methods(method_fields)
     available = set.intersection(
         *(set(method_fields[method]) for method in methods)
@@ -811,7 +861,18 @@ def plot_surface_slice_comparison(
         )
         output_stem = path / f"quality_{metric}_surfaces_and_slices"
         if save_png:
-            fig.savefig(output_stem.with_suffix(".png"), dpi=180, bbox_inches="tight")
+            fig.savefig(
+                prepare_output_file(
+                    output_stem.with_suffix(".png"), context="Evaluation 3-D slice figure"
+                ),
+                dpi=180,
+                bbox_inches="tight",
+            )
         if save_pdf:
-            fig.savefig(output_stem.with_suffix(".pdf"), bbox_inches="tight")
+            fig.savefig(
+                prepare_output_file(
+                    output_stem.with_suffix(".pdf"), context="Evaluation 3-D slice figure"
+                ),
+                bbox_inches="tight",
+            )
         plt.close(fig)

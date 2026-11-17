@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import yaml
 
-from scripts.train.training_common import simplified_plateau_status
-from scripts.train.training_state import TrainingState, prepare_training_config
+from src.engine.training import simplified_plateau_status
+from src.engine.state import TrainingState, prepare_training_config
 import pytest
 
 

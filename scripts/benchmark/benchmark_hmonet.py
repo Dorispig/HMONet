@@ -282,7 +282,7 @@ def main():
         "--baseline-root", type=Path, help="Optional unmodified source backup"
     )
     parser.add_argument(
-        "--dataset", type=Path, default=ROOT / "data/raw/2D/air_t_int_0_1000_21_20"
+        "--dataset", type=Path, default=ROOT / "data/raw/2D/air_t_ext_1_500_21_21"
     )
     parser.add_argument("--dimension", choices=["2D", "3D", "both"], default="both")
     parser.add_argument(

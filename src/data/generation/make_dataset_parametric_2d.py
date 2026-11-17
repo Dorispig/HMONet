@@ -91,7 +91,7 @@ DATASET_FAMILIES = {
             "center": [0.0, 0.0],
         },
         # 与现有 air_t 训练、评估配置一致。
-        "grid_shape": [21, 20],
+        "grid_shape": [41, 41],
         # 按区间长度分配样本数；每个区间内部均匀采样。
         "equal_interval_counts": False,
         "interpolation": [[0.055, 0.25], [0.35, 0.60]],
@@ -103,7 +103,7 @@ DATASET_FAMILIES = {
         "parameter": "inner_center_x",
         "description": "固定内外圆半径的偏心上半环，变化参数为内圆圆心横坐标。",
         "fixed_parameters": {"outer_radius": 0.5, "inner_radius": 0.1},
-        "grid_shape": [20, 20],
+        "grid_shape": [41, 41],
         "equal_interval_counts": True,
         "interpolation": [[0.3, 0.45], [0.55, 0.7]],
         "extrapolation": [[0.3, 0.7]],
@@ -134,14 +134,14 @@ DATASET_FAMILIES = {
         "output_name": "run",
         "function": "rounded_u_notch",
         "parameter": "depth",
-        "description": "小规模深 U 槽；61x21均匀网格，圆角半径0.25，仅变化depth。",
+        "description": "深 U 槽；默认使用41x41均匀网格，圆角半径0.25，仅变化depth。",
         "fixed_parameters": {
             "width": 3.0,
             "height": 2.0,
             "notch_width": 0.9,
             "radius": 0.25,
         },
-        "grid_shape": [61, 21],
+        "grid_shape": [41, 41],
         "equal_interval_counts": True,
         "interpolation": [[0.55, 1.0], [1.3, 1.5]],
         "extrapolation": [[0.55, 1.5]],
@@ -168,7 +168,7 @@ DATASET_FAMILIES = {
         "parameter": "semi_minor_axis",
         "description": "单位矩形的上边界为半椭圆，变化参数为椭圆短半轴。",
         "fixed_parameters": {"length": 1.0, "height": 1.0},
-        "grid_shape": [20, 20],
+        "grid_shape": [41, 41],
         "equal_interval_counts": True,
         "interpolation": [[0.0, 0.2], [0.3, 0.5]],
         "extrapolation": [[0.0, 0.4]],
@@ -204,28 +204,16 @@ SPLIT_ALIASES = {
     "interpolation": "interpolation",
 }
 
-# 按数据集族的完整名称排序；每类依次列出内插、外推两个选项。
-# 每项格式为 (family, split, version)，内插和外推的默认版本均为0。
-# 深 U 槽使用 rounded_u_notch_compact，默认网格为 61×21。
+# 正式六类二维外推边界；每项格式为 (family, split, version)。
+# 不带命令行参数运行时批量生成当前的六个 v1/500 外推数据集；已存在的
+# 数据集会打印 [skip] 提示。内插集使用 --family/--split 显式生成。
 SELECTED_DATASETS = [
-    ("circle_airfoil_t", "interpolation", 0),
-    ("circle_airfoil_t", "extrapolation", 0),
-    ("eccentric_semiannulus", "interpolation", 0),
-    ("eccentric_semiannulus", "extrapolation", 0),
-    ("smooth_constricted_channel", "interpolation", 0),
-    ("smooth_constricted_channel", "extrapolation", 0),
-    ("variable_width_s_channel", "interpolation", 0),
-    ("variable_width_s_channel", "extrapolation", 0),
-    ("rounded_u_notch_compact", "interpolation", 0),
-    ("rounded_u_notch_compact", "extrapolation", 0),
-    ("gear_spline", "interpolation", 0),
-    ("gear_spline", "extrapolation", 0),
-    ("rect_top_semiellipse", "interpolation", 0),
-    ("rect_top_semiellipse", "extrapolation", 0),
-    ("symmetric_convex_tri", "interpolation", 0),
-    ("symmetric_convex_tri", "extrapolation", 0),
-    ("variable_width_s_channel_bend", "interpolation", 0),
-    ("variable_width_s_channel_bend", "extrapolation", 0),
+    ("circle_airfoil_t", "extrapolation", 1, 41, 41),
+    ("eccentric_semiannulus", "extrapolation", 1, 41, 41),
+    ("rect_top_semiellipse", "extrapolation", 1, 41, 41),
+    ("rounded_u_notch_compact", "extrapolation", 1, 41, 41),
+    ("smooth_constricted_channel", "extrapolation", 1, 41, 41),
+    ("variable_width_s_channel", "extrapolation", 1, 41, 41),
 ]
 
 # Common settings for every selected dataset. CLI values override these settings.
@@ -233,7 +221,7 @@ DEFAULT_GENERATION_OPTIONS = {
     # None uses each family's original grid; CLI overrides still take priority.
     "nx": None,
     "ny": None,
-    "size": 1000,
+    "size": 500,
     "version": None,
     "winslow_max_iter": 1000,
     "winslow_tolerance": 1e-6,
@@ -279,7 +267,7 @@ def _boundary_parameter_summary(boundary_type, parameters):
 
 
 def update_dataset_catalog(output_root=DEFAULT_OUTPUT_ROOT):
-    """Rebuild the sorted, parameter-detailed catalog from saved records."""
+    """Rebuild CATALOG.md from saved records without replacing the README guide."""
     from src.data.generation.dataset_catalog_2d import write_catalog
 
     Path(output_root).mkdir(parents=True, exist_ok=True)
@@ -526,7 +514,8 @@ def _generate_pde_dataset(
     root = Path(output_root).resolve()
     destination = root / name
     if destination.exists():
-        raise FileExistsError(f"Dataset already exists: {destination}")
+        print(f"[skip] Dataset already exists: {destination}", flush=True)
+        return destination
     root.mkdir(parents=True, exist_ok=True)
     identity = uuid.uuid4().hex
     started = time.perf_counter()
@@ -767,8 +756,8 @@ def build_dataset_name(family, split, version, size, nx, ny):
 def generate_dataset(
     family,
     split,
-    version=0,
-    size=1000,
+    version=1,
+    size=500,
     nx=None,
     ny=None,
     winslow_max_iter=1000,
@@ -796,6 +785,10 @@ def generate_dataset(
     split = normalize_split(split)
     version = validate_version(version)
     name = build_dataset_name(family, split, version, size, nx, ny)
+    destination = Path(DEFAULT_OUTPUT_ROOT if output_dir is None else output_dir) / name
+    if destination.exists():
+        print(f"[skip] Dataset already exists: {destination}", flush=True)
+        return destination
     specification = DATASET_FAMILIES[family]
     function = specification["function"]
     if function not in DATASET_GENERATORS:
@@ -976,7 +969,7 @@ def generate_rect_top_semiellipse_dataset(split, **options):
 
 
 def generate_rounded_u_notch_compact_dataset(split, **options):
-    """Generate the U-notch depth family on its configured 61-by-21 grid."""
+    """Generate the U-notch depth family on its configured default grid."""
     return generate_dataset("rounded_u_notch_compact", split, **options)
 
 
@@ -1020,17 +1013,27 @@ def generate_selected_datasets(options=None, output_dir=None):
         if len(item) == 2:
             family, split = item
             selected_version = default_version_for_split(normalize_split(split))
+            selected_grid = None
         elif len(item) == 3:
             family, split, selected_version = item
+            selected_grid = None
+        elif len(item) == 5:
+            family, split, selected_version, selected_nx, selected_ny = item
+            selected_grid = (selected_nx, selected_ny)
         else:
             raise ValueError(
                 "Each selected dataset must be (family, split) or "
-                "(family, split, version)"
+                "(family, split, version), or "
+                "(family, split, version, nx, ny)"
             )
         if family not in DATASET_FAMILIES:
             raise ValueError(f"Unknown dataset family: {family!r}")
         split = normalize_split(split)
-        grid = DATASET_FAMILIES[family].get("grid_shape", [21, 21])
+        grid = (
+            selected_grid
+            if selected_grid is not None
+            else DATASET_FAMILIES[family].get("grid_shape", [21, 21])
+        )
         nx = grid[0] if settings["nx"] is None else settings["nx"]
         ny = grid[1] if settings["ny"] is None else settings["ny"]
         if family == "symmetric_convex_tri" and nx % 2 == 0:
@@ -1041,7 +1044,8 @@ def generate_selected_datasets(options=None, output_dir=None):
         if name in names:
             raise ValueError(f"Duplicate selected dataset: {name}")
         if (destination / name).exists():
-            raise FileExistsError(f"Dataset already exists: {destination / name}")
+            print(f"[skip] Dataset already exists: {destination / name}", flush=True)
+            continue
         if DATASET_FAMILIES[family]["function"] not in DATASET_GENERATORS:
             raise ValueError(f"Unregistered parametric boundary for {family!r}")
         ranges = DATASET_FAMILIES[family][split]
@@ -1055,19 +1059,23 @@ def generate_selected_datasets(options=None, output_dir=None):
             ),
         )
         names.add(name)
-        jobs.append((family, split, version, name, ranges))
+        jobs.append((family, split, version, nx, ny, name, ranges))
 
     outputs = []
     generation_settings = {
-        key: value for key, value in settings.items() if key != "version"
+        key: value
+        for key, value in settings.items()
+        if key not in {"version", "nx", "ny"}
     }
-    for index, (family, split, version, name, ranges) in enumerate(jobs, start=1):
+    for index, (family, split, version, nx, ny, name, ranges) in enumerate(jobs, start=1):
         print(f"Generating dataset {index}/{len(jobs)}: {name}", flush=True)
         outputs.append(
             generate_dataset(
                 family=family,
                 split=split,
                 version=version,
+                nx=nx,
+                ny=ny,
                 output_dir=output_dir,
                 **generation_settings,
             )

@@ -120,7 +120,7 @@ class TestTensorCurve:
             assert torch.isfinite(second).all()
 
     def test_analytic_normal_loss_matches_autograd_reference(self):
-        from scripts.train.training_common import boundary_normal_loss
+        from src.engine.training import boundary_normal_loss
 
         model, shape = small_model(2, "rational_affine")
         model = model.double().train()

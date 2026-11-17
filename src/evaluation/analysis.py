@@ -31,6 +31,7 @@ from src.utils.quality_selection import (
     selected_quality_metrics,
     selected_quality_plot_metrics,
 )
+from src.utils.paths import ensure_output_directory, prepare_output_file
 
 
 def plot_enabled(options):
@@ -84,10 +85,12 @@ def empty_quality(points, shape):
 
 def save_method(directory, method, points, shape, options):
     """Save mesh geometry and only the selected quality calculations."""
-    directory = Path(directory)
+    directory = ensure_output_directory(directory, context="Evaluation method directory")
     quality_dir = directory / "grid_quality"
-    directory.mkdir(parents=True, exist_ok=True)
-    np.save(directory / "mesh.npy", points)
+    np.save(
+        prepare_output_file(directory / "mesh.npy", context="Evaluation mesh artifact"),
+        points,
+    )
     selected = selected_quality_metrics(options, len(shape))
     plot_metrics = selected_quality_plot_metrics(options, len(shape))
     quality = empty_quality(points, shape)
@@ -106,7 +109,7 @@ def save_method(directory, method, points, shape, options):
                 plot_metrics=plot_metrics,
             )
         np.savez_compressed(
-            directory / "mesh_data.npz",
+            prepare_output_file(directory / "mesh_data.npz", context="Evaluation mesh artifact"),
             vertices=points,
             faces=quality["mesh"].faces,
             nx=shape[0],
@@ -140,7 +143,7 @@ def save_method(directory, method, points, shape, options):
                 write_json(quality_dir / "quality_summary.json", summary)
         mesh = HexMeshXYZ(*shape, points)
         np.savez_compressed(
-            directory / "mesh_data.npz",
+            prepare_output_file(directory / "mesh_data.npz", context="Evaluation mesh artifact"),
             vertices=points,
             cells=mesh.cells,
             nx=shape[0],
@@ -194,7 +197,9 @@ def save_sections(directory, meshes, shape, options):
     projection_axes = {"x_mid": (1, 2), "y_mid": (0, 2), "z_mid": (0, 1)}
     for section_name, axes in projection_axes.items():
         target = directory / "boundary_faces" / section_name
-        target.mkdir(parents=True, exist_ok=True)
+        target = ensure_output_directory(
+            target, context="Evaluation 3-D section directory"
+        )
         coordinates = {m: sections[m][section_name] for m in meshes}
         fields = {
             m: surface_quad_quality_fields(s, metrics=selected) if selected else {}
@@ -218,12 +223,23 @@ def save_sections(directory, meshes, shape, options):
                 "quality_definition": "Intrinsic quadrilateral metrics on physical 3-D middle sections; self_intersection tests opposite edges in a local tangent plane.",
             },
         )
-        np.savez_compressed(target / "comparison_mesh_data.npz", **coordinates)
+        np.savez_compressed(
+            prepare_output_file(
+                target / "comparison_mesh_data.npz", context="Evaluation 3-D section artifact"
+            ),
+            **coordinates,
+        )
         if len(meshes) == 1:
-            np.save(target / "mesh.npy", coordinates[next(iter(meshes))])
+            np.save(
+                prepare_output_file(target / "mesh.npy", context="Evaluation 3-D section artifact"),
+                coordinates[next(iter(meshes))],
+            )
         if selected:
             np.savez_compressed(
-                target / "comparison_quality_data.npz",
+                prepare_output_file(
+                    target / "comparison_quality_data.npz",
+                    context="Evaluation 3-D section artifact",
+                ),
                 **{f"{m}__{k}": v for m, f in fields.items() for k, v in f.items()},
             )
             rows = []
@@ -259,7 +275,12 @@ def save_sections(directory, meshes, shape, options):
             write_csv(target / "quality_data.csv", rows)
             if len(meshes) == 1:
                 method = next(iter(meshes))
-                np.savez_compressed(target / "quality_data.npz", **fields[method])
+                np.savez_compressed(
+                    prepare_output_file(
+                        target / "quality_data.npz", context="Evaluation 3-D section artifact"
+                    ),
+                    **fields[method],
+                )
                 write_json(target / "quality_summary.json", summaries[method])
             else:
                 write_json(target / "quality_summary.json", summaries)
@@ -392,12 +413,16 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
     qualities = {name: qualities[name] for name in meshes}
     metadata = {**metadata, "method_order": list(meshes)}
-    directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
+    directory = ensure_output_directory(directory, context="Evaluation comparison directory")
     selected = selected_quality_metrics(options, len(shape))
     plot_metrics = selected_quality_plot_metrics(options, len(shape))
     if not selected:
-        np.savez_compressed(directory / "comparison_mesh_data.npz", **meshes)
+        np.savez_compressed(
+            prepare_output_file(
+                directory / "comparison_mesh_data.npz", context="Evaluation comparison artifact"
+            ),
+            **meshes,
+        )
         write_json(directory / "metadata.json", metadata)
         if len(shape) == 3:
             save_sections(directory, meshes, shape, options)
@@ -430,9 +455,16 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
         )
     else:
         summary = {m: q["summary"] for m, q in qualities.items()}
-        np.savez_compressed(directory / "comparison_mesh_data.npz", **meshes)
         np.savez_compressed(
-            directory / "comparison_quality_data.npz",
+            prepare_output_file(
+                directory / "comparison_mesh_data.npz", context="Evaluation comparison artifact"
+            ),
+            **meshes,
+        )
+        np.savez_compressed(
+            prepare_output_file(
+                directory / "comparison_quality_data.npz", context="Evaluation comparison artifact"
+            ),
             **{
                 f"{m}__{k}": v
                 for m, q in qualities.items()
@@ -487,7 +519,7 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
     # Keep the mesh and its metadata at the group root for standalone zooms;
     # all quality colors and their numeric backing data live together.
     quality_directory = directory / "grid_quality"
-    quality_directory.mkdir(exist_ok=True)
+    ensure_output_directory(quality_directory, context="Evaluation quality directory")
     for path in list(directory.iterdir()):
         if path.is_file() and (
             path.name.startswith(
@@ -529,7 +561,7 @@ def save_point_errors(directory, meshes, raw, shape, options):
     compared = {
         m: p
         for m, p in meshes.items()
-        if m.startswith(("HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"))
+        if m.startswith(("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"))
     }
     compared.update({f"{m}_raw": p for m, p in raw.items()})
     compared = {name: compared[name] for name in ordered_methods(compared)}
@@ -542,9 +574,15 @@ def save_point_errors(directory, meshes, raw, shape, options):
     )
     points = {m: np.mean((p - reference) ** 2, axis=-1) for m, p in compared.items()}
     cell_values = {m: v[cells].max(axis=1) for m, v in points.items()}
-    directory = Path(directory)
-    np.savez_compressed(directory / "point_loss_data.npz", **points)
-    np.savez_compressed(directory / "cell_loss_data.npz", **cell_values)
+    directory = ensure_output_directory(directory, context="Evaluation point-error directory")
+    np.savez_compressed(
+        prepare_output_file(directory / "point_loss_data.npz", context="Evaluation point-error artifact"),
+        **points,
+    )
+    np.savez_compressed(
+        prepare_output_file(directory / "cell_loss_data.npz", context="Evaluation point-error artifact"),
+        **cell_values,
+    )
     write_csv(
         directory / "point_loss_data.csv",
         [

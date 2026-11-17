@@ -64,7 +64,7 @@ class TestPipeline:
     def test_pairing_and_explicit_checkpoints(self):
         with tempfile.TemporaryDirectory() as directory:
             summaries = []
-            for name in ("esa_0_1000_20_20", "esa_1_1000_20_20"):
+            for name in ("esa_1_500_21_21", "esa_2_500_21_21"):
                 for model in ("hmonet", "meshonet"):
                     path = Path(directory) / f"{name}_{model}.pt"
                     path.touch()

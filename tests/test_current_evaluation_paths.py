@@ -3,7 +3,6 @@
 from pathlib import Path
 from scripts.experiments.evaluation_paths import (
     EVALUATION_PATH_LIMIT,
-    STAGING_RELATIVE_PATH_RESERVE,
     evaluation_collection_root,
     evaluation_result_root,
     evaluation_staging_root,
@@ -55,8 +54,9 @@ def test_staging_layout_uses_short_alias_and_task_identity():
         "20261030", "v1", "101x101",
     )
     assert first.is_relative_to(staging_workspace_root(root))
-    # The projected reserve is advisory; actual paths only fail at MAX_PATH.
-    assert len(str(first.resolve())) + 1 + STAGING_RELATIVE_PATH_RESERVE < 260
+    # Only the concrete path is validated.  Hypothetical suffixes must not
+    # cause warnings or reject an otherwise valid temporary root.
+    assert len(str(first.resolve())) < 260
 
 
 def test_staging_workspace_uses_suite_name_when_called_from_variant_directory():
@@ -76,3 +76,4 @@ def test_staging_alias_honours_declared_alias_and_checkpoint_suffix(tmp_path):
     definition.write_text("cli_alias: e1_1\n", encoding="utf-8")
     assert staging_experiment_name(root, "rational_affine") == "e1_1"
     assert staging_experiment_name(root, "rational_affine__phase2") == "e1_1__phase2"
+    assert staging_experiment_name(definition.parent, "rational_affine") == "e1_1"

@@ -13,19 +13,11 @@ import warnings
 
 WINDOWS_CLASSIC_PATH_LIMIT = 260
 LINUX_PATH_LIMIT = 4096
-# Reserve headroom is a warning threshold only.  It must never make an
+# This is an advisory threshold for an actual path.  It must never make an
 # otherwise valid experiment fail before the operating system would fail it.
 EVALUATION_RESERVE_WARNING_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
 # Backwards-compatible public name used by older tests and scripts.
 EVALUATION_PATH_LIMIT = EVALUATION_RESERVE_WARNING_LIMIT
-# Retained public results are shallow after publication.  This reserve is used
-# for their advisory dry-run warning only.
-EVALUATION_RELATIVE_PATH_RESERVE = 96
-# The evaluator creates a substantially deeper internal hierarchy before
-# publication.  Its deepest current 2-D quality artifact is about 161
-# characters below the task root; reserve 180 for staging checks.  This is
-# warning-only, never an artificial failure below the real system limit.
-STAGING_RELATIVE_PATH_RESERVE = 180
 STAGING_WORKSPACE_NAME = ".w"
 
 
@@ -100,7 +92,7 @@ def _actual_path_length(path: Path) -> int:
 def validate_runtime_path(
     path: Path, *, context: str, warn_reserved: bool = True
 ) -> int:
-    """Warn past reserved headroom; fail only at the actual OS limit.
+    """Warn for a long concrete path; fail only at the actual OS limit.
 
     Windows classic paths reserve one character for the terminating null, so
     a 260-character path is rejected.  A path component is separately limited
@@ -120,7 +112,7 @@ def validate_runtime_path(
         raise OSError(f"{context} exceeds the real system path limit: {detail}; path={path}")
     if warn_reserved and length > EVALUATION_RESERVE_WARNING_LIMIT:
         warnings.warn(
-            f"{context} exceeds the reserved path headroom "
+            f"{context} approaches the system path limit "
             f"({length}>{EVALUATION_RESERVE_WARNING_LIMIT}) but remains valid "
             f"for this system ({limit - 1} maximum usable characters): {path}",
             RuntimeWarning,
@@ -128,19 +120,6 @@ def validate_runtime_path(
         )
     return length
 
-
-def warn_for_projected_path(path: Path, *, context: str, reserve: int = 0) -> int:
-    """Warn for a projected deep artifact without treating it as a hard error."""
-    length = _actual_path_length(path) + int(reserve)
-    if length > EVALUATION_RESERVE_WARNING_LIMIT:
-        warnings.warn(
-            f"{context} projected length={length} exceeds reserved headroom "
-            f"{EVALUATION_RESERVE_WARNING_LIMIT}; actual files remain allowed until "
-            f"the system limit ({system_path_limit() - 1}). Root={path}",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-    return length
 
 def _safe_text(value) -> str:
     text = re.sub(r"[^A-Za-z0-9._+-]+", "_", str(value)).strip("._")
@@ -155,15 +134,22 @@ def _declared_cli_alias(experiment_root: Path, variant: str) -> str | None:
     reader is sufficient here: experiment definitions place ``cli_alias`` at
     the top level and aliases are already restricted to portable path text.
     """
-    definition = Path(experiment_root) / variant / "experiment.yaml"
-    try:
-        text = definition.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"(?m)^\s*cli_alias\s*:\s*([^#\r\n]+)", text)
-    if not match:
-        return None
-    return _safe_text(match.group(1).strip().strip("'\""))
+    root = Path(experiment_root)
+    # The dry-run path builder provides the suite directory, whereas the
+    # evaluator passes the selected variant directory.  Support both shapes so
+    # temporary paths retain the declared short alias.
+    candidates = [root / variant / "experiment.yaml"]
+    if root.name == variant:
+        candidates.append(root / "experiment.yaml")
+    for definition in candidates:
+        try:
+            text = definition.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r"(?m)^\s*cli_alias\s*:\s*([^#\r\n]+)", text)
+        if match:
+            return _safe_text(match.group(1).strip().strip("'\""))
+    return None
 
 
 def staging_experiment_name(experiment_root: Path, variant: str) -> str:
@@ -297,11 +283,6 @@ def evaluation_result_root(
     )
     if validate:
         validate_runtime_path(result, context="Evaluation output root")
-        warn_for_projected_path(
-            result,
-            context="Evaluation output root",
-            reserve=1 + EVALUATION_RELATIVE_PATH_RESERVE,
-        )
     return result
 
 
@@ -319,8 +300,7 @@ def evaluation_staging_root(
 
     Evaluations can run concurrently on different GPUs.  The staging path is
     therefore keyed by dataset, short experiment alias, seed, tag, and grid.
-    The evaluator adds several deep implementation folders beneath this root.
-    Therefore the disposable hierarchy uses compact but deterministic names::
+    The disposable hierarchy uses compact but deterministic names::
 
         <project-parent>/.w/e8/<dataset>/<b-or-e1_1>/<seed>/<tag>/<grid>/
 
@@ -339,12 +319,10 @@ def evaluation_staging_root(
     if grid is not None:
         result = result / _safe_text(grid)
     if validate:
+        # Validate this exact directory only.  A fixed hypothetical suffix
+        # creates false warnings; concrete artifacts are checked from their
+        # actual paths before they are written.
         validate_runtime_path(result, context="Evaluation staging root")
-        warn_for_projected_path(
-            result,
-            context="Evaluation staging root",
-            reserve=1 + STAGING_RELATIVE_PATH_RESERVE,
-        )
     return result
 
 
@@ -377,7 +355,7 @@ def validate_evaluation_destination(source_root: Path, target_root: Path) -> Non
     if reserve_warning is not None:
         length, path = reserve_warning
         warnings.warn(
-            f"Published evaluation artifact exceeds reserved path headroom "
+            f"Published evaluation artifact approaches the system path limit "
             f"({length}>{EVALUATION_RESERVE_WARNING_LIMIT}) but is still valid: {path}",
             RuntimeWarning,
             stacklevel=2,

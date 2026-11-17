@@ -56,7 +56,7 @@ def interleaved(functions, device, warmups, repeats):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-model", type=Path)
-    parser.add_argument("--dataset", default="air_t_int_0_1000_21_20")
+    parser.add_argument("--dataset", default="air_t_ext_1_500_21_21")
     parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )

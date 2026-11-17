@@ -1,7 +1,9 @@
 """Cross-platform serialization and resolution of project-owned paths."""
 from __future__ import annotations
 
+import os
 from pathlib import Path, PureWindowsPath
+import warnings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_NAME = PROJECT_ROOT.name.lower()
@@ -18,6 +20,74 @@ PROJECT_TOP_LEVEL_NAMES = {
     "src",
     "tests",
 }
+
+
+# Keep the guard aligned with the classic Windows API used by the local
+# project tooling.  The warning threshold is advisory and is applied only to
+# the concrete path that is about to be created or written.
+WINDOWS_CLASSIC_PATH_LIMIT = 260
+LINUX_PATH_LIMIT = 4096
+OUTPUT_PATH_WARNING_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
+
+
+def system_path_limit() -> int:
+    """Return the active platform's total-path limit used by project outputs."""
+    return WINDOWS_CLASSIC_PATH_LIMIT if os.name == "nt" else LINUX_PATH_LIMIT
+
+
+def output_path_length(path: str | Path) -> int:
+    """Return the absolute spelling length the operating system receives."""
+    return len(str(Path(path).resolve()))
+
+
+def validate_output_path(
+    path: str | Path,
+    *,
+    context: str = "Output path",
+    warn: bool = True,
+) -> int:
+    """Check one concrete output path before creating or writing it.
+
+    A warning is emitted only when this exact path is long; no artificial
+    suffix or speculative reserve is added.  Reaching the real system limit
+    raises before the filesystem operation is attempted.
+    """
+    path = Path(path)
+    length = output_path_length(path)
+    limit = system_path_limit()
+    oversized = [part for part in path.parts if len(part) > 255]
+    if length >= limit or oversized:
+        detail = (
+            f"components above 255 characters: {oversized}"
+            if oversized
+            else f"length={length}, system_limit={limit}"
+        )
+        raise OSError(f"{context} exceeds the real system path limit: {detail}; path={path}")
+    if warn and length > OUTPUT_PATH_WARNING_LIMIT:
+        warnings.warn(
+            f"{context} approaches the system path limit "
+            f"({length}>{OUTPUT_PATH_WARNING_LIMIT}) but remains valid "
+            f"for this system ({limit - 1} maximum usable characters): {path}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return length
+
+
+def ensure_output_directory(path: str | Path, *, context: str = "Output directory") -> Path:
+    """Validate and create one concrete output directory."""
+    directory = Path(path)
+    validate_output_path(directory, context=context)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def prepare_output_file(path: str | Path, *, context: str = "Output file") -> Path:
+    """Validate a concrete file destination and create its parent directory."""
+    output = Path(path)
+    validate_output_path(output, context=context)
+    ensure_output_directory(output.parent, context=f"{context} parent directory")
+    return output
 
 
 def _legacy_relative(value) -> Path | None:

@@ -30,8 +30,8 @@ class TestDatasetSelection:
         assert not np.any((values > 0.25) & (values < 0.35))
         for split, tag in (("interpolation", "int"), ("extrapolation", "ext")):
             assert (
-                generator.build_dataset_name("circle_airfoil_t", split, 0, 1000, 21, 20)
-            ) == (f"air_t_{tag}_0_1000_21_20")
+                generator.build_dataset_name("circle_airfoil_t", split, 1, 500, 21, 21)
+            ) == (f"air_t_{tag}_1_500_21_21")
         for alias, split in (
             ("int", "interpolation"),
             ("INT", "interpolation"),
@@ -40,9 +40,9 @@ class TestDatasetSelection:
         ):
             assert (generator.normalize_split(alias)) == (split)
             assert (
-                generator.build_dataset_name("circle_airfoil_t", alias, 0, 1000, 21, 20)
+                generator.build_dataset_name("circle_airfoil_t", alias, 1, 500, 21, 21)
             ) == (
-                generator.build_dataset_name("circle_airfoil_t", split, 0, 1000, 21, 20)
+                generator.build_dataset_name("circle_airfoil_t", split, 1, 500, 21, 21)
             )
 
     def test_original_cli_options_aliases_and_timing(self):
@@ -69,7 +69,7 @@ class TestDatasetSelection:
                         temporary,
                     ]
                 )
-            assert (outputs[0].name) == ("air_t_ext_0_4_7_5")
+            assert (outputs[0].name) == ("air_t_ext_1_4_7_5")
             metadata = read_dataset_metadata(outputs[0])
             assert (metadata["split"]) == ("extrapolation")
             assert (metadata["function"]) == ("circle_airfoil")
@@ -113,7 +113,7 @@ class TestDatasetSelection:
                     ny=3,
                     output_dir=temporary,
                 )
-            assert (output.name) == ("rectangle_width_int_0_4_4_3")
+            assert (output.name) == ("rectangle_width_int_1_4_4_3")
             metadata = read_dataset_metadata(output)
             assert (metadata["parameter"]) == ("x_max")
             assert (metadata["fixed_parameters"]) == (
@@ -202,8 +202,8 @@ class TestDatasetSelection:
                     )
             assert ([path.name for path in outputs]) == (
                 [
-                    "air_t_int_0_6_9_7",
-                    "air_t_ext_0_6_9_7",
+                    "air_t_int_1_6_9_7",
+                    "air_t_ext_1_6_9_7",
                 ]
             )
             expected_values = [
@@ -232,7 +232,7 @@ class TestDatasetSelection:
                 assert ({path.name for path in output.iterdir() if path.is_file()}) == (
                     {"dataset.npy", "boundary_geometry.npy"}
                 )
-            catalog = (Path(temporary) / "README.md").read_text(encoding="utf-8")
+            catalog = (Path(temporary) / "CATALOG.md").read_text(encoding="utf-8")
             for output in outputs:
                 assert (f"### {output.name}") in (catalog)
 
@@ -261,7 +261,7 @@ class TestDatasetSelection:
             ):
                 outputs = generator.main(["--ny", "9", "--count", "3"])
             assert (len(outputs)) == (1)
-            assert (outputs[0].name) == ("air_t_ext_0_3_7_9")
+            assert (outputs[0].name) == ("air_t_ext_1_3_7_9")
             rows = np.load(outputs[0] / "boundary_geometry.npy", allow_pickle=True)
             np.testing.assert_allclose(
                 [row["parameters"]["t"] for row in rows], [0.10, 0.15, 0.20]
@@ -283,17 +283,17 @@ class TestDatasetSelection:
                     with pytest.raises(ValueError):
                         generator.generate_selected_datasets(output_dir=temporary)
             assert (list(Path(temporary).iterdir())) == ([])
-            family, split, version = generator.SELECTED_DATASETS[0]
-            spec = generator.DATASET_FAMILIES[family]
-            grid = spec.get("grid_shape", [21, 21])
+            selection = [generator.SELECTED_DATASETS[0]]
+            family, split, version, nx, ny = selection[0]
             (
                 Path(temporary)
-                / generator.build_dataset_name(family, split, version, 1000, *grid)
+                / generator.build_dataset_name(family, split, version, 500, nx, ny)
             ).mkdir()
             existing = list(Path(temporary).iterdir())
-            with patch.object(generator, "generate_dataset") as generate:
-                with pytest.raises(FileExistsError):
-                    generator.generate_selected_datasets(output_dir=temporary)
+            with patch.object(generator, "SELECTED_DATASETS", selection), patch.object(
+                generator, "generate_dataset"
+            ) as generate:
+                assert generator.generate_selected_datasets(output_dir=temporary) == []
                 generate.assert_not_called()
             assert (list(Path(temporary).iterdir())) == (existing)
 

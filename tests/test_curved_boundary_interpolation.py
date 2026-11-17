@@ -1,6 +1,6 @@
 import torch
 
-from scripts.train.training_common import (
+from src.engine.training import (
     interpolate_pde_mesh,
     third_refined_surface_parameters,
 )

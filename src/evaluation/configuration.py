@@ -28,13 +28,9 @@ METHODS = {
     "qg-hmonet": "QG-HMONet",
 }
 DEFAULTS = dict(
-    methods=["tfi", "pde", "meshonet", "hmonet"],
+    methods=["tfi", "pde", "meshonet", "pimeshonet", "hmonet", "qghmonet"],
     include_tfi=True,
     hmonet_mapping_mode=RATIONAL_AFFINE,
-    pihmonet_mapping_mode=RATIONAL_AFFINE,
-    attentionpihmonet_mapping_mode=RATIONAL_AFFINE,
-    pihmonet_boundary_projection="none",
-    attentionpihmonet_boundary_projection="none",
     hmonet_boundary_projection="none",
     qghmonet_boundary_projection="none",
     curve_kernel_backend="auto",
@@ -79,17 +75,48 @@ def resolve_path(path):
 
 
 def csv_values(value, converter=float):
-    return [converter(part.strip()) for part in value.split(",") if part.strip()]
-
-
-def grid_shapes(value, dimension):
-    result = [
-        tuple(csv_values(item.lower().replace("x", ","), int))
-        for item in value.split(",")
+    """Accept legacy comma values and the shared space-separated CLI form."""
+    values = value if isinstance(value, (list, tuple)) else [value]
+    return [
+        converter(part.strip())
+        for item in values
+        for part in str(item).split(",")
+        if part.strip()
     ]
+
+
+def compact_grid_shapes(values, dimension):
+    """Parse ``N`` or explicit ``Nx...xN`` shapes for either dimension.
+
+    ``--grids 101 201 401`` is the common compact spelling: each scalar is
+    expanded to a square 2-D or cubic 3-D output grid.  Explicit rectangular
+    or anisotropic forms such as ``11x31x11`` remain available directly via
+    ``--grids``; the legacy ``--grid-shapes`` spelling is also supported.
+    """
+    raw_values = values if isinstance(values, (list, tuple)) else [values]
+    result = []
+    for raw in raw_values:
+        for item in str(raw).split(","):
+            text = item.strip().lower()
+            if not text:
+                continue
+            if "x" not in text:
+                try:
+                    size = int(text)
+                except ValueError as error:
+                    raise ValueError(f"Invalid grid size {item!r}") from error
+                shape = (size,) * int(dimension)
+            else:
+                shape = tuple(csv_values(text.replace("x", ","), int))
+            result.append(shape)
     if any(len(shape) != dimension or min(shape) < 2 for shape in result):
         raise ValueError(f"Expected {dimension}-D shapes with counts >= 2")
     return result
+
+
+def grid_shapes(value, dimension):
+    """Parse legacy comma-separated explicit grid shapes."""
+    return compact_grid_shapes(value, dimension)
 
 
 def selected_methods(values):
@@ -128,10 +155,22 @@ def build_parser(dimension):
     )
     parser.add_argument("--parameter-index", type=int, default=0)
     parser.add_argument(
-        "--values", help="Comma-separated physical geometry parameter values."
+        "--values",
+        nargs="+",
+        help="Physical geometry parameter values; use spaces or legacy commas.",
     )
-    parser.add_argument(
-        "--grid-shapes", help="For example 21x20,51x50 or 11x11x11,21x21x21."
+    grid_group = parser.add_mutually_exclusive_group()
+    grid_group.add_argument(
+        "--grids",
+        nargs="+",
+        metavar="N_OR_SHAPE",
+        help=(
+            "Output sizes or explicit shapes, for example 101 201 401 or "
+            "11x31x11 21x61x21; scalar N expands to NxN or NxNxN."
+        ),
+    )
+    grid_group.add_argument(
+        "--grid-shapes", help="Legacy explicit shapes, for example 21x20,51x50 or 11x11x11."
     )
     parser.add_argument(
         "--methods", help="Comma-separated methods; only these methods are compared."
@@ -260,8 +299,6 @@ def evaluation_options(config, case, args):
         "qghmonet_checkpoint",
         "meshonet_checkpoint",
         "pimeshonet_checkpoint",
-        "pihmonet_checkpoint",
-        "attentionpihmonet_checkpoint",
         "checkpoint",
     ):
         value = getattr(args, key, None)
@@ -327,19 +364,13 @@ def evaluation_options(config, case, args):
         raise ValueError(
             "--checkpoint requires one selected network; otherwise use --hmonet-checkpoint/--meshonet-checkpoint"
         )
-    for key in (
-        "hmonet_mapping_mode",
-        "pihmonet_mapping_mode",
-        "attentionpihmonet_mapping_mode",
-    ):
+    for key in ("hmonet_mapping_mode",):
         result[key] = normalize_mapping_mode(result[key], allow_both=True)
     for key in (
         "hmonet_boundary_projection",
         "qghmonet_boundary_projection",
         "meshonet_boundary_projection",
         "pimeshonet_boundary_projection",
-        "pihmonet_boundary_projection",
-        "attentionpihmonet_boundary_projection",
     ):
         result[key] = {
             "idw": "inverse_distance",
@@ -443,7 +474,9 @@ def jobs(dimension, args, config):
             "split": meta.get("split", "interpolation"),
         }
         shapes = (
-            grid_shapes(args.grid_shapes, dimension)
+            compact_grid_shapes(args.grids, dimension)
+            if args.grids
+            else grid_shapes(args.grid_shapes, dimension)
             if args.grid_shapes
             else [tuple(meta["grid_shape"])]
         )
@@ -474,7 +507,9 @@ def jobs(dimension, args, config):
             continue
         values = csv_values(args.values) if args.values else case.get("values", [None])
         shapes = (
-            grid_shapes(args.grid_shapes, dimension)
+            compact_grid_shapes(args.grids, dimension)
+            if args.grids
+            else grid_shapes(args.grid_shapes, dimension)
             if args.grid_shapes
             else case.get(
                 "grid_shapes", [case.get("grid_shape", case.get("train_grid"))]

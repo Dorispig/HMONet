@@ -5,7 +5,6 @@ from .coordinate import (
     coordinate_mse,
     position_weighted_coordinate_mse,
 )
-from .mesh_regularization import normal_alignment_loss
 from .physics import (
     elliptic_grid_normalized_pde_loss,
     elliptic_grid_pde_residual,
@@ -22,7 +21,6 @@ __all__ = [
     "boundary_coordinate_mse",
     "coordinate_mse",
     "position_weighted_coordinate_mse",
-    "normal_alignment_loss",
     "elliptic_grid_pde_residual",
     "elliptic_grid_normalized_pde_loss",
     "elliptic_grid_scale_invariant_pde_loss",

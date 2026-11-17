@@ -4,7 +4,7 @@ HMONet 是面向二维和三维结构化网格生成的研究项目。项目使�
 
 当前实现包括：
 
-- HMONet、MeshONet、PI-MeshONet、PI-HMONet 等模型；
+- HMONet、MeshONet、PI-MeshONet、QG-HMONet 等模型；
 - 二维参数曲线边界和三维参数曲面边界；
 - TFI 与 Winslow PDE 网格基线；
 - 网格质量、非法单元、边界误差和生成时间评估；
@@ -43,75 +43,74 @@ conda activate MGNet
 cd E:\projects\HMONet
 ```
 
-## 数据集
+## 从零复现：六类外推数据集与正式实验
 
-数据集默认保存在：
+下面的流程假设当前没有数据集、训练 checkpoint 或评估结果；所有命令都从项目根目录运行。数据集写入 `data/raw/2D/` 或 `data/raw/3D/`，训练与评估结果写入 `outputs/`。推荐通过统一入口 `scripts/train/train_evaluate.py` 完成一个数据集的“训练 → 评估”闭环；它会自动生成 TFI 和 Winslow PDE 基线，并评估本次训练出的 HMONet、MeshONet、PI-MeshONet。
 
-```text
-data/raw/2D/<dataset_name>/
-data/raw/3D/<dataset_name>/
+`--models hmonet meshonet pimeshonet` 是论文主对比组；需要同时测试 QG-HMONet 时，在其后追加 `qghmonet`，或使用 `--models all`。二维纯数字网格会展开为方格；三维推荐明确写成 `n_x × n_y × n_z`，避免纯数字被解释成立方网格。
+
+### 二维：六类外推数据集
+
+| 类别 | 生成族 | 输出数据集 | 默认外推评估参数 |
+| --- | --- | --- | --- |
+| 2D-1 | `circle_airfoil_t` | `air_t_ext_1_500_21_21` | `0.62 0.65` |
+| 2D-2 | `eccentric_semiannulus` | `esa_ext_1_500_21_21` | `0.72 0.75` |
+| 2D-3 | `rect_top_semiellipse` | `rse_ext_1_500_21_21` | `0.42 0.46 0.50 0.55 0.60` |
+| 2D-4 | `rounded_u_notch_compact` | `run_ext_1_500_41_41` | `1.52 1.55` |
+| 2D-5 | `smooth_constricted_channel` | `scc_ext_1_500_41_41` | `0.42 0.45 0.47` |
+| 2D-6 | `variable_width_s_channel` | `vsc_ext_1_500_41_41` | `0.85 0.90 0.95` |
+
+先逐类生成训练数据：
+
+二维六类边界的外推与内插完整命令（包括参数范围、样本数、PDE 网格和求解器参数）见 [data/2D/generation_commands.md](data/2D/generation_commands.md)。
+
+然后逐类训练并评估三种主对比模型：
+
+```powershell
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset esa_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.72 0.75 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset rse_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.42 0.46 0.50 0.55 0.60 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset run_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 1.52 1.55 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset scc_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.42 0.45 0.47 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset vsc_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.85 0.90 0.95 --seed 20261030 --run-tag v1
 ```
 
-二维数据集目前包括圆形外边界与 NACA 翼型孔、偏心半环、半椭圆边界、三角凸起、光滑收缩通道、S 形通道、波纹样条边界和圆角 U 形槽等。三维数据集目前主要包括操场形柱体与圆柱孔边界。数据集仍在持续补充。
+### 三维：六类外推数据集
 
-生成二维数据集：
+| 类别 | 生成族（简称） | 输出数据集 | 默认外推评估参数 |
+| --- | --- | --- | --- |
+| 3D-1 | `cylindrical_domain_with_airfoil_hole` (`cah_t`) | `cah_t_ext_1_500_11_21_11` | `0.06 0.38` |
+| 3D-2 | `sidewall_deformed_block` (`swb_a`) | `swb_a_ext_1_500_11_21_11` | `0.02 0.34` |
+| 3D-3 | `rounded_u_groove_extrusion` (`ugc_d`) | `ugc_d_ext_1_500_11_21_11` | `0.20 1.45` |
+| 3D-4 | `tapered_elliptic_bore_block` (`teb_b`) | `teb_b_ext_1_500_11_21_11` | `0.08 0.36` |
+| 3D-5 | `bent_annular_duct` (`bad_a`) | `bad_a_ext_1_500_11_21_11` | `10 105` |
+| 3D-6 | `lobed_annular_duct` (`lad_a`) | `lad_a_ext_1_500_11_21_11` | `0 0.20` |
 
-```bash
-python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split interpolation --size 1000 --grid-shape 21x20
+先逐类生成训练数据：
+
+三维六类边界的外推与内插完整命令（包括参数范围、样本数、边界面采样与求解器参数）见 [data/3D/generation_commands.md](data/3D/generation_commands.md)。
+
+再用三种显式网格规模完成训练和评估：
+
+```powershell
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.06 0.38 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.02 0.34 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset ugc_d_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.20 1.45 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.08 0.36 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 10 105 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0 0.20 --seed 20261030 --run-tag v1
 ```
 
-生成三维数据集：
+三维 `41x121x41` 的 PDE 基线和质量分析成本显著更高；显存或时长受限时，可先只保留前两个网格形状，后续只运行评估阶段补充最大规模。两维生成器都会拒绝同名目录；三维确需替换时才显式追加 `--force`。数据目录被 `.gitignore` 忽略，需要在本地生成或单独获取。
+
+### 单独训练、单独评估与输出
+
+完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练或只评估已有 checkpoint 时，分别使用其中链接的 `train_cli.md`、`evaluate_cli.md`。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。
+
+Linux 多 GPU 动态队列（每个数据集连同所选模型的训练—评估占用一张卡，完成后自动领取下一项）：
 
 ```bash
-python src/data/generation/make_dataset_parametric_3d.py --family sch_r --split interpolation --size 1000 --grid-shape 11x31x11
-```
-
-生成器不会覆盖同名数据集。数据目录被 `.gitignore` 忽略，需要在本地生成或单独获取。
-
-## 训练
-
-二维训练：
-
-```bash
-python scripts/train/train_2d.py --config configs/2D/train.yaml --model both --dataset-mode both
-```
-
-三维训练：
-
-```bash
-python scripts/train/train_3d.py --config configs/3D/train.yaml --model both --dataset-mode both
-```
-
-`--model both` 训练 HMONet 和 MeshONet；其他模型及覆盖参数可通过 `--help` 查看。训练记录和模型默认保存在 `outputs/training/` 与 `outputs/checkpoints/`。
-
-## 评估
-
-二维评估示例：
-
-```bash
-python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case air_t_ext_0_1000_21_20 --methods tfi,pde,meshonet,hmonet --grid-shapes 51x50
-```
-
-三维评估示例：
-
-```bash
-python scripts/evaluate/evaluate_3d.py --config configs/3D/evaluate.yaml --case sch_r_ext_0_1000_11_31_11 --methods tfi,pde,meshonet,hmonet --grid-shapes 21x21x21
-```
-
-评估结果默认保存在 `outputs/results/`，包括质量指标、非法单元统计、边界误差、生成时间和对比图。默认紧凑模式会在汇总完成后删除网格数组；下游求解或二次分析需要网格时，应使用 `--generation-only` 或 `--no-compact-outputs`。详见[评估体系与输出结构](docs/evaluation_system.md)。
-
-## 训练并评估
-
-```bash
-python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/train.yaml --evaluate-config configs/2D/evaluate.yaml --evaluate-methods tfi,pde,meshonet,hmonet --train-args "--model both --dataset-mode both"
-```
-
-将 `--dimension 2` 改为 `--dimension 3`，并使用三维配置文件即可运行三维流程。
-
-Linux 多 GPU 动态队列（每个模型—数据集训练占用一张卡，完成后自动领取下一项）：
-
-```bash
-python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/train.yaml --evaluate-config configs/2D/evaluate.yaml --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet --train-args "--model hmonet,meshonet,pimeshonet --dataset-mode both" --gpus 0 1 2 3
+python scripts/train/train_evaluate.py --dimension 2 --dataset-mode both --models hmonet meshonet pimeshonet --grids 101 201 401 --seed 20261030 --run-tag v1 --gpus 0 1 2 3
 ```
 
 ## 消融实验
@@ -119,13 +118,13 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 二维消融实验通过统一入口运行。当前八套实验依次研究硬边界约束、采样策略、网络架构、PDE求导方式、屏障超参数、有限差分步长、坐标增强和损失项组成：
 
 ```bash
-python scripts/experiments/run.py ex1 baseline rational_affine coons_residual --dataset run_ext_0_1000_61_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
+python scripts/experiments/run.py ex1 baseline rational_affine coons_residual --dataset run_ext_1_500_41_41 --seed 20261030 --grids 101 201 401 --tag v1
 ```
 
 消融实验也可使用同一动态队列：
 
 ```bash
-python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1 --gpus 0 1 2 3
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag v1 --gpus 0 1 2 3
 ```
 
 消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
@@ -140,11 +139,10 @@ python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_
 
 ```bash
 pip install -r requirements-dev.txt
-python -m unittest discover -s tests -p "test_*.py" -v
 python -m pytest tests -q
 ```
 
-项目同时包含 `unittest` 类与 pytest 风格测试函数，两条测试命令均应执行。仅安装 `requirements.txt` 可运行项目，但不包含完整测试所需的 pytest。
+测试采用 pytest。仅安装 `requirements.txt` 可运行项目，但不包含完整测试所需的 pytest。
 
 ## 引用、贡献与许可
 
@@ -169,8 +167,9 @@ python -m pytest tests -q
 - [二维评估命令](configs/2D/evaluate_cli.md)
 - [三维训练命令](configs/3D/train_cli.md)
 - [三维评估命令](configs/3D/evaluate_cli.md)
-- [训练与评估联合入口](scripts/train/train_evaluate_cli.md)
+- [二维训练与评估联合入口](configs/2D/train_evaluate_cli.md)
+- [三维训练与评估联合入口](configs/3D/train_evaluate_cli.md)
 - [消融实验](experiments/README.md)
 - [HMONet 训练架构](HMONET_TRAINING_ARCHITECTURE.md)
-- [二维已生成数据集](data/raw/2D/README.md)
-- [三维已生成数据集](data/raw/3D/README.md)
+- 本机已生成二维数据集目录：`data/raw/2D/`（生成后会出现本地目录说明）
+- 本机已生成三维数据集目录：`data/raw/3D/`（生成后会出现本地目录说明）

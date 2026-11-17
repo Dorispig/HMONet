@@ -38,7 +38,11 @@ from src.evaluation.analysis import (
 from src.evaluation.local_views import run_local_views
 from src.evaluation.retention import compact_evaluation_directory
 from src.utils.quality_selection import quality_settings
-from src.utils.paths import resolve_project_path
+from src.utils.paths import (
+    ensure_output_directory,
+    prepare_output_file,
+    resolve_project_path,
+)
 
 
 EVALUATION_FINGERPRINT_SCHEMA_VERSION = 1
@@ -71,10 +75,9 @@ _FINGERPRINT_OPTION_EXCLUSIONS = {
     "slice",
     "checkpoint",
     "hmonet_checkpoint",
+    "qghmonet_checkpoint",
     "meshonet_checkpoint",
     "pimeshonet_checkpoint",
-    "pihmonet_checkpoint",
-    "attentionpihmonet_checkpoint",
 }
 
 
@@ -132,10 +135,6 @@ def evaluation_identity(
         "requested_methods": list(options["methods"]),
         "skipped_methods": skipped,
         "hmonet_mapping_mode": mapping,
-        "pihmonet_mapping_mode": options["pihmonet_mapping_mode"],
-        "attentionpihmonet_mapping_mode": options[
-            "attentionpihmonet_mapping_mode"
-        ],
         "checkpoint_sha256": {
             method: _checkpoint_digest(path) for method, path in checkpoints.items()
         },
@@ -169,12 +168,6 @@ def evaluation_identity_from_record(record, options):
         "skipped_methods": record.get("skipped_methods", []),
         "hmonet_mapping_mode": record.get(
             "hmonet_mapping_mode", "rational_affine"
-        ),
-        "pihmonet_mapping_mode": record.get(
-            "pihmonet_mapping_mode", "rational_affine"
-        ),
-        "attentionpihmonet_mapping_mode": record.get(
-            "attentionpihmonet_mapping_mode", "rational_affine"
         ),
         "checkpoint_sha256": checkpoint_sha256,
         "quality_revision": "endpoint-contact-v2",
@@ -220,8 +213,6 @@ def _resolve_checkpoints(name, case, mapping, options, dimension):
         "HMONet",
         "MeshONet",
         "PI-MeshONet",
-        "PI-HMONet",
-        "Attention-PI-HMONet",
         "QG-HMONet",
     }
     for method in selected:
@@ -252,11 +243,7 @@ def _resolve_checkpoints(name, case, mapping, options, dimension):
 
 
 def selected_mapping(method, mapping, options):
-    """Keep PI-HMONet's mapping independent from supervised HMONet."""
-    if method == "PI-HMONet":
-        return options["pihmonet_mapping_mode"]
-    if method == "Attention-PI-HMONet":
-        return options["attentionpihmonet_mapping_mode"]
+    """Return the hard-boundary mode shared by the HMONet variants."""
     return mapping
 
 
@@ -274,20 +261,8 @@ def mapping_combinations(options):
         return (value,)
 
     return [
-        (
-            h,
-            {
-                **options,
-                "hmonet_mapping_mode": h,
-                "pihmonet_mapping_mode": pi,
-                "attentionpihmonet_mapping_mode": attention,
-            },
-        )
+        (h, {**options, "hmonet_mapping_mode": h})
         for h in variants("hmonet_mapping_mode", "HMONet")
-        for pi in variants("pihmonet_mapping_mode", "PI-HMONet")
-        for attention in variants(
-            "attentionpihmonet_mapping_mode", "Attention-PI-HMONet"
-        )
     ]
 
 
@@ -296,10 +271,6 @@ def method_directory(root, method, mapping, projection=None):
     path = root / method
     if method.startswith("HMONet") or method == "QG-HMONet":
         path = root / "HMONet" / mapping
-    if method == "PI-HMONet":
-        path /= mapping
-    if method == "Attention-PI-HMONet":
-        path /= mapping
     if projection is not None:
         path /= projection
     if method == "HMONet_PDE_refined":
@@ -336,20 +307,11 @@ def comparison_directory(root, mapping, options, names):
         parent /= projection_group
     elif "PI-MeshONet" in names:
         parent /= f"pimeshonet_{pimeshonet_projection}"
-    if "PI-HMONet" in names:
-        parent /= "pihmonet_" + options["pihmonet_mapping_mode"]
-        parent /= f"pihmonet_{tags[options['pihmonet_boundary_projection']]}"
-    if "Attention-PI-HMONet" in names:
-        parent /= "attention_pihmonet_" + options[
-            "attentionpihmonet_mapping_mode"
-        ]
     slugs = {
         "TFI": "tfi",
         "PDE_Winslow": "pde",
         "MeshONet": "meshonet",
         "PI-MeshONet": "pimeshonet",
-        "PI-HMONet": "pihmonet",
-        "Attention-PI-HMONet": "attention_pihmonet",
         "HMONet": "hmonet",
         "QG-HMONet": "qghmonet",
         "HMONet_PDE_refined": "hmonet_pde_refined",
@@ -401,7 +363,7 @@ def analyze_method(
     if clone_from is not None and Path(clone_from).resolve() != Path(directory).resolve():
         print(f"  clone identical analysis {method} (raw -> processed)", flush=True)
         clear_managed_files(directory)
-        Path(directory).mkdir(parents=True, exist_ok=True)
+        ensure_output_directory(directory, context="Evaluation analysis directory")
         shutil.copytree(clone_from, directory, dirs_exist_ok=True)
         raw_metadata = Path(directory) / "raw_output_metadata.json"
         if raw_metadata.is_file():
@@ -437,7 +399,7 @@ def analyze_method(
     print(f"  analyze {method} ({'raw' if raw else 'processed'})", flush=True)
     clear_managed_files(directory)
     quality = save_method(directory, method, points, shape, options)
-    if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"):
+    if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"):
         save_boundary_errors(
             directory,
             points,
@@ -498,7 +460,7 @@ def evaluate_object(
     if output.name != f"{dimension}D":
         output /= f"{dimension}D"
     root = output / name / "x".join(map(str, shape)) / tag
-    root.mkdir(parents=True, exist_ok=True)
+    root = ensure_output_directory(root, context="Evaluation staging root")
     exact = sample_boundary(geometry, shape)
     ids = boundary_indices(shape)
     checkpoints, skipped, selected = _resolve_checkpoints(
@@ -531,7 +493,7 @@ def evaluate_object(
     error_records = []
     for method in selected:
         cache = root / ".cache" / method
-        if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet"):
+        if method in ("HMONet", "QG-HMONet"):
             cache /= selected_mapping(method, mapping, options)
         points, timing, source_signature = generate(
             cache,
@@ -545,7 +507,7 @@ def evaluate_object(
             version,
             models,
         )
-        if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"):
+        if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"):
             raw_meshes[method] = points.copy()
             raw_summary, _ = boundary_error(points, exact, ids)
             error_records.append(dict(method=method, stage="raw", **raw_summary))
@@ -553,8 +515,13 @@ def evaluate_object(
                 root, method, selected_mapping(method, mapping, options), "raw"
             )
             if options["generation_only"]:
-                raw_directory.mkdir(parents=True, exist_ok=True)
-                np.save(raw_directory / "mesh.npy", points)
+                ensure_output_directory(raw_directory, context="Evaluation method directory")
+                np.save(
+                    prepare_output_file(
+                        raw_directory / "mesh.npy", context="Evaluation mesh artifact"
+                    ),
+                    points,
+                )
                 save_boundary_errors(
                     raw_directory,
                     points,
@@ -664,8 +631,11 @@ def evaluate_object(
                 "pde": info,
                 "cache_hit": False,
             }
-            cache.mkdir(parents=True, exist_ok=True)
-            np.save(cache / "mesh.npy", meshes[method])
+            ensure_output_directory(cache, context="Evaluation cache directory")
+            np.save(
+                prepare_output_file(cache / "mesh.npy", context="Evaluation cache artifact"),
+                meshes[method],
+            )
             write_json(
                 cache / "metadata.json",
                 {
@@ -694,17 +664,11 @@ def evaluate_object(
         "requested_methods": options["methods"],
         "skipped_methods": skipped,
         "hmonet_mapping_mode": mapping,
-        "pihmonet_mapping_mode": options["pihmonet_mapping_mode"],
-        "attentionpihmonet_mapping_mode": options[
-            "attentionpihmonet_mapping_mode"
-        ],
         "boundary_projection": {
             "HMONet": options["hmonet_boundary_projection"],
             "QG-HMONet": options["qghmonet_boundary_projection"],
             "MeshONet": options["meshonet_boundary_projection"],
             "PI-MeshONet": options["pimeshonet_boundary_projection"],
-            "PI-HMONet": options["pihmonet_boundary_projection"],
-            "Attention-PI-HMONet": options["attentionpihmonet_boundary_projection"],
         },
         "checkpoints": {m: str(p) for m, p in checkpoints.items()},
     }
@@ -714,11 +678,18 @@ def evaluate_object(
     # Keep the recorded artifact directory valid even when plots are disabled;
     # compact JSON/CSV summaries and manifests still belong to this group.
     if not options["generation_only"]:
-        comparison.mkdir(parents=True, exist_ok=True)
+        ensure_output_directory(comparison, context="Evaluation comparison directory")
     if options["generation_only"]:
         for method, points in meshes.items():
-            directories[method].mkdir(parents=True, exist_ok=True)
-            np.save(directories[method] / "mesh.npy", points)
+            ensure_output_directory(
+                directories[method], context="Evaluation method directory"
+            )
+            np.save(
+                prepare_output_file(
+                    directories[method] / "mesh.npy", context="Evaluation mesh artifact"
+                ),
+                points,
+            )
     else:
         qualities = {
             m: analyze_method(
@@ -838,8 +809,16 @@ def evaluate_object(
         ],
     )
     save_timing_tables(root, timings)
-    np.savez_compressed(root / "generated_meshes.npz", **meshes)
-    np.savez_compressed(root / "generated_raw_model_meshes.npz", **raw_meshes)
+    np.savez_compressed(
+        prepare_output_file(root / "generated_meshes.npz", context="Evaluation mesh bundle"),
+        **meshes,
+    )
+    np.savez_compressed(
+        prepare_output_file(
+            root / "generated_raw_model_meshes.npz", context="Evaluation mesh bundle"
+        ),
+        **raw_meshes,
+    )
     write_json(
         root / "generation_metadata.json", {"signatures": signatures, **metadata}
     )
@@ -890,7 +869,7 @@ def run_evaluation(dimension, args, config):
                     # evaluate_object retains the normal diagnostics and error policy.
                     pass
             for method in options["methods"]:
-                if method not in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "PI-HMONet", "Attention-PI-HMONet"):
+                if method not in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"):
                     continue
                 try:
                     checkpoint = find_checkpoint(
@@ -904,7 +883,7 @@ def run_evaluation(dimension, args, config):
                     if checkpoint is None:
                         continue
                     cache = root / ".cache" / method
-                    if method in ("HMONet", "QG-HMONet", "PI-HMONet", "Attention-PI-HMONet"):
+                    if method in ("HMONet", "QG-HMONet"):
                         cache /= selected_mapping(method, mapping, options)
                     request = generate(
                         cache,

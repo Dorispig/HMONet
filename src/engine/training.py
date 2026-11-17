@@ -39,6 +39,35 @@ def resolve_dataset_paths(config: dict, mode: str, project_root: Path) -> list[P
     return paths
 
 
+def resolve_explicit_dataset_path(
+    value: str | Path, *, dimension: int, project_root: Path
+) -> Path:
+    """Resolve an explicit dataset path or a short dataset directory name.
+
+    Formal and ablation commands deliberately use the reader-facing dataset
+    name, for example ``swb_a_ext_1_500_11_21_11``.  Low-level training
+    commands still accept an absolute path or a project-relative path such as
+    ``data/raw/3D/swb_a_ext_1_500_11_21_11``.  Resolve all three spellings
+    here so the 2-D and 3-D entry points behave identically.
+    """
+    project_root = Path(project_root).resolve()
+    supplied = Path(value).expanduser()
+    candidates: list[Path] = []
+    if supplied.is_absolute():
+        candidates.append(supplied)
+    else:
+        candidates.append(resolve_project_path(supplied, base=project_root))
+        candidates.append(project_root / "data" / "raw" / f"{int(dimension)}D" / supplied)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    attempted = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(
+        f"Dataset {value!r} was not found. Tried: {attempted}. "
+        f"Use a dataset name under data/raw/{int(dimension)}D or an explicit path."
+    )
+
+
 def sample_global_random_batch(
     dataset, indices, dimension, count, device, generator=None
 ):

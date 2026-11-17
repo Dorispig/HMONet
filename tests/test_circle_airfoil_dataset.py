@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.tfi.tfi_2d import tfi_from_curves
+from src.numerics.traditional.tfi_2d import tfi_from_curves
 from src.data.dataset import (
     ParametricDataset2D,
     read_dataset_metadata,
@@ -266,10 +266,12 @@ class TestCircleAirfoilDataset:
             output.mkdir()
             sentinel = output / "keep.txt"
             sentinel.write_text("existing data", encoding="utf-8")
-            with pytest.raises(FileExistsError):
+            assert (
                 generate_circle_airfoil_t_dataset(
                     "existing", [(0.08, 0.12)], count=2, output_root=temporary
                 )
+                == output
+            )
             assert (sentinel.read_text(encoding="utf-8")) == ("existing data")
 
     def test_geometry_is_python_only_and_output_defaults_to_project(self):
@@ -322,7 +324,7 @@ class TestCircleAirfoilDataset:
             assert (other["fixed_parameters"]) == (
                 dict(x_min=-1, x_max=1, y_min=-1, y_max=1)
             )
-            catalog = (Path(temporary) / "README.md").read_text(encoding="utf-8")
+            catalog = (Path(temporary) / "CATALOG.md").read_text(encoding="utf-8")
             assert (catalog.count("### custom_airfoil")) == (1)
             assert (catalog.count("### rectangle_test")) == (1)
             section = catalog.split("### custom_airfoil", 1)[1].split(

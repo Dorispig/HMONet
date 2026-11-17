@@ -36,8 +36,6 @@ from src.evaluation.retention import (
 )
 from scripts.experiments.evaluation_paths import (
     EVALUATION_PATH_LIMIT,
-    EVALUATION_RELATIVE_PATH_RESERVE,
-    STAGING_RELATIVE_PATH_RESERVE,
     exclusive_evaluation_staging_root,
     evaluation_experiment_root,
     evaluation_result_root,
@@ -45,6 +43,7 @@ from scripts.experiments.evaluation_paths import (
     staging_workspace_root,
     system_path_limit,
     validate_evaluation_destination,
+    validate_runtime_path,
 )
 
 ABLATIONS = (
@@ -324,14 +323,6 @@ def write_json(path: Path, value):
 
 
 _DATASET_DIGEST_CACHE = {}
-_MIGRATED_DATASET_DIGESTS = {
-    # The NumPy payload metadata was renamed without changing any coordinates.
-    # Preserve completed experiment identities across that one-time migration.
-    "air_t_int_0_1000_41_20": "45b7d46ef7d13787e9dca07b0838c0c2c9fbc7416b2e52fa021520748de5e6e1",
-    "air_t_ext_0_1000_21_20": "6dc7441a518358fbb828ff9b730aa13ee4381294929b423bf9ffb501b04ca148",
-}
-
-
 # Training flags that carry their value in the flag itself.  Keep this list in
 # one place so identity parsing and command forwarding cannot disagree when a
 # new architecture switch is added.
@@ -366,9 +357,6 @@ def _override_value_count(flag: str) -> int:
 def _dataset_digest(dataset: Path) -> str:
     """Hash the actual NumPy files consumed by training, not plots or audits."""
     dataset = dataset.resolve()
-    compatible = _MIGRATED_DATASET_DIGESTS.get(dataset.name)
-    if compatible:
-        return compatible
     files = sorted(dataset.rglob("*.npy")) if dataset.is_dir() else [dataset]
     signature = tuple((str(item), item.stat().st_size, item.stat().st_mtime_ns) for item in files)
     cached = _DATASET_DIGEST_CACHE.get(signature)
@@ -483,29 +471,19 @@ def _normalize_training_snapshot(snapshot: dict, dataset: Path) -> dict:
     return _identity_without_device(normalized)
 
 
-def _legacy_dataset_identity(value):
-    """Use pre-migration names only while hashing completed version-0 datasets.
-
-    Existing checkpoints remain reusable after the directory migration. New
-    sizes or parameter-range versions use their canonical names directly.
-    """
+def _canonical_dataset_identity(value):
+    """Normalize mapping labels without rewriting canonical dataset names."""
     if isinstance(value, dict):
         return {
             key: (
                 fingerprint_mapping_mode(item)
                 if key.endswith("mapping_mode") and item != "both"
-                else _legacy_dataset_identity(item)
+                else _canonical_dataset_identity(item)
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_legacy_dataset_identity(item) for item in value]
-    if isinstance(value, str):
-        match = re.match(
-            r"^(.+)_(int|ext)_0_1000_(\d+_\d+)$", value
-        )
-        if match:
-            return f"{match.group(1)}_{match.group(2)}_000_p{match.group(3)}"
+        return [_canonical_dataset_identity(item) for item in value]
     return value
 
 
@@ -580,7 +558,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
             "dataset_sha256": _dataset_digest(dataset),
         }
         encoded = json.dumps(
-            _legacy_dataset_identity(payload),
+            _canonical_dataset_identity(payload),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -769,7 +747,7 @@ def effective_training_identity(args, dataset: Path, variant: Variant, seed: int
         "dataset_name": dataset_name(dataset),
         "dataset_sha256": _dataset_digest(dataset),
     }
-    fingerprint_payload = _legacy_dataset_identity(payload)
+    fingerprint_payload = _canonical_dataset_identity(payload)
     encoded = json.dumps(
         fingerprint_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     )
@@ -943,12 +921,7 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                         grid,
                         validate=False,
                     )
-                    candidates.append(
-                        (
-                            "temporary evaluation artifact",
-                            staging / ("x" * STAGING_RELATIVE_PATH_RESERVE),
-                        )
-                    )
+                    candidates.append(("temporary evaluation root", staging))
                     for value in _dry_run_parameter_values(args, name):
                         result = evaluation_result_root(
                             dataset_root,
@@ -959,12 +932,7 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                             value,
                             validate=False,
                         )
-                        candidates.append(
-                            (
-                                "published evaluation artifact",
-                                result / ("x" * EVALUATION_RELATIVE_PATH_RESERVE),
-                            )
-                        )
+                        candidates.append(("published evaluation root", result))
 
     warnings: list[dict] = []
     for category, path in candidates:
@@ -976,7 +944,7 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                 {
                     "category": category,
                     "length": length,
-                    "reserve_limit": EVALUATION_PATH_LIMIT,
+                            "warning_threshold": EVALUATION_PATH_LIMIT,
                     "system_limit": system_path_limit(),
                     "path": str(path),
                     "would_fail": would_fail,
@@ -987,12 +955,12 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
 
     print(
         "[dry-run paths] "
-        f"checked={len(candidates)} | reserve-warning={EVALUATION_PATH_LIMIT} | "
+        f"checked={len(candidates)} | warning-threshold={EVALUATION_PATH_LIMIT} | "
         f"system-limit={system_path_limit()} | Linux-component=255",
         flush=True,
     )
     if not warnings:
-        print("[dry-run paths] all selected output paths are within reserved headroom.", flush=True)
+        print("[dry-run paths] all selected output paths are below the warning threshold.", flush=True)
     else:
         for item in warnings:
             detail = (
@@ -1000,7 +968,7 @@ def report_dry_run_output_paths(args, config: dict, variants: list[Variant]) -> 
                 if item["components"]
                 else (
                     f"length={item['length']}, "
-                    f"reserve={item['reserve_limit']}, system={item['system_limit']}"
+                    f"warning-threshold={item['warning_threshold']}, system={item['system_limit']}"
                 )
             )
             print(
@@ -1114,7 +1082,7 @@ def effective_evaluation_identity(args, dataset: Path, summary: dict, training_f
     if settings["values"] is not None:
         payload["values"] = settings["values"]
     encoded = json.dumps(
-        _legacy_dataset_identity(payload),
+        _canonical_dataset_identity(payload),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -1597,8 +1565,6 @@ def _comparison_method_group(parts) -> str:
         "pimeshonet": "pi",
         "hmonet": "h",
         "qghmonet": "qg",
-        "pihmonet": "pih",
-        "attention": "att",
     }
     ignored = {
         "grid",
@@ -1677,8 +1643,11 @@ def publish_evaluation_result(
                 f"{target}. Use --force to replace it or choose another --run-tag."
             )
         shutil.rmtree(target)
+    validate_runtime_path(target, context="Published evaluation directory")
     target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_result, target / "results.json")
+    result_destination = target / "results.json"
+    validate_runtime_path(result_destination, context="Published evaluation artifact")
+    shutil.copy2(source_result, result_destination)
     result_metadata = json.loads(source_result.read_text(encoding="utf-8"))
     comparison_group = _comparison_group_from_methods(
         result_metadata.get("method_order", result_metadata.get("requested_methods", []))
@@ -1688,13 +1657,14 @@ def publish_evaluation_result(
             continue
         relative = image.relative_to(source)
         destination = readable_image_path(target, relative)
-        destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
             stem, suffix = destination.stem, destination.suffix
             index = 2
             while destination.exists():
                 destination = destination.with_name(f"{stem}_{index}{suffix}")
                 index += 1
+        validate_runtime_path(destination, context="Published evaluation image")
+        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(image, destination)
     if remove_source:
         shutil.rmtree(source)

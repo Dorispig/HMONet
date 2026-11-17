@@ -341,6 +341,17 @@ class PiecewiseSurface3D(ParametricSurface3D):
 
 
 VOLUME_MAP_PARAMETER_ORDER = {
+    "sidewall_deformed_block": (
+        "length_x", "width_y", "length_z", "sidewall_amplitude", "z_min",
+    ),
+    "rounded_u_groove_extrusion": (
+        "width", "height", "groove_width", "groove_depth",
+        "corner_smoothing", "length", "z_min",
+    ),
+    "tapered_elliptic_bore_block": (
+        "inner_major_axis", "inner_minor_axis_in", "minor_axis_out",
+        "outer_half_width", "outer_half_height", "length", "z_min",
+    ),
     "annular_nozzle_diffuser": (
         "inner_radius_in", "inner_radius_out", "outer_radius_in",
         "outer_radius_out", "length", "z_min",
@@ -361,13 +372,58 @@ VOLUME_MAP_PARAMETER_ORDER = {
 
 
 def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
-    """Evaluate one injective annular reference map with NumPy arrays."""
+    """Evaluate one injective reference-volume map with NumPy arrays."""
     xi, eta, zeta = np.broadcast_arrays(
         np.asarray(xi, float), np.asarray(eta, float), np.asarray(zeta, float)
     )
     xi, eta, zeta = (np.clip(value, 0.0, 1.0) for value in (xi, eta, zeta))
     theta = 2.0 * np.pi * eta
     p = parameters
+    if mapping == "sidewall_deformed_block":
+        # The opposing x-sidewalls are concave half-elliptic cylinders
+        # extruded along z.  Hence the contraction varies across eta but is
+        # invariant along z; the two eta-end faces remain planar rectangles.
+        contraction = p["sidewall_amplitude"] * np.sin(np.pi * eta)
+        return np.stack(
+            (
+                p["length_x"] * (0.5 + (xi - 0.5) * (1.0 - contraction)),
+                p["width_y"] * eta,
+                p["z_min"] + p["length_z"] * zeta,
+            ),
+            -1,
+        )
+    if mapping == "rounded_u_groove_extrusion":
+        half_width = 0.5 * p["groove_width"] / p["width"]
+        left, right = 0.5 - half_width, 0.5 + half_width
+        sharpness = max(p["corner_smoothing"] / p["width"], 1e-5)
+        profile = 0.5 * (
+            np.tanh((xi - left) / sharpness)
+            - np.tanh((xi - right) / sharpness)
+        )
+        centre = 0.5 * (
+            np.tanh((0.5 - left) / sharpness)
+            - np.tanh((0.5 - right) / sharpness)
+        )
+        top = p["height"] - p["groove_depth"] * profile / centre
+        return np.stack(
+            (p["width"] * xi, eta * top, p["z_min"] + p["length"] * zeta),
+            -1,
+        )
+    if mapping == "tapered_elliptic_bore_block":
+        minor = (1.0 - zeta) * p["inner_minor_axis_in"] + zeta * p["minor_axis_out"]
+        inner = 1.0 / np.sqrt(
+            (np.cos(theta) / p["inner_major_axis"]) ** 2
+            + (np.sin(theta) / minor) ** 2
+        )
+        outer = 1.0 / np.maximum(
+            np.abs(np.cos(theta)) / p["outer_half_width"],
+            np.abs(np.sin(theta)) / p["outer_half_height"],
+        )
+        radius = (1.0 - xi) * inner + xi * outer
+        return np.stack(
+            (radius * np.cos(theta), radius * np.sin(theta), p["z_min"] + p["length"] * zeta),
+            -1,
+        )
     if mapping == "annular_nozzle_diffuser":
         inner = (1.0 - zeta) * p["inner_radius_in"] + zeta * p["inner_radius_out"]
         outer = (1.0 - zeta) * p["outer_radius_in"] + zeta * p["outer_radius_out"]
@@ -453,6 +509,39 @@ class MappedVolumeFace3D(ParametricSurface3D):
         xi, eta, zeta = xi.clamp(0, 1), eta.clamp(0, 1), zeta.clamp(0, 1)
         theta = 2.0 * torch.pi * eta
         values = {name: p[:, index:index + 1] for index, name in enumerate(names)}
+        if mapping == "sidewall_deformed_block":
+            contraction = values["sidewall_amplitude"] * (torch.pi * eta).sin()
+            return torch.stack(
+                (
+                    values["length_x"] * (0.5 + (xi - 0.5) * (1.0 - contraction)),
+                    values["width_y"] * eta,
+                    values["z_min"] + values["length_z"] * zeta,
+                ),
+                -1,
+            )
+        if mapping == "rounded_u_groove_extrusion":
+            half_width = 0.5 * values["groove_width"] / values["width"]
+            left, right = 0.5 - half_width, 0.5 + half_width
+            sharpness = (values["corner_smoothing"] / values["width"]).clamp_min(1e-5)
+            profile = 0.5 * (((xi - left) / sharpness).tanh() - ((xi - right) / sharpness).tanh())
+            centre = 0.5 * (((0.5 - left) / sharpness).tanh() - ((0.5 - right) / sharpness).tanh())
+            top = values["height"] - values["groove_depth"] * profile / centre
+            return torch.stack(
+                (values["width"] * xi, eta * top, values["z_min"] + values["length"] * zeta),
+                -1,
+            )
+        if mapping == "tapered_elliptic_bore_block":
+            minor = (1.0 - zeta) * values["inner_minor_axis_in"] + zeta * values["minor_axis_out"]
+            inner = 1.0 / ((theta.cos() / values["inner_major_axis"]).square() + (theta.sin() / minor).square()).sqrt()
+            outer = 1.0 / torch.maximum(
+                theta.cos().abs() / values["outer_half_width"],
+                theta.sin().abs() / values["outer_half_height"],
+            )
+            radius = (1.0 - xi) * inner + xi * outer
+            return torch.stack(
+                (radius * theta.cos(), radius * theta.sin(), values["z_min"] + values["length"] * zeta),
+                -1,
+            )
         if mapping == "annular_nozzle_diffuser":
             inner = (1 - zeta) * values["inner_radius_in"] + zeta * values["inner_radius_out"]
             outer = (1 - zeta) * values["outer_radius_in"] + zeta * values["outer_radius_out"]

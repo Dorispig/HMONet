@@ -1,21 +1,20 @@
 ﻿# 三维训练配置。公共参数的默认值、排列顺序和注释与二维 train.yaml 保持一致。
 
-datasets:  # 数据集路径配置
-  extrapolation: data/raw/3D/sch_r_ext_0_1000_11_31_11  # 外推训练数据集路径
-  interpolation: data/raw/3D/sch_r_int_0_1000_11_31_11  # 内插训练数据集路径
+datasets:  # 当前正式三维训练数据集（生成后可直接使用）
+  extrapolation: data/raw/3D/swb_a_ext_1_500_11_21_11
+  # 内插数据集生成后通过命令行 --dataset 显式指定。
 
 grid:  # 三维训练网格尺寸
   nx: 11  # xi径向节点数：内圆到外部操场形边界
-  ny: 31  # eta周向节点数：内圆和外边界使用相同采样数
+  ny: 21  # eta周向节点数：内圆和外边界使用相同采样数
   nz: 11  # zeta方向节点数
 
 model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi、all快捷别名
   name: hmonet  # 与二维正式配置一致，默认训练HMONet
-  common:  # 正式实验采用与二维ex7基线一致的精简算子网络
+  common:  # 正式实验采用精简算子网络；Ex7 的独立二维基线固定 P=2
     branch_dim: 32  # 边界分支特征维度
-    trunk_dim: 16  # legacy坐标增强后的主干输入维度；power_fourier模式下自动推导
-    coordinate_lift_mode: power_fourier
-    coordinate_lift_max_power: 2
+    trunk_dim: 18  # 正式实验统一采用18维 legacy 坐标增强
+    coordinate_lift_mode: legacy
     adjust_hidden_dim: 64  # 边界调整网络隐藏层宽度
     branch_hidden_dim: 64  # 边界分支隐藏层宽度
     trunk_hidden_dim: 64  # 坐标主干隐藏层宽度
@@ -27,10 +26,9 @@ model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi�
     branch_mlp_hidden_layer_num: 4  # 三轴联合几何特征融合MLP隐藏层数，与二维HMONet一致
   pimeshonet:  # 论文PI-MeshONet网络结构
     architecture: paper_modified_mlp  # 三坐标分支与共享Lift/Modified MLP主干
-    coordinate_lift_mode: paper  # 论文Lift-Layer向三维的逐轴推广
-    coordinate_lift_q: 6  # 三维Lift维度6+3q=24
+    coordinate_lift_mode: legacy  # 与 HMONet、MeshONet 一致的18维 legacy 坐标增强
     branch_dim: 40  # Adjust Layer输出维度；与二维正式配置一致
-    trunk_dim: 16  # legacy兼容值；paper模式实际维度由q决定
+    trunk_dim: 18
     adjust_hidden_dim: 80  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
     branch_hidden_dim: 80  # Modified MLP分支隐藏宽度
@@ -62,10 +60,9 @@ model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi�
     boundary_layer_width: 0.08
 
   meshonet:  # 论文式三分支共享融合结构，宽度与二维正式配置一致
-    coordinate_lift_mode: paper  # 论文Lift-Layer向三维的逐轴推广
-    coordinate_lift_q: 6  # 三维Lift维度6+3q=24
+    coordinate_lift_mode: legacy  # 与 HMONet、PI-MeshONet 一致的18维 legacy 坐标增强
     branch_dim: 40  # Adjust Layer输出维度
-    trunk_dim: 16  # legacy兼容值；paper模式实际维度由q决定
+    trunk_dim: 18
     adjust_hidden_dim: 80  # Adjust Layer隐藏宽度
     adjust_hidden_layer_num: 4  # Adjust Layer隐藏层数
     branch_hidden_dim: 80  # Branch网络隐藏宽度
@@ -79,8 +76,9 @@ model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi�
 
 training:  # 公共训练设置
   dataset: extrapolation  # 与二维正式配置一致，默认训练外推数据集
-  num_epochs: 50000  # 最大训练轮数
-  # 监督模型默认使用固定网格MSE；PI模型会强制改为自监督训练损失。
+  num_epochs: 100000  # 最大训练轮数
+  # MeshONet 默认按固定网格 MSE 训练；HMONet、QG-HMONet 和 PI-MeshONet
+  # 各自从对应的 *_training 段读取自监督训练与选模设置。
   best_model_metric: dataset_mse  # HMONet和MeshONet的最佳模型选择指标
   tensorboard_enabled: true  # 是否启用TensorBoard
   batch_size: 64  # 批大小
@@ -88,7 +86,9 @@ training:  # 公共训练设置
   device: cuda  # 训练设备
   # [收敛条件1] 固定网格 MSE：监测固定网格误差，可选作为停止条件。
   calculate_dataset_mse: true  # 是否计算固定网格MSE
-  dataset_mse_interval: 1  # 固定网格MSE计算间隔
+  # HMONet/QG-HMONet 按自监督训练损失选模；固定网格 MSE 仅作诊断，
+  # 每 25 个 epoch 计算一次以避免重复遍历全部三维训练网格。
+  dataset_mse_interval: 25  # 固定网格MSE计算间隔
   check_mse_convergence: false  # 是否启用固定网格MSE连续达标的提前停止，默认关闭
   mse_tolerance: 1.0e-6  # MSE收敛阈值
   mse_consecutive_epochs: 100  # MSE连续满足次数
@@ -100,7 +100,8 @@ training:  # 公共训练设置
 
   # [收敛条件3] 统一成功平台：达到最早epoch后，近最佳、稳定且长期无显著改善时停止。
   plateau_enabled: true  # 是否启用平台收敛判断
-  # PI模型会强制使用train_loss，保持自监督训练。
+  # 公共平台设置主要供监督 MeshONet 使用；自监督模型由各自的
+  # *_training 段覆盖为训练损失平台判据。
   plateau_metric: mse  # HMONet和MeshONet的平台判断指标
   plateau_window: 500  # 平台统计窗口长度
   fluctuation_quantiles: [0.1, 0.9]  # 窗口波动分位数
@@ -154,7 +155,7 @@ hmonet_training: &hard_operator_training
 
   # 与二维一样从头进行纯物理自监督训练，不读取PDE网格坐标作为监督目标。
   training_strategy: random_loss_combo_from_start
-  random_loss_sample_count: 400
+  random_loss_sample_count: 600
   pde_fd_step: [0.01, 0.01, 0.01]
   jacobian_fd_step: 0.01
   random_loss_derivative_backend: finite_difference
@@ -173,17 +174,18 @@ hmonet_training: &hard_operator_training
   physics_singular_value_minimum: 0.05
   physics_barrier_reduction: all
 
-  # 200个全局均匀点 + 200个曲率—边界距离自适应点。
-  random_loss_sampling_mode: mixed_boundary
-  random_loss_global_sample_count: 200
-  random_loss_curvature_sample_count: 200
+  # 正式三维训练：600个全局均匀随机点。
+  # 三类计数之和必须等于random_loss_sample_count。
+  random_loss_sampling_mode: uniform
+  random_loss_global_sample_count: 600
+  random_loss_curvature_sample_count: 0
   random_loss_boundary_band_sample_count: 0
 
-hmonet_sampling:  # HMONet采样参数，与二维正式配置保持一致
-  mode: adaptive
+hmonet_sampling:  # HMONet采样参数
+  mode: uniform  # 正式三维默认：600个全局均匀随机点
   fixed_grid_count: 0
-  global_random_count: 200
-  curvature_adaptive_count: 200
+  global_random_count: 600
+  curvature_adaptive_count: 0
   candidate_multiplier: 10
   curvature_quantile: 0.95
   curvature_power: 1.0

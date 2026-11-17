@@ -1,4 +1,8 @@
-"""Generate an auditable Chinese catalog from saved dataset metadata."""
+"""Generate an auditable 2-D dataset inventory from saved metadata.
+
+The static README describes the reproducible boundary families.  This module
+writes CATALOG.md so routine data generation never overwrites that guide.
+"""
 
 import inspect
 import json
@@ -77,9 +81,11 @@ def write_catalog(root, families, descriptions):
             )
     records.sort(key=lambda x: (x[0], x[1].name))
     text = [
-        "# 二维数据集说明",
+        "# 二维数据集目录（自动生成）",
         "",
         "按边界完整名称排序；只列出当前磁盘上实际存在的数据集。",
+        "",
+        "边界定义、生成命令、命名和版本规则见 [README.md](README.md)。",
         "",
         "## 保存格式与对应关系",
         "",
@@ -181,8 +187,8 @@ def write_catalog(root, families, descriptions):
             f"- [首样本网格]({directory.name}/example/first.png)；[中间样本网格]({directory.name}/example/middle.png)；[末样本网格]({directory.name}/example/last.png)。",
             f"- [网格与采样点]({directory.name}/{NUMERICAL_DATA_FILENAME})；[参数边界]({directory.name}/{BOUNDARY_GEOMETRY_FILENAME})。",
         ]
-    destination = root / "README.md"
-    temporary = root / "README.catalog.tmp"
+    destination = root / "CATALOG.md"
+    temporary = root / "CATALOG.tmp"
     temporary.write_text("\n".join(text) + "\n", encoding="utf-8")
     temporary.replace(destination)
     return destination

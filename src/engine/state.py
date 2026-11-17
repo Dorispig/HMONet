@@ -344,12 +344,10 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
             "hmonet": "HMONet",
             "meshonet": "MeshONet",
             "pimeshonet": "PI-MeshONet",
-            "pihmonet": "PI-HMONet",
-            "attentionpihmonet": "Attention-PI-HMONet",
             "qghmonet": "QG-HMONet",
         }[name]
     )
-    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet"):
         mapping = normalize_mapping_mode(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
@@ -368,9 +366,9 @@ def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
         / "tensorboard"
         / dimension
         / dataset
-        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet"}.get(name, name))
     )
-    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet"):
         folder = folder / normalize_mapping_mode(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
@@ -391,12 +389,10 @@ def config_archive_directory(args, config, name, run_id):
             "hmonet": "HMONet",
             "meshonet": "MeshONet",
             "pimeshonet": "PI-MeshONet",
-            "pihmonet": "PI-HMONet",
-            "attentionpihmonet": "Attention-PI-HMONet",
             "qghmonet": "QG-HMONet",
         }[name]
     )
-    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet"):
         directory /= normalize_mapping_mode(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
@@ -442,9 +438,9 @@ def create_run_directories(args, config, mode, name, dimension):
 
     output_parent = (
         Path(args.output_root)
-        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "pihmonet": "PI-HMONet", "attentionpihmonet": "Attention-PI-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet"}.get(name, name))
     )
-    if name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet"):
+    if name in ("hmonet", "qghmonet"):
         mapping = normalize_mapping_mode(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
@@ -614,7 +610,7 @@ class TrainingState:
             self.shape,
             self.device,
             _geometry_for
-            if self.name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet")
+            if self.name in ("hmonet", "qghmonet")
             else None,
             int(self.training["batch_size"]),
             bool(
@@ -973,24 +969,6 @@ class TrainingState:
             f"{short_metric_name(key)}={value:.6e}"
             for key, value in metrics.items()
         )
-        smoothness_text = (
-            f", smooth={losses['grid_smoothness']:.6e}"
-            if self.name in ("pihmonet", "attentionpihmonet")
-            and "grid_smoothness" in losses
-            and self.config.get(f"{self.name}_training", {}).get(
-                "smoothness_loss_weight", 0.0
-            ) > 0
-            else ""
-        )
-        alpha_text = (
-            f", bnd={losses['loss_boundary']:.6e}"
-            f", alpha={losses['boundary_alpha']:.8f}"
-            f", alpha_pen={losses['alpha_penalty']:.6e}"
-            if self.name == "attentionpihmonet"
-            and self.dimension == 2
-            and "loss_boundary" in losses
-            else ""
-        )
         # Interactive runs already display every active loss in tqdm. Queue
         # workers hide tqdm, so their sampled epoch line retains every active
         # component while using the same concise labels.
@@ -1004,7 +982,7 @@ class TrainingState:
             if component_text:
                 loss_text += f", {component_text}"
         else:
-            loss_text = f"loss={loss:.6e}" + smoothness_text + alpha_text
+            loss_text = f"loss={loss:.6e}"
         print(
             f"Epoch {epoch}/{t['num_epochs']}: {loss_text}"
             + (f", {metric_text}" if metric_text else ""),
@@ -1372,10 +1350,10 @@ class TrainingState:
             normalize_mapping_mode(
                 hmodel.get("hmonet_mapping_mode", RATIONAL_AFFINE)
             )
-            if self.name in ("hmonet", "qghmonet", "pihmonet", "attentionpihmonet")
+            if self.name in ("hmonet", "qghmonet")
             else None
         )
-        title = f"{dict(hmonet='HMONet', qghmonet='QG-HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet', pihmonet='PI-HMONet', attentionpihmonet='Attention-PI-HMONet')[self.name]}{self.dimension}D {self.mode} training loss"
+        title = f"{dict(hmonet='HMONet', qghmonet='QG-HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet')[self.name]}{self.dimension}D {self.mode} training loss"
         write_loss_outputs(self.output, self.history, title)
         write_mse_outputs(
             self.output, self.mse_epochs, self.mses, f"{title}: full-dataset MSE"
@@ -1385,7 +1363,7 @@ class TrainingState:
         for item in self.history:
             row = {"epoch": item["epoch"], "training_loss": item["train_loss"]}
 
-            if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet") and "loss_pde" in item:
+            if self.name == "pimeshonet" and "loss_pde" in item:
                 row["loss_pde"] = item["loss_pde"]
             elif self.name in ("hmonet", "qghmonet") and "loss_pde" in item:
                 row["loss_pde"] = item.get("loss_pde", "")
@@ -1405,35 +1383,8 @@ class TrainingState:
                 row["tfi_mse"] = item["tfi_mse"]
             if self.name == "pimeshonet":
                 row["loss_boundary"] = item["loss_boundary"]
-            if self.name == "pihmonet":
-                for key in (
-                    "loss_pde_normalized",
-                    "anchor",
-                    "anchor_weight",
-                    "valid_anchor_ratio",
-                    "grid_smoothness",
-                    "orthogonality",
-                ):
-                    row[key] = item.get(key, "")
-            if self.name == "attentionpihmonet":
-                for key in (
-                    "loss_pde_normalized",
-                    "jacobian",
-                    "anchor",
-                    "anchor_weight",
-                    "valid_anchor_ratio",
-                    "grid_smoothness",
-                    "boundary_pde",
-                    "boundary_jacobian",
-                    "minimum_sampled_jacobian",
-                    "minimum_boundary_jacobian",
-                    "loss_boundary",
-                    "alpha_penalty",
-                    "boundary_alpha",
-                ):
-                    row[key] = item.get(key, "")
             geometry_training = self.config.get(f"{self.name}_training", {})
-            if self.name in ("hmonet", "pihmonet"):
+            if self.name == "hmonet":
                 row["jacobian_loss"] = item.get("jacobian", "")
             if "phase" in item:
                 row["phase"] = item["phase"]
@@ -1445,7 +1396,7 @@ class TrainingState:
             "model": self.name,
             "physics_training": (
                 self.config.get(f"{self.name}_training")
-                if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet")
+                if self.name == "pimeshonet"
                 else None
             ),
             "dimension": self.dimension,
@@ -1581,21 +1532,6 @@ class TrainingState:
             "minimum_training_loss": minimum_loss_row["train_loss"],
             "minimum_training_loss_epoch": minimum_loss_row["epoch"],
             "final_training_loss": self.history[-1]["train_loss"],
-            "final_grid_smoothness_loss": (
-                self.history[-1].get("grid_smoothness")
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else None
-            ),
-            "final_boundary_alpha": (
-                self.history[-1].get("boundary_alpha")
-                if self.name == "attentionpihmonet" and self.dimension == 2
-                else None
-            ),
-            "final_alpha_penalty_loss": (
-                self.history[-1].get("alpha_penalty")
-                if self.name == "attentionpihmonet" and self.dimension == 2
-                else None
-            ),
             "best_model_dataset_mse": best_mse,
             "final_dataset_mse": self.mses[-1],
             "best_checkpoint": portable_project_path(self.checkpoint / "best.pt"),
@@ -1670,7 +1606,7 @@ class TrainingState:
             "training_loss_history": [item["train_loss"] for item in self.history],
             "coordinate_loss_history": (
                 None
-                if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet")
+                if self.name == "pimeshonet"
                 else [
                     item.get("coordinate_loss", item["train_loss"])
                     for item in self.history
@@ -1678,7 +1614,7 @@ class TrainingState:
             ),
             "pde_loss_history": (
                 [item.get("loss_pde") for item in self.history]
-                if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet")
+                if self.name == "pimeshonet"
                 and any("loss_pde" in item for item in self.history)
                 else (
                     [item.get("loss_pde", 0.0) for item in self.history]
@@ -1708,72 +1644,16 @@ class TrainingState:
                         item["loss_boundary"] for item in self.history
                     ]
                 }
-                if (
-                    self.name == "pimeshonet"
-                    or (self.name == "attentionpihmonet" and self.dimension == 2)
-                )
+                if self.name == "pimeshonet"
                 and "loss_boundary" in self.history[0]
                 else {}
             ),
-            "boundary_alpha_history": (
-                [item.get("boundary_alpha") for item in self.history]
-                if self.name == "attentionpihmonet" and self.dimension == 2
-                else []
-            ),
-            "alpha_penalty_loss_history": (
-                [item.get("alpha_penalty", 0.0) for item in self.history]
-                if self.name == "attentionpihmonet" and self.dimension == 2
-                else []
-            ),
-            "normalized_pde_loss_history": (
-                [item.get("loss_pde_normalized", 0.0) for item in self.history]
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else []
-            ),
-            "anchor_loss_history": (
-                [item.get("anchor", 0.0) for item in self.history]
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else []
-            ),
-            "anchor_weight_history": (
-                [item.get("anchor_weight", 0.0) for item in self.history]
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else []
-            ),
-            "grid_smoothness_loss_history": (
-                [item.get("grid_smoothness", 0.0) for item in self.history]
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else []
-            ),
-            "orthogonality_loss_history": (
-                [item.get("orthogonality", 0.0) for item in self.history]
-                if self.name in ("pihmonet", "attentionpihmonet")
-                else []
-            ),
             "jacobian_loss_history": (
                 [item.get("jacobian", 0.0) for item in self.history]
-                if (
-                    self.name == "attentionpihmonet"
-                    and self.config[f"{self.name}_training"].get(
-                        "jacobian_loss_weight", 0.0
-                    ) > 0
+                if self.name == "hmonet"
+                and self.config.get(f"{self.name}_training", {}).get(
+                    "jacobian_loss_enabled", False
                 )
-                or (
-                    self.name in ("hmonet", "pihmonet")
-                    and self.config.get(f"{self.name}_training", {}).get(
-                        "jacobian_loss_enabled", False
-                    )
-                )
-                else []
-            ),
-            "boundary_pde_loss_history": (
-                [item.get("boundary_pde", 0.0) for item in self.history]
-                if self.name == "attentionpihmonet"
-                else []
-            ),
-            "boundary_jacobian_loss_history": (
-                [item.get("boundary_jacobian", 0.0) for item in self.history]
-                if self.name == "attentionpihmonet"
                 else []
             ),
             "boundary_normal_loss_history": (
@@ -1856,7 +1736,7 @@ class TrainingState:
             "model": self.name,
             "physics_training": (
                 self.config.get(f"{self.name}_training")
-                if self.name in ("pimeshonet", "pihmonet", "attentionpihmonet")
+                if self.name == "pimeshonet"
                 else None
             ),
             "model_config": self.saved_config["model"],
@@ -1914,8 +1794,6 @@ def print_training_run_summary(summary):
         "hmonet": "HMONet",
         "meshonet": "MeshONet",
         "pimeshonet": "PI-MeshONet",
-        "pihmonet": "PI-HMONet",
-        "attentionpihmonet": "Attention-PI-HMONet",
         "qghmonet": "QG-HMONet",
     }.get(summary["model"], summary["model"])
 

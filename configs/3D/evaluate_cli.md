@@ -1,55 +1,40 @@
-# 三维评估命令行说明
+# 三维评估命令行
 
-入口为 `scripts/evaluate/evaluate_3d.py`，默认读取 `configs/3D/evaluate.yaml` 和 `configs/3D/train.yaml`。
+三维评估入口为 `scripts/evaluate/evaluate_3d.py`，与二维使用同样的 `--case`、`--grids`、`--values` 规则。完整正式流程见 [三维训练—评估说明](train_evaluate_cli.md)。
 
-## 常用命令
+## 统一简写
 
-评估一个配置案例：
+~~~powershell
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 11x21x11 21x41x21 --values 0.02 0.34
+~~~
 
-```bash
-python scripts/evaluate/evaluate_3d.py --case sch_r_ext_0_1000_11_31_11 --methods tfi,pde,meshonet,pimeshonet,hmonet --grid-shapes 21x21x21,31x31x31
-```
+每个显式 `--grids` 参数均按 `n_x×n_y×n_z` 书写：`--grids 11x31x11 21x61x21` 表示两个非立方网格。纯数字 `--grids 21 31` 自动展开为 `21×21×21`、`31×31×31`，适合立方尺度扫描。旧式逗号写法 `--grid-shapes 11x31x11,21x61x21` 仍兼容，且不能与 `--grids` 同时使用。
 
-指定物理参数和 checkpoint：
+## 常见命令
 
-```bash
-python scripts/evaluate/evaluate_3d.py --case sch_r_ext_0_1000_11_31_11 --values 0.2,0.3 --grid-shapes 21x21x21 --hmonet-checkpoint outputs/checkpoints/3D/<checkpoint>.pt
-```
+~~~powershell
+# 指定 HMONet checkpoint
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --methods tfi,pde,hmonet --hmonet-checkpoint outputs/checkpoints/3D/<checkpoint>/best.pt --grids 11x21x11 21x41x21 --values 0.02 0.34
 
-只生成网格和图片、不计算质量：
+# 强制重新评估
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 11x21x11 21x41x21 --values 0.02 0.34 --force
 
-```bash
-python scripts/evaluate/evaluate_3d.py --case sch_r_ext_0_1000_11_31_11 --grid-shapes 21x21x21 --quality-metrics none
-```
+# 输出指定质量图
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --methods tfi,pde,hmonet --grids 31 --values 0.02 --quality-plots minimum_scaled_jacobian center_condition_number
+~~~
 
-保留 `generated_meshes.npz` 供下游分析：
+| 参数 | 作用 |
+|---|---|
+| `--case` | 选择三维评估案例。 |
+| `--methods` | 选择 TFI、PDE 和网络。 |
+| `--grids` | 输出网格形状；每个形状可显式写为 `n_x × n_y × n_z`，纯数字时才为立方边长。 |
+| `--values` | 物理参数值。 |
+| `--quality-metrics` | `both`、`none` 或逗号分隔的质量指标。 |
+| `--quality-plots` | `all` 或一个以上质量图名称。 |
+| `--force` | 重新生成和分析。 |
 
-```bash
-python scripts/evaluate/evaluate_3d.py --case sch_r_ext_0_1000_11_31_11 --grid-shapes 21x21x21 --generation-only --no-compact-outputs
-```
+三维网格成本按立方增长，应根据显存和后处理成本选择 `--grids`。模型选择与二维一致。
 
-## 三维网格质量
-
-三维体网格可选择 `minimum_scaled_jacobian`、`center_jacobian`、`center_condition_number`、`edge_aspect_ratio`、`cell_volume`、`flipped_cell` 等六面体指标；中间截面沿用二维四边形指标。项目默认不把 `cell_area` 作为正式对比指标。用 `--quality-metrics both` 选择配置允许的全部指标，或传逗号分隔列表。
-
-局部质量图使用：
-
-```bash
-python scripts/evaluate/evaluate_3d.py --case sch_r_ext_0_1000_11_31_11 --analysis-only --metric minimum_scaled_jacobian --center-on worst --zoom-mode slice --slice z_mid
-```
-
-`--slice` 可选 `x_mid`、`y_mid`、`z_mid`；`--zoom-mode volume` 用于三维体局部范围，并可通过 `--xlim`、`--ylim`、`--zlim` 限定物理坐标。
-
-## 边界与缓存
-
-- 五种神经网络的边界后处理默认均为 `none`；只有显式传入 `--<model>-boundary-projection` 才改变输出。
-- `--compact-outputs` 默认只长期保留 `results.json` 与图片；需要网格数组时使用 `--generation-only` 或 `--no-compact-outputs`。
-- `--force-regenerate` 只重新生成网格，`--force-reanalyze` 只重算质量，`--force` 同时强制两者。
-- `--analysis-only` 要求已有匹配的网格缓存；紧凑结果已删除网格时需要先重新生成。
-
-查看完整参数：
-
-```bash
+~~~powershell
 python scripts/evaluate/evaluate_3d.py --help
-```
-
+~~~

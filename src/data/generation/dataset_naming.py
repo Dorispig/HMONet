@@ -47,8 +47,8 @@ def build_dataset_name(output_name, split, version, size, *grid_shape):
 
 
 def default_version_for_split(split):
-    """Return the default parameter-range version for either split."""
-    return 0
+    """Return the current default parameter-range version for either split."""
+    return 1
 
 
 def parse_dataset_name(name, dimension):

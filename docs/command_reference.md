@@ -10,24 +10,26 @@
 | 三维训练 | `python scripts/train/train_3d.py --config configs/3D/train.yaml` |
 | 二维评估 | `python scripts/evaluate/evaluate_2d.py --config configs/2D/evaluate.yaml --case <case>` |
 | 三维评估 | `python scripts/evaluate/evaluate_3d.py --config configs/3D/evaluate.yaml --case <case>` |
-| 二维训练并评估 | `python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/train.yaml --evaluate-config configs/2D/evaluate.yaml` |
-| 三维训练并评估 | `python scripts/train/train_evaluate.py --dimension 3 --train-config configs/3D/train.yaml --evaluate-config configs/3D/evaluate.yaml` |
+| 二维训练并评估 | `python scripts/train/train_evaluate.py --dimension 2 --dataset <数据集名称> --models hmonet meshonet pimeshonet --grids 101 201 401 --values <参数1> <参数2> --run-tag v1` |
+| 三维训练并评估 | `python scripts/train/train_evaluate.py --dimension 3 --dataset <数据集名称> --models hmonet meshonet pimeshonet --grids 11x31x11 21x61x21 --values <参数1> <参数2> --run-tag v1` |
+
+三维 `--grids` 的每一项可显式写成 `n_x × n_y × n_z`，例如 `11x31x11`；纯数字 `21 31` 才表示立方网格 `21×21×21`、`31×31×31`。正式入口也兼容旧式 `--grid-shapes 11x31x11,21x61x21`，但两种写法不可混用。
 
 常用覆盖：
 
 ```bash
-python scripts/train/train_2d.py --model hmonet,meshonet,pimeshonet --dataset-mode both --seed 20261030 --device cuda
-python scripts/evaluate/evaluate_2d.py --case run_ext_0_1000_61_21 --values 1.52,1.55 --grid-shapes 101x101,201x201,401x401 --methods tfi,pde,meshonet,pimeshonet,hmonet
+python scripts/train/train_2d.py --model hmonet,meshonet,pimeshonet --dataset air_t_ext_1_500_21_21 --dataset-mode extrapolation --seed 20261030 --device cuda
+python scripts/evaluate/evaluate_2d.py --case run_ext_1_500_41_41 --values 1.52 1.55 --grids 101 201 401 --methods tfi,pde,meshonet,pimeshonet,hmonet
 ```
 
 ## 消融实验
 
 ```bash
 # 单个实验
-python scripts/experiments/run.py ex1 rational_affine --dataset run_ext_0_1000_61_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
+python scripts/experiments/run.py ex1 rational_affine --dataset run_ext_1_500_41_41 --seed 20261030 --grids 101 201 401 --tag v1
 
 # 基线和套件内全部实验
-python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag v1
 
 # 只评估且不生成图片
 python scripts/experiments/run.py ex1 rational_affine --evaluate-only --grids 101 201 --no-plots
@@ -41,10 +43,10 @@ python scripts/experiments/run.py ex1 rational_affine --evaluate-only --grids 10
 
 ```bash
 # 消融实验
-python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag physics_v1 --gpus 0 1 2 3
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag v1 --gpus 0 1 2 3
 
 # 正式实验
-python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/train.yaml --evaluate-config configs/2D/evaluate.yaml --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet --train-args "--model hmonet,meshonet,pimeshonet --dataset-mode both" --gpus 0 1 2 3
+python scripts/train/train_evaluate.py --dimension 2 --dataset-mode both --models hmonet meshonet pimeshonet --grids 101 201 401 --seed 20261030 --run-tag v1 --gpus 0 1 2 3
 ```
 
 调度规则：
@@ -55,7 +57,7 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 - `Ctrl+C`/`SIGTERM` 终止整个队列和所有子任务；
 - `--continue-on-error` 允许普通失败释放 GPU 并继续，但最终仍汇总失败。
 
-多 GPU 消融日志按 `experiments/<suite>/queue_logs/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 存放；正式实验采用相同顺序，位于 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/`。训练指纹只保存在队列元数据中，不再出现在路径里。训练和评估属于同一个原子任务时写入 `train_evaluate.log`；单阶段任务分别写入 `training.log` 或 `evaluation.log`。再次运行同一目录对应的任务时会先清除旧日志，再覆盖写入，避免新旧输出混合。正式多 GPU 流程可用 `--run-tag`（或 `--tag`）指定标签；标签仅限字母、数字、`.`、`_`、`-`。超过预留路径空间时 dry-run 与运行时检查只提示警告；仅达到当前系统的真实路径上限才会报错。`--queue-terminal-interval 1000` 表示主终端每 1000 epoch 转发一次完整汇总；任务日志仍保存每个完整 epoch 的结果，单 GPU 输出不受影响。
+多 GPU 消融日志按 `experiments/<suite>/queue_logs/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 存放；正式实验采用相同顺序，位于 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/`。训练指纹只保存在队列元数据中，不再出现在路径里。训练和评估属于同一个原子任务时写入 `train_evaluate.log`；单阶段任务分别写入 `training.log` 或 `evaluation.log`。再次运行同一目录对应的任务时会先清除旧日志，再覆盖写入，避免新旧输出混合。正式流程使用 `--run-tag` 指定标签；标签仅限字母、数字、`.`、`_`、`-`。路径检查仅针对即将创建的真实目录或文件；超过预警阈值时提示，达到当前系统的真实路径上限才会报错。`--queue-terminal-interval 1000` 表示主终端每 1000 epoch 转发一次完整汇总；任务日志仍保存每个完整 epoch 的结果，单 GPU 输出不受影响。
 
 常见故障：训练身份不匹配时应换 tag 或确认后使用 `--force`；任务瞬间退出应先查看对应日志的首个 traceback；CUDA OOM 时减小 batch/query batch，并避免两个队列同时使用同一物理卡。
 
@@ -63,7 +65,7 @@ python scripts/train/train_evaluate.py --dimension 2 --train-config configs/2D/t
 
 ```bash
 python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.055 0.6
-python src/data/generation/make_dataset_parametric_3d.py --family sch_r --split extrapolation --version 1 --size 500 --grid-shape 11x31x11
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11
 python -m unittest discover -s tests -p "test_*.py" -v
 python -m pytest tests -q
 tensorboard --logdir outputs/training --port 6006

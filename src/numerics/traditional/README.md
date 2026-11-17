@@ -8,5 +8,4 @@ This package contains non-neural numerical baselines:
 - `tfi_legacy.py`, `winslow_legacy.py`: compatibility implementations used by
   archived datasets and tests.
 
-Command-line wrappers under `scripts/tfi/` and `scripts/pde/` remain available
-for historical commands, but new Python code should import this package.
+All current code imports these implementations directly from this package.

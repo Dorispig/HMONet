@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -65,8 +66,105 @@ def _formal_values(value, fallback):
         return list(fallback)
 
 
+def _formal_grid_names(tokens, fallback, dimension):
+    """Return printable shapes from compact or legacy evaluation overrides."""
+    compact = _command_values(tokens, "--grids")
+    if compact:
+        try:
+            from src.evaluation.configuration import compact_grid_shapes
+
+            return [
+                "x".join(map(str, shape))
+                for shape in compact_grid_shapes(compact, dimension)
+            ]
+        except (TypeError, ValueError):
+            return ["x".join(map(str, shape)) for shape in fallback]
+    return _formal_shape_names(_command_option(tokens, "--grid-shapes"), fallback)
+
+
+def _formal_value_list(tokens, fallback):
+    """Support both ``--values a b`` and the legacy comma spelling."""
+    values = _command_values(tokens, "--values")
+    return _formal_values(",".join(values) if values else None, fallback)
+
+
+def validate_formal_evaluation_request(dimension, tokens, cases, case_names):
+    """Validate the final evaluation overrides before any training starts.
+
+    The combined formal entry point deliberately owns ``--case`` and model
+    checkpoint selection, but it forwards grid and value overrides to the
+    shared evaluator.  Validate those forwarded overrides here as well, so a
+    malformed request cannot waste a training run before failing in the
+    evaluation phase.
+    """
+    from src.evaluation.configuration import (
+        compact_grid_shapes,
+        create_geometry,
+        csv_values,
+    )
+
+    compact = _command_values(tokens, "--grids")
+    legacy = _command_option(tokens, "--grid-shapes")
+    if compact and legacy is not None:
+        raise ValueError("--grids and --grid-shapes are mutually exclusive")
+
+    requested_shapes = (
+        compact_grid_shapes(compact, dimension)
+        if compact
+        else compact_grid_shapes(legacy, dimension)
+        if legacy is not None
+        else None
+    )
+    requested_values = _command_values(tokens, "--values")
+    values_override = csv_values(requested_values) if requested_values else None
+    if values_override is not None and (
+        not values_override or not all(math.isfinite(value) for value in values_override)
+    ):
+        raise ValueError("--values must contain one or more finite numbers")
+
+    checked = []
+    for name in case_names:
+        case = cases[name]
+        shapes = requested_shapes
+        if shapes is None:
+            raw_shapes = case.get(
+                "grid_shapes", [case.get("grid_shape", case.get("train_grid"))]
+            )
+            shapes = [tuple(map(int, shape)) for shape in raw_shapes]
+        values = (
+            values_override
+            if values_override is not None
+            else case.get("values", [None])
+        )
+        if not isinstance(values, (list, tuple)):
+            values = [values]
+        for shape in shapes:
+            if len(shape) != dimension or min(shape) < 2:
+                raise ValueError(
+                    f"Invalid {dimension}-D evaluation grid for {name}: {shape}"
+                )
+        for value in values:
+            if value is not None and not math.isfinite(float(value)):
+                raise ValueError(f"Invalid evaluation value for {name}: {value!r}")
+            # Constructing the exact parametric boundary validates that the
+            # requested physical parameter is usable without allocating an
+            # output mesh or executing a network/PDE solve.
+            create_geometry(dimension, case, value)
+        checked.append(
+            {
+                "name": name,
+                "grids": ["x".join(map(str, shape)) for shape in shapes],
+                "values": [
+                    "default" if value is None else f"{float(value):g}"
+                    for value in values
+                ],
+            }
+        )
+    return checked
+
+
 def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases, models):
-    """Preview formal output paths without writing, warning only on overflow."""
+    """Preview the concrete formal roots without inventing deep suffixes."""
     evaluation_root = Path(
         _command_option(evaluate_extra, "--output-root", "outputs/results")
     )
@@ -93,17 +191,18 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
         "meshonet": "MeshONet", "pimeshonet": "PI-MeshONet",
     }
     candidates = []
-    grid_override = _command_option(evaluate_extra, "--grid-shapes")
-    value_override = _command_option(evaluate_extra, "--values")
     for path in paths:
         dataset_name = path.parent.name if path.is_file() else path.name
         case = cases[dataset_name]
-        for grid in _formal_shape_names(grid_override, case.get("grid_shapes", [])):
-            for value in _formal_values(value_override, case.get("values", [])):
+        for grid in _formal_grid_names(
+            evaluate_extra, case.get("grid_shapes", []), args.dimension
+        ):
+            for value in _formal_value_list(
+                evaluate_extra, case.get("values", [])
+            ):
                 candidates.append((
-                    "formal evaluation",
-                    evaluation_root / dataset_name / grid / f"{value:g}"
-                    / "p/c/t_p_pi_m_h/q/q_scaled_jacobian_distribution.png",
+                    "formal evaluation root",
+                    evaluation_root / dataset_name / grid / f"{value:g}",
                 ))
         for model in models:
             display = model_names.get(model, model)
@@ -113,8 +212,7 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
                 training /= str(mapping)
             candidates.append((
                 "formal training",
-                training / "20261112_0000" / "tensorboard"
-                / "events.out.tfevents.9999999999.HMONet-worker.999999.0",
+                training,
             ))
         if args.gpus:
             candidates.append((
@@ -136,22 +234,22 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
         or any(len(part) > 255 for part in path.parts)
     ]
     print(
-        f"[dry-run paths] checked={len(candidates)} | reserve-warning={FORMAL_PATH_LIMIT} | "
+        f"[dry-run paths] checked={len(candidates)} | warning-threshold={FORMAL_PATH_LIMIT} | "
         f"system-limit={FORMAL_SYSTEM_PATH_LIMIT} | Linux-component=255",
         flush=True,
     )
     if not warnings:
-        print("[dry-run paths] all selected formal output paths are within reserved headroom.", flush=True)
+        print("[dry-run paths] all selected formal output paths are below the warning threshold.", flush=True)
     else:
         for category, path, length, would_fail in warnings:
             print(
                 f"[dry-run paths] {'WOULD-FAIL' if would_fail else 'WARNING'} | "
-                f"{category} | length={length}, reserve={FORMAL_PATH_LIMIT}, "
+                f"{category} | length={length}, warning-threshold={FORMAL_PATH_LIMIT}, "
                 f"system={FORMAL_SYSTEM_PATH_LIMIT} | {path}",
                 flush=True,
             )
         print(
-            "[dry-run paths] reserve warnings do not stop this dry run. "
+            "[dry-run paths] warnings do not stop this dry run. "
             "WOULD-FAIL entries would exceed the real system limit during a run.",
             flush=True,
         )
@@ -222,7 +320,7 @@ def evaluation_commands(
             if not path.is_file():
                 raise FileNotFoundError(path)
             command += [f"--{model}-checkpoint", str(path)]
-            if model in ("hmonet", "pihmonet", "attentionpihmonet"):
+            if model == "hmonet":
                 command += [f"--{model}-mapping-mode", summary["hmonet_mapping_mode"]]
         commands.append(command)
     return commands
@@ -318,6 +416,49 @@ def _command_option(tokens, name, default=None):
         if token.startswith(name + "="):
             return token.split("=", 1)[1]
     return default
+
+
+def _command_values(tokens, name):
+    """Read all values following one option until the next CLI switch."""
+    for index, token in enumerate(tokens):
+        if token.startswith(name + "="):
+            return [token.split("=", 1)[1]]
+        if token == name:
+            values = []
+            for candidate in tokens[index + 1 :]:
+                if candidate.startswith("--"):
+                    break
+                values.append(candidate)
+            return values
+    return []
+
+
+def _option_present(tokens, name):
+    return any(token == name or token.startswith(name + "=") for token in tokens)
+
+
+def _append_simple_option(parser, tokens, name, values, *, source):
+    """Append a friendly top-level option unless advanced args already set it."""
+    if values is None:
+        return
+    if _option_present(tokens, name):
+        parser.error(
+            f"Use either {source} or {name} inside the advanced argument string, not both"
+        )
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    tokens.extend([name, *map(str, values)])
+
+
+def _infer_dataset_mode(value):
+    """Infer a split from the stable ``*_int_*``/``*_ext_*`` dataset name."""
+    path = Path(value)
+    name = path.parent.name if path.name == "dataset.npy" else path.name
+    if "_int_" in name:
+        return "interpolation"
+    if "_ext_" in name:
+        return "extrapolation"
+    return None
 
 
 def _queue_status_path(result_path: Path) -> Path:
@@ -608,9 +749,55 @@ def main(argv=None):
     parser.add_argument("--train-config")
     parser.add_argument("--evaluate-config")
     parser.add_argument(
+        "--dataset",
+        help=(
+            "Dataset directory name (for example swb_a_ext_1_500_11_21_11), "
+            "a project-relative path, or an absolute path."
+        ),
+    )
+    parser.add_argument(
+        "--dataset-mode",
+        choices=["interpolation", "extrapolation", "both"],
+        help="Training split when --dataset is omitted; inferred from a named dataset otherwise.",
+    )
+    parser.add_argument(
+        "--models",
+        "--model",
+        dest="models",
+        nargs="+",
+        help="Models to train, for example hmonet meshonet pimeshonet; aliases both, pi and all are supported.",
+    )
+    parser.add_argument("--seed", type=int, help="Override the training seed.")
+    parser.add_argument("--device", help="Training/evaluation device, for example cuda:0 or cpu.")
+    parser.add_argument("--epochs", type=int, help="Override the maximum training epochs.")
+    parser.add_argument("--batch-size", type=int, help="Override the training batch size.")
+    parser.add_argument("--lr", type=float, help="Override each selected model's initial learning rate.")
+    grid_group = parser.add_mutually_exclusive_group()
+    grid_group.add_argument(
+        "--grids",
+        nargs="+",
+        metavar="N_OR_SHAPE",
+        help=(
+            "Evaluation sizes or explicit shapes, for example 101 201 401 or "
+            "11x31x11 21x61x21; scalar N expands to NxN or NxNxN."
+        ),
+    )
+    grid_group.add_argument(
+        "--grid-shapes",
+        help=(
+            "Legacy explicit evaluation grids, for example 101x101,201x201 "
+            "or 11x31x11,21x61x21."
+        ),
+    )
+    parser.add_argument(
+        "--values",
+        nargs="+",
+        help="Evaluation parameter values, for example --values 0.62 0.65.",
+    )
+    parser.add_argument(
         "--check-only",
         action="store_true",
-        help="Validate datasets and cases without training",
+        help="Validate selected datasets, cases, grids and values without training.",
     )
     parser.add_argument(
         "--evaluate-methods",
@@ -654,6 +841,11 @@ def main(argv=None):
         help="Print one complete queued epoch summary every N epochs.",
     )
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force regeneration and reanalysis during the evaluation stage.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--queue-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--queue-result", help=argparse.SUPPRESS)
@@ -663,6 +855,55 @@ def main(argv=None):
 
     train_extra = shlex.split(args.train_args, posix=True)
     evaluate_extra = shlex.split(args.evaluate_args, posix=True)
+    _append_simple_option(
+        parser, train_extra, "--dataset", args.dataset, source="--dataset"
+    )
+    requested_mode = args.dataset_mode
+    if requested_mode is None and args.dataset is not None:
+        requested_mode = _infer_dataset_mode(args.dataset)
+    _append_simple_option(
+        parser,
+        train_extra,
+        "--dataset-mode",
+        requested_mode,
+        source="--dataset-mode",
+    )
+    _append_simple_option(
+        parser,
+        train_extra,
+        "--model",
+        ",".join(args.models) if args.models else None,
+        source="--models/--model",
+    )
+    for option, value in (
+        ("--seed", args.seed),
+        ("--device", args.device),
+        ("--epochs", args.epochs),
+        ("--batch-size", args.batch_size),
+        ("--lr", args.lr),
+    ):
+        _append_simple_option(parser, train_extra, option, value, source=option)
+    _append_simple_option(
+        parser, evaluate_extra, "--grids", args.grids, source="--grids"
+    )
+    _append_simple_option(
+        parser,
+        evaluate_extra,
+        "--grid-shapes",
+        args.grid_shapes,
+        source="--grid-shapes",
+    )
+    _append_simple_option(
+        parser, evaluate_extra, "--values", args.values, source="--values"
+    )
+    if _option_present(evaluate_extra, "--grids") and _option_present(
+        evaluate_extra, "--grid-shapes"
+    ):
+        parser.error("--grids and --grid-shapes are mutually exclusive")
+    if args.force:
+        if _option_present(evaluate_extra, "--force"):
+            parser.error("Use --force either directly or inside --evaluate-args, not both")
+        evaluate_extra.append("--force")
     if args.quality_plots:
         if any(token.split("=", 1)[0] == "--quality-plots" for token in evaluate_extra):
             parser.error(
@@ -686,12 +927,9 @@ def main(argv=None):
         "--model",
         "--checkpoint",
         "--hmonet-checkpoint",
+        "--qghmonet-checkpoint",
         "--meshonet-checkpoint",
         "--pimeshonet-checkpoint",
-        "--pihmonet-checkpoint",
-        "--attentionpihmonet-checkpoint",
-        "--pihmonet-mapping-mode",
-        "--attentionpihmonet-mapping-mode",
         "--hmonet-mapping-mode",
     }
     if any(token.split("=", 1)[0] in reserved for token in evaluate_extra):
@@ -704,7 +942,11 @@ def main(argv=None):
         args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"
     )
     config = yaml.safe_load(train_config.read_text(encoding="utf-8"))
-    cases = yaml.safe_load(evaluate_config.read_text(encoding="utf-8"))["cases"]
+    evaluation_config = yaml.safe_load(evaluate_config.read_text(encoding="utf-8"))
+    from src.utils.config_validation import validate_evaluate_config
+
+    validate_evaluate_config(evaluation_config, dimension=args.dimension)
+    cases = evaluation_config["cases"]
     # Parse dataset/grid overrides before expensive training begins.
     preflight = argparse.ArgumentParser(add_help=False)
     preflight.add_argument(
@@ -721,14 +963,18 @@ def main(argv=None):
     # Explicit evaluation methods may include an already trained model. Models
     # trained in this invocation are pinned to their new checkpoints; other
     # requested models are resolved by the evaluator from existing checkpoints.
-    from src.engine.training import resolve_dataset_paths
+    from src.engine.training import resolve_dataset_paths, resolve_explicit_dataset_path
     from src.data.parametric_dataset import ParametricDataset2D, ParametricDataset3D
 
     mode = overrides.dataset_mode or config.get("training", {}).get(
         "dataset", "interpolation"
     )
     paths = (
-        [Path(overrides.dataset)]
+        [
+            resolve_explicit_dataset_path(
+                overrides.dataset, dimension=args.dimension, project_root=ROOT
+            )
+        ]
         if overrides.dataset
         else resolve_dataset_paths(config, mode, ROOT)
     )
@@ -756,6 +1002,25 @@ def main(argv=None):
             flush=True,
         )
         del data
+    try:
+        validation = validate_formal_evaluation_request(
+            args.dimension,
+            evaluate_extra,
+            cases,
+            [
+                Path(path).parent.name if Path(path).is_file() else Path(path).name
+                for path in paths
+            ],
+        )
+    except (TypeError, ValueError) as error:
+        parser.error(str(error))
+    for record in validation:
+        print(
+            "Validated evaluation: "
+            f"{record['name']}, grids={','.join(record['grids'])}, "
+            f"values={','.join(record['values'])}",
+            flush=True,
+        )
     if args.dry_run:
         report_formal_dry_run_paths(
             args, train_extra, evaluate_extra, paths, cases, sorted(trained)
