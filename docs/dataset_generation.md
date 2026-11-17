@@ -35,10 +35,10 @@ python src/data/generation/make_dataset_parametric_2d.py \
 python src/data/generation/make_dataset_parametric_3d.py \
   --family swb_a --split extrapolation --version 1 \
   --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.30 \
-  --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6
+  --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6
 ```
 
-三维入口接受族名（或短名）、划分、版本、样本数、`NXxNYxNZ` 网格、随机种子、PDE 求解选项和 `--parameter-range` 覆盖。覆盖范围时应同步递增 `--version`，以保证名称能够追溯几何定义。重复使用该选项可给出不连续的内插区间。完整训练—评估流程见根目录 [README](../README.md#从零复现六类外推数据集与正式实验)。
+三维入口接受族名（或短名）、划分、版本、样本数、`NXxNYxNZ` 网格、随机种子、PDE 求解选项和 `--parameter-range` 覆盖；`--workers N` 与二维一致，使用 `N` 个 CPU 进程并行求解互不依赖的样本，默认 `4`。覆盖范围时应同步递增 `--version`，以保证名称能够追溯几何定义。重复使用该选项可给出不连续的内插区间。完整训练—评估流程见根目录 [README](../README.md#从零复现六类外推数据集与正式实验)。
 
 ### 生成后检查
 

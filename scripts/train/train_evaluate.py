@@ -477,7 +477,7 @@ def _write_queue_worker_status(result_path: Path, **payload) -> None:
 
 
 def _formal_queue_process_rows(records):
-    """Render per-dataset formal queue tasks with separate phase outcomes."""
+    """Render per-model formal queue tasks with separate phase outcomes."""
     rows = []
     for record in records:
         metadata = dict(record.get("metadata") or {})
@@ -571,7 +571,15 @@ def _queued_formal_run(
     selected_methods,
     resolved_dataset_mode,
 ):
-    """Queue atomic per-dataset train-and-evaluate tasks on selected GPUs."""
+    """Queue independent ``dataset × model`` training-and-evaluation tasks.
+
+    A single formal dataset normally compares several models.  Splitting that
+    comparison into model-specific jobs makes all requested GPUs useful while
+    retaining the required train-then-evaluate lifecycle for every model.
+    Worker evaluations write into private staging roots, so simultaneous jobs
+    never contend for the canonical comparison directory.  After the queue
+    finishes, one consolidated evaluation writes the usual multi-model result.
+    """
     import shlex
 
     gpu_ids = parse_gpu_ids(args.gpus)
@@ -590,7 +598,11 @@ def _queued_formal_run(
     tasks = []
     result_files = []
     script = ROOT / "scripts/train/train_evaluate.py"
-    evaluation_extra = _without_value_options(evaluate_extra, {"--device"})
+    # A worker uses a private evaluation root.  The canonical root is written
+    # only by the post-queue consolidation below, after all workers finish.
+    worker_evaluation_extra = _without_value_options(
+        evaluate_extra, {"--device", "--output-root"}
+    )
     for path in paths:
         dataset_name = path.parent.name if path.is_file() else path.name
         task_mode = requested_mode
@@ -605,94 +617,99 @@ def _queued_formal_run(
                 f"Cannot infer interpolation/extrapolation mode for {dataset_name!r}; "
                 "pass --train-args '--dataset-mode interpolation' (or extrapolation)."
             )
-        worker_extra = [
-            *stripped,
-            "--model",
-            ",".join(models),
-            "--dataset",
-            str(path),
-            "--dataset-mode",
-            task_mode,
-            "--device",
-            "cuda:0",
-        ]
         train_config = args.train_config or f"configs/{args.dimension}D/train.yaml"
         evaluation_config = (
             args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"
-        )
-        fingerprint = _formal_queue_fingerprint(
-            dimension=args.dimension,
-            dataset=path,
-            models=models,
-            train_config=train_config,
-            evaluate_config=evaluation_config,
-            train_arguments=worker_extra,
-            evaluate_arguments=[*evaluation_extra, "--device", "cuda:0"],
-            evaluate_methods=selected_methods,
-            checkpoint=args.checkpoint,
         )
         configured = yaml.safe_load(
             (ROOT / train_config).read_text(encoding="utf-8-sig")
             if not Path(train_config).is_absolute()
             else Path(train_config).read_text(encoding="utf-8-sig")
         ) or {}
-        seed = int(
-            _command_option(
-                worker_extra,
-                "--seed",
-                configured.get("training", {}).get("seed", 0),
+        for model in models:
+            worker_extra = [
+                *stripped,
+                "--model",
+                model,
+                "--dataset",
+                str(path),
+                "--dataset-mode",
+                task_mode,
+                "--device",
+                "cuda:0",
+            ]
+            seed = int(
+                _command_option(
+                    worker_extra,
+                    "--seed",
+                    configured.get("training", {}).get("seed", 0),
+                )
             )
-        )
-        experiment_name = "_".join(models)
-        task_directory = (
-            Path(dataset_name)
-            / experiment_name
-            / f"seed_{seed}"
-            / args.run_tag
-        )
-        result_file = queue_root / task_directory / "queue_result.json"
-        status_file = _queue_status_path(result_file)
-        if not args.dry_run:
-            result_file.parent.mkdir(parents=True, exist_ok=True)
-        result_files.append(result_file)
-        command = [
-            sys.executable,
-            str(script),
-            "--dimension",
-            str(args.dimension),
-            "--train-config",
-            str(train_config),
-            "--evaluate-config",
-            str(evaluation_config),
-            "--checkpoint",
-            args.checkpoint,
-            "--train-args",
-            shlex.join(worker_extra),
-            "--evaluate-args",
-            shlex.join([*evaluation_extra, "--device", "cuda:0"]),
-            "--queue-worker",
-            "--queue-result",
-            str(result_file),
-        ]
-        if selected_methods is not None:
-            command += ["--evaluate-methods", ",".join(selected_methods)]
-        tasks.append(
-            GpuTask(
-                name=f"train_evaluate__{dataset_name}",
-                command=command,
-                log_relative_path=task_directory / "train_evaluate.log",
-                clear_log_directory=True,
-                metadata={
-                    "dataset": dataset_name,
-                    "experiment": experiment_name,
-                    "seed": seed,
-                    "run_tag": args.run_tag,
-                    "task_fingerprint": fingerprint,
-                    "queue_result_path": str(result_file),
-                    "queue_status_path": str(status_file),
-                },
+            task_directory = (
+                Path(dataset_name) / model / f"seed_{seed}" / args.run_tag
             )
-        )
+            result_file = queue_root / task_directory / "queue_result.json"
+            status_file = _queue_status_path(result_file)
+            staging_root = queue_root / ".evaluation_work" / task_directory
+            worker_evaluate_arguments = [
+                *worker_evaluation_extra,
+                "--device",
+                "cuda:0",
+                "--output-root",
+                str(staging_root),
+            ]
+            fingerprint = _formal_queue_fingerprint(
+                dimension=args.dimension,
+                dataset=path,
+                models=[model],
+                train_config=train_config,
+                evaluate_config=evaluation_config,
+                train_arguments=worker_extra,
+                evaluate_arguments=worker_evaluate_arguments,
+                # Worker evaluation always includes its own model plus TFI/PDE.
+                evaluate_methods=None,
+                checkpoint=args.checkpoint,
+            )
+            if not args.dry_run:
+                result_file.parent.mkdir(parents=True, exist_ok=True)
+            result_files.append(result_file)
+            command = [
+                sys.executable,
+                str(script),
+                "--dimension",
+                str(args.dimension),
+                "--train-config",
+                str(train_config),
+                "--evaluate-config",
+                str(evaluation_config),
+                "--checkpoint",
+                args.checkpoint,
+                "--train-args",
+                shlex.join(worker_extra),
+                "--evaluate-args",
+                shlex.join(worker_evaluate_arguments),
+                "--queue-worker",
+                "--queue-result",
+                str(result_file),
+            ]
+            tasks.append(
+                GpuTask(
+                    name=f"train_evaluate__{dataset_name}__{model}",
+                    command=command,
+                    log_relative_path=task_directory / "train_evaluate.log",
+                    clear_log_directory=True,
+                    metadata={
+                        "dataset": dataset_name,
+                        "experiment": model,
+                        "seed": seed,
+                        "run_tag": args.run_tag,
+                        "task_fingerprint": fingerprint,
+                        "queue_result_path": str(result_file),
+                        "queue_status_path": str(status_file),
+                        "staging_root": str(staging_root),
+                    },
+                )
+            )
     try:
         task_records = run_gpu_queue(
             tasks,
@@ -728,11 +745,42 @@ def _queued_formal_run(
         if result_file.is_file():
             summaries.extend(json.loads(result_file.read_text(encoding="utf-8")))
     failed = [record for record in task_records if record["status"] == "failed"]
+    consolidation = "not-run"
+    if summaries:
+        # Run exactly one canonical, multi-model comparison only after every
+        # worker has finished.  This avoids concurrent writes to results/.
+        evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
+        consolidated_evaluate_extra = _without_value_options(
+            evaluate_extra, {"--device"}
+        )
+        consolidated_evaluate_extra += ["--device", f"cuda:{gpu_ids[0]}"]
+        try:
+            for command in evaluation_commands(
+                summaries, evaluate_config, cases, args.checkpoint, selected_methods
+            ):
+                evaluate.main(command + consolidated_evaluate_extra)
+            consolidation = "completed"
+        except Exception as error:
+            consolidation = "failed"
+            completion = {
+                "status": "failed",
+                "gpu_ids": gpu_ids,
+                "tasks": task_records,
+                "processes": _formal_queue_process_rows(task_records),
+                "consolidation": consolidation,
+                "error": repr(error),
+            }
+            print_completion_summary(
+                completion["processes"], title="Formal GPU queue completion summary"
+            )
+            _write_formal_completion_summary(queue_root, completion)
+            raise
     completion = {
         "status": "completed_with_failures" if failed else "completed",
         "gpu_ids": gpu_ids,
         "tasks": task_records,
         "processes": _formal_queue_process_rows(task_records),
+        "consolidation": consolidation,
     }
     print_completion_summary(
         completion["processes"], title="Formal GPU queue completion summary"

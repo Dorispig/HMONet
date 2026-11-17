@@ -29,6 +29,8 @@
 
 从无数据开始的 12 条完整生成命令统一维护在 [data/3D/generation_commands.md](../../data/3D/generation_commands.md)。`--dataset-mode both` 只会读取 `configs/3D/train.yaml` 中声明的一对默认数据集；要复现全部六类外推集，请按该文件中的六条显式 `--dataset` 命令分别运行。
 
+六类外推集可直接复制执行的正式训练—评估命令另见 [formal_external_commands.md](formal_external_commands.md)。
+
 ## 一键运行正式对比
 
 ~~~powershell
@@ -72,7 +74,7 @@ python scripts/train/train_evaluate.py \
   --gpus 0 1 2 3
 ~~~
 
-每个数据集是一个原子任务：同一 GPU 必须完成该数据集全部模型的训练和评估，才会领取下一项。单个显式数据集只会形成一个任务。
+队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即完成其独立评估。全部模型任务结束后，入口会在一张指定 GPU 上补做一次正式的多模型汇总对比评估，写入标准 `outputs/results/3D/` 目录。
 
 ## 正式流程与输出
 

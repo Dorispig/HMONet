@@ -1,5 +1,6 @@
 """Regression tests for the current six 3-D dataset families."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -41,6 +42,7 @@ class TestCurrent3DDatasetGeneration:
                 sample_count=4,
                 output_root=temporary,
                 timing_samples=0,
+                workers=2,
             )
             dataset = ParametricDataset3D(output, load_boundary=True)
             assert len(dataset) == 2
@@ -48,6 +50,8 @@ class TestCurrent3DDatasetGeneration:
             assert np.isfinite(dataset.mesh_points).all()
             assert read_sample_parameters(Path(output), 0)["sidewall_amplitude"] == 0.04
             assert read_sample_parameters(Path(output), 1)["sidewall_amplitude"] == 0.30
+            metadata = json.loads((Path(output) / "metadata.json").read_text(encoding="utf-8"))
+            assert metadata["workers"] == 2
 
     def test_existing_output_is_skipped_without_overwrite(self):
         with tempfile.TemporaryDirectory() as temporary:

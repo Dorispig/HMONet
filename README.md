@@ -127,7 +127,7 @@ python scripts/experiments/run.py ex1 baseline rational_affine coons_residual --
 python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag v1 --gpus 0 1 2 3
 ```
 
-消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
+消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。正式训练的队列粒度为“数据集 × 模型”：同一数据集选择多个模型时，这些模型可在不同 GPU 并行完成训练及各自的暂存评估，全部完成后再统一生成标准多模型对比结果。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
 
 多 GPU 子进程不写入批次级进度条；每轮训练结束的总损失、各激活损失分量及固定网格 MSE 均保存在任务日志中，主终端默认每500轮转发一次完整汇总。使用 `--queue-terminal-interval 1000` 可改为每1000轮显示一次。单 GPU 命令不受此设置影响，仍保留原有终端输出。
 

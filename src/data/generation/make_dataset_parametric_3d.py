@@ -1,6 +1,7 @@
 """Generate parameterized three-dimensional structured-grid datasets."""
 
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
 import sys
 import json
 import argparse
@@ -125,6 +126,7 @@ DEFAULT_GENERATION_OPTIONS = {
     "winslow_max_iter": 1000,
     "winslow_tolerance": 1e-6,
     "timing_samples": 3,
+    "workers": 4,
 }
 
 
@@ -250,6 +252,65 @@ def update_dataset_catalog(output_root=DEFAULT_OUTPUT_ROOT):
     return destination
 
 
+def _solve_dataset_sample_3d(payload):
+    """Solve one picklable 3-D sample while preserving its input identity."""
+    (
+        sample_index,
+        boundary_type,
+        parameters,
+        logical_queries,
+        nx,
+        ny,
+        nz,
+        winslow_max_iter,
+        winslow_tolerance,
+    ) = payload
+    started = time.perf_counter()
+    geometry = generate_boundary(boundary_type, **parameters)
+    physical_queries = tfi_from_surfaces(geometry, parameter_grid=logical_queries)
+    initial = tfi_from_surfaces(geometry, xi=nx, eta=ny, zeta=nz)
+    initial_quality = evaluate_hexahedral_grid_quality(
+        initial,
+        metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"],
+    )
+    minimum_tfi_jacobian = float(initial_quality["minimum_scaled_jacobian"].min())
+    invalid_tfi_cells = int(
+        np.logical_or(
+            initial_quality["flipped_cell"] > 0,
+            initial_quality["degenerate_cell"] > 0,
+        ).sum()
+    )
+    if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
+        raise RuntimeError(
+            f"3-D TFI is invalid for sample {sample_index}: "
+            f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, "
+            f"invalid_cells={invalid_tfi_cells}"
+        )
+    mesh, info = solve_winslow_3d(
+        geometry,
+        nx,
+        ny,
+        nz,
+        initial_grid=initial,
+        max_iter=winslow_max_iter,
+        tolerance=winslow_tolerance,
+        return_info=True,
+    )
+    if not info["converged"]:
+        raise RuntimeError(f"3-D PDE did not converge for sample {sample_index}: {info}")
+    info = dict(info)
+    info["tfi_minimum_scaled_jacobian"] = minimum_tfi_jacobian
+    info["tfi_invalid_cells"] = invalid_tfi_cells
+    return (
+        geometry.to_dict(),
+        sample_boundary(geometry, (nx, ny, nz)),
+        physical_queries,
+        mesh.reshape(nz, ny, nx, 3),
+        info,
+        time.perf_counter() - started,
+    )
+
+
 def generate_dataset(
     name,
     boundary_type,
@@ -261,10 +322,14 @@ def generate_dataset(
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
     timing_samples=3,
+    workers=1,
     generation_metadata=None,
     overwrite=False,
 ):
     """Generate matching parameter surfaces, boundary samples, and PDE meshes."""
+    if isinstance(workers, bool) or int(workers) != workers or int(workers) < 1:
+        raise ValueError("workers must be an integer >= 1")
+    workers = int(workers)
     rng = np.random.default_rng(seed)
     nx, ny, nz = grid_shape
     out = Path(output_root) / name
@@ -275,7 +340,7 @@ def generate_dataset(
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     geoms = []
-    boundary = []
+    boundary_samples = []
     physical = []
     meshes = []
     diagnostics = []
@@ -284,79 +349,48 @@ def generate_dataset(
         raise ValueError("parameters must contain at least one sample")
     if timing_samples < 0:
         raise ValueError("timing_samples must be non-negative")
-    progress_interval = max(1, len(parameters) // 10)
-    for sample_index, params in enumerate(parameters):
-        started = time.perf_counter()
-        g = generate_boundary(boundary_type, **params)
-        geoms.append(g.to_dict())
-        faces = g.surfaces()
-        full = np.zeros((nz, ny, nx, 3), float)
-        full[:, :, 0, :] = faces["x_min"].sample(ny, nz).transpose(1, 0, 2)
-        full[:, :, -1, :] = faces["x_max"].sample(ny, nz).transpose(1, 0, 2)
-        full[:, 0, :, :] = faces["y_min"].sample(nx, nz).transpose(1, 0, 2)
-        full[:, -1, :, :] = faces["y_max"].sample(nx, nz).transpose(1, 0, 2)
-        full[0, :, :, :] = faces["z_min"].sample(nx, ny).transpose(1, 0, 2)
-        full[-1, :, :, :] = faces["z_max"].sample(nx, ny).transpose(1, 0, 2)
-        mask = np.zeros((nz, ny, nx), bool)
-        mask[[0, -1], :, :] = True
-        mask[:, [0, -1], :] = True
-        mask[:, :, [0, -1]] = True
-        boundary.append(full[mask])
-        logical = rng.random((sample_count, 3))
-        physical.append(tfi_from_surfaces(g, parameter_grid=logical))
-        initial = tfi_from_surfaces(g, xi=nx, eta=ny, zeta=nz)
-        initial_quality = evaluate_hexahedral_grid_quality(
-            initial,
-            metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"],
-        )
-        minimum_tfi_jacobian = float(initial_quality["minimum_scaled_jacobian"].min())
-        invalid_tfi_cells = int(
-            np.logical_or(
-                initial_quality["flipped_cell"] > 0,
-                initial_quality["degenerate_cell"] > 0,
-            ).sum()
-        )
-        if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
-            raise RuntimeError(
-                f"3-D TFI is invalid for sample {sample_index}: "
-                f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, "
-                f"invalid_cells={invalid_tfi_cells}"
-            )
-        exact = sample_boundary(g, (nx, ny, nz))
-        result, info = solve_winslow_3d(
-            g,
+    payloads = [
+        (
+            sample_index,
+            boundary_type,
+            params,
+            rng.random((sample_count, 3)),
             nx,
             ny,
             nz,
-            initial_grid=initial,
-            max_iter=winslow_max_iter,
-            tolerance=winslow_tolerance,
-            return_info=True,
+            winslow_max_iter,
+            winslow_tolerance,
         )
-        if not info["converged"]:
-            raise RuntimeError(
-                f"3-D PDE did not converge for sample {len(meshes)}: {info}"
-            )
-        boundary[-1] = exact
-        meshes.append(result.reshape(nz, ny, nx, 3))
-        info = dict(info)
-        info["tfi_minimum_scaled_jacobian"] = minimum_tfi_jacobian
-        info["tfi_invalid_cells"] = invalid_tfi_cells
-        diagnostics.append(info)
-        elapsed = time.perf_counter() - started
-        if sample_index < timing_samples:
-            print(
-                f"Sample {sample_index + 1}/{len(parameters)}: {elapsed:.6f} s",
-                flush=True,
-            )
-        completed = sample_index + 1
-        if completed % progress_interval == 0 or completed == len(parameters):
-            print(
-                f"Progress: {completed}/{len(parameters)} "
-                f"({100.0 * completed / len(parameters):.0f}%)",
-                flush=True,
-            )
-    np.save(out / "boundary_samples.npy", np.asarray(boundary))
+        for sample_index, params in enumerate(parameters)
+    ]
+    progress_interval = max(1, len(parameters) // 10)
+    def collect(results):
+        for sample_index, (params, result) in enumerate(zip(parameters, results)):
+            geometry, exact, physical_queries, mesh, info, elapsed = result
+            geoms.append(geometry)
+            boundary_samples.append(exact)
+            physical.append(physical_queries)
+            meshes.append(mesh)
+            diagnostics.append(info)
+            if sample_index < timing_samples:
+                print(
+                    f"Sample {sample_index + 1}/{len(parameters)}: {elapsed:.6f} s",
+                    flush=True,
+                )
+            completed = sample_index + 1
+            if completed % progress_interval == 0 or completed == len(parameters):
+                print(
+                    f"Progress: {completed}/{len(parameters)} "
+                    f"({100.0 * completed / len(parameters):.0f}%)",
+                    flush=True,
+                )
+
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            collect(pool.map(_solve_dataset_sample_3d, payloads, chunksize=1))
+    else:
+        collect(map(_solve_dataset_sample_3d, payloads))
+    np.save(out / "boundary_samples.npy", np.asarray(boundary_samples))
     np.save(out / "physical_samples.npy", np.asarray(physical))
     np.save(out / "pde_mesh.npy", np.asarray(meshes))
     np.save(
@@ -388,6 +422,7 @@ def generate_dataset(
         "pde_method": "winslow_iterative",
         "pde_max_iter": int(winslow_max_iter),
         "pde_tolerance": float(winslow_tolerance),
+        "workers": workers,
         "pde_diagnostics": diagnostics,
     }
     if generation_metadata:
@@ -424,6 +459,7 @@ def generate_family_dataset(
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
     timing_samples=3,
+    workers=1,
     overwrite=False,
     parameter_ranges=None,
 ):
@@ -459,6 +495,7 @@ def generate_family_dataset(
     print(f"Parameter: {parameter_name}", flush=True)
     print(f"Training ranges: {requested_ranges}", flush=True)
     print(f"Size: {size}; grid: {nx}x{ny}x{nz}", flush=True)
+    print(f"PDE workers: {workers}", flush=True)
     return generate_dataset(
         name,
         DATASET_GENERATORS[specification["function"]],
@@ -470,6 +507,7 @@ def generate_family_dataset(
         winslow_max_iter=winslow_max_iter,
         winslow_tolerance=winslow_tolerance,
         timing_samples=timing_samples,
+        workers=workers,
         generation_metadata={
             "dataset_family": family,
             "split": split,
@@ -648,6 +686,12 @@ if __name__ == "__main__":
         default=DEFAULT_GENERATION_OPTIONS["timing_samples"],
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_GENERATION_OPTIONS["workers"],
+        help="Parallel CPU workers for independent PDE samples; default 4.",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Replace an existing same-name 3-D dataset after regenerating it.",
@@ -673,6 +717,7 @@ if __name__ == "__main__":
         winslow_max_iter=arguments.winslow_max_iter,
         winslow_tolerance=arguments.winslow_tolerance,
         timing_samples=arguments.timing_samples,
+        workers=arguments.workers,
         overwrite=arguments.force,
         parameter_ranges=arguments.parameter_ranges,
     )

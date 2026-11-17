@@ -29,6 +29,8 @@
 
 从无数据开始的 12 条完整生成命令统一维护在 [data/2D/generation_commands.md](../../data/2D/generation_commands.md)；本文件仅说明二维正式入口的通用参数与运行规则。
 
+六类外推集可直接复制执行的正式训练—评估命令另见 [formal_external_commands.md](formal_external_commands.md)。
+
 ## 一键运行正式对比
 
 ~~~powershell
@@ -73,7 +75,7 @@ python scripts/train/train_evaluate.py \
   --gpus 0 1 2 3
 ~~~
 
-每个数据集是一个完整的“训练 → 评估”任务。所有选定模型训练结束后，会立即评估，然后才释放该 GPU。单一显式数据集仅产生一个任务，指定多张 GPU 不会让同一模型并行训练。
+队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即完成其独立评估。全部模型任务结束后，入口会在一张指定 GPU 上补做一次正式的多模型汇总对比评估，写入标准 `outputs/results/2D/` 目录。
 
 ## 正式流程与输出
 
