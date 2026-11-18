@@ -5,7 +5,7 @@
 ## 统一简写
 
 ~~~powershell
-python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 101 201 401 --values 0.62 0.65
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 101 201 401 --values 0.62 0.65
 ~~~
 
 `--grids 101 201 401` 自动展开为 `101×101`、`201×201`、`401×401`。旧式 `--grid-shapes 101x101,201x201,401x401` 与逗号参数值仍兼容。
@@ -14,13 +14,13 @@ python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tf
 
 ~~~powershell
 # 指定 HMONet checkpoint
-python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tfi,pde,hmonet --hmonet-checkpoint outputs/checkpoints/2D/<checkpoint>/best.pt --grids 101 201 --values 0.62 0.65
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --methods tfi,pde,hmonet --hmonet-checkpoint outputs/checkpoints/2D/<checkpoint>/best.pt --grids 101 201 --values 0.62 0.65
 
 # 强制重新评估
-python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 101 201 401 --values 0.62 0.65 --force
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 101 201 401 --values 0.62 0.65 --force
 
 # 生成指定质量图
-python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tfi,pde,hmonet --grids 101 --values 0.62 --quality-plots scaled_jacobian max_angle
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --methods tfi,pde,hmonet --grids 101 --values 0.62 --quality-plots scaled_jacobian max_angle
 ~~~
 
 | 参数 | 作用 |

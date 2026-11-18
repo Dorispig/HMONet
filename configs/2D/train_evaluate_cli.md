@@ -6,7 +6,7 @@
 
 | 参数 | 二维含义 |
 |---|---|
-| `--dataset` | 直接写数据集名称，如 `air_t_ext_1_500_21_21`；也兼容相对路径和绝对路径。 |
+| `--dataset` | 直接写数据集名称，如 `air_t_ext_1_500_41_41`；也兼容相对路径和绝对路径。 |
 | `--models` | 空格分隔模型名，如 `hmonet meshonet pimeshonet`。 |
 | `--grids` | 评估边长列表。`101 201 401` 自动展开为 `101×101`、`201×201`、`401×401`。 |
 | `--values` | 空格分隔的物理参数值，如 `0.62 0.65`。 |
@@ -20,9 +20,9 @@
 
 | 数据集 | 测试参数 |
 | --- | --- |
-| `air_t_ext_1_500_21_21` | `0.62 0.65` |
-| `esa_ext_1_500_21_21` | `0.72 0.75` |
-| `rse_ext_1_500_21_21` | `0.42 0.46 0.50 0.55 0.60` |
+| `air_t_ext_1_500_41_41` | `0.62 0.65` |
+| `esa_ext_1_500_41_41` | `0.72 0.75` |
+| `rse_ext_1_500_41_41` | `0.42 0.46 0.50 0.55 0.60` |
 | `run_ext_1_500_41_41` | `1.52 1.55` |
 | `scc_ext_1_500_41_41` | `0.42 0.45 0.47` |
 | `vsc_ext_1_500_41_41` | `0.85 0.90 0.95` |
@@ -34,17 +34,17 @@
 ## 一键运行正式对比
 
 ~~~powershell
-python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
 ~~~
 
 ## 仅运行一个模型或预检查
 
 ~~~powershell
 # HMONet
-python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
 
 # 仅检查数据、网格和评估 case
-python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1 --check-only
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1 --check-only
 ~~~
 
 ## 常用覆盖
@@ -75,7 +75,7 @@ python scripts/train/train_evaluate.py \
   --gpus 0 1 2 3
 ~~~
 
-队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即完成其独立评估。全部模型任务结束后，入口会在一张指定 GPU 上补做一次正式的多模型汇总对比评估，写入标准 `outputs/results/2D/` 目录。
+队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即保存自身以及 TFI、PDE 的完整网格、质量和计时结果。全部模型任务结束后，这些生成缓存会被汇入标准 `outputs/results/2D/`；联合阶段直接读取已保存网格，只计算跨方法质量汇总和对比图，不会重复网络推理、TFI 或 PDE 求解。除非显式传入 `--force-regenerate` 或 `--force`。
 
 ## 正式流程与输出
 

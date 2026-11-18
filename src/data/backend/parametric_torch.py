@@ -538,3 +538,72 @@ def evaluate_boundary_surfaces_torch(boundaries, xi, eta, zeta):
     v = torch.cat((zeta, zeta, zeta, zeta, eta, eta))
     values = evaluate_surfaces_torch(surfaces, u, v)
     return values.reshape(6, *xi.shape, 3).permute(1, 2, 0, 3)
+
+
+def evaluate_selected_boundary_surfaces_torch(boundaries, xi, eta, zeta, face_ids):
+    """Evaluate one requested exact face for each 3-D query.
+
+    This is the sparse counterpart of :func:`evaluate_boundary_surfaces_torch`.
+    ``face_ids`` uses the conventional order ``x_min, x_max, y_min, y_max,
+    z_min, z_max`` and has shape ``[points]`` or ``[batch, points]``.  It is
+    intended for edge corrections, where only one compatible incident face is
+    needed at every query.  Avoiding the other five surface evaluations is
+    material for CCAP finite-difference training.
+
+    Adapters with their own ``project_torch`` implementation expose only the
+    dense six-face API, so they deliberately retain that compatibility route.
+    """
+    if xi.ndim != 2 or eta.shape != xi.shape or zeta.shape != xi.shape:
+        raise ValueError("3-D surface coordinates must share [batch, points] shape")
+    if not isinstance(boundaries, (list, tuple)):
+        boundaries = [boundaries] * xi.shape[0]
+    if len(boundaries) != xi.shape[0]:
+        raise ValueError("Boundary objects must match the numerical batch")
+
+    face_ids = torch.as_tensor(face_ids, device=xi.device, dtype=torch.long)
+    if face_ids.ndim == 1:
+        if face_ids.numel() != xi.shape[1]:
+            raise ValueError("One face id is required for every query")
+        face_ids = face_ids.unsqueeze(0).expand(xi.shape[0], -1)
+    if face_ids.shape != xi.shape or bool(((face_ids < 0) | (face_ids >= 6)).any()):
+        raise ValueError("face_ids must be in [0, 5] with [batch, points] shape")
+
+    # Generic analytic surfaces can be evaluated sparsely.  A custom adapter
+    # may internally cache or fuse all six faces, therefore use its canonical
+    # dense method rather than assuming its surface representation.
+    if hasattr(boundaries, "project_torch"):
+        dense = boundaries.project_torch(xi, eta, zeta)
+        return dense.gather(
+            2, face_ids[..., None, None].expand(-1, -1, 1, 3)
+        ).squeeze(2)
+
+    names = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
+    parameters = (
+        (eta, zeta), (eta, zeta), (xi, zeta),
+        (xi, zeta), (xi, eta), (xi, eta),
+    )
+    result = xi.new_empty(*xi.shape, 3)
+    # CCAP edge ids are shared by the whole batch.  Handling the general
+    # per-batch case as well keeps the primitive reusable and differentiable.
+    for face_index, (name, (u, v)) in enumerate(zip(names, parameters)):
+        selected = face_ids == face_index
+        if not bool(selected.any()):
+            continue
+        if bool((selected == selected[:1]).all()):
+            indices = selected[0].nonzero(as_tuple=False).squeeze(-1)
+            surfaces = [getattr(boundary, name) for boundary in boundaries]
+            result[:, indices] = evaluate_surfaces_torch(
+                surfaces, u[:, indices], v[:, indices]
+            )
+            continue
+        # Rare heterogeneous face requests: preserve batching across the
+        # selected points of each geometry without evaluating unrelated faces.
+        for batch_index, boundary in enumerate(boundaries):
+            indices = selected[batch_index].nonzero(as_tuple=False).squeeze(-1)
+            if indices.numel():
+                result[batch_index, indices] = evaluate_surfaces_torch(
+                    [getattr(boundary, name)],
+                    u[batch_index : batch_index + 1, indices],
+                    v[batch_index : batch_index + 1, indices],
+                )[0]
+    return result

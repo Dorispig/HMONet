@@ -106,7 +106,6 @@ def generate(
             checkpoint_sha256=file_digest(checkpoint),
             config=read_json(checkpoint.parent / "config.json"),
             train_config_sha256=file_digest(resolve_path(train_config)),
-            device=str(resolve_device(options["device"])),
             torch_version=torch.__version__,
             timing={
                 k: options[k]

@@ -6,6 +6,7 @@ from scripts.train.train_evaluate import (
     _formal_queue_fingerprint,
     _without_value_options,
     evaluation_commands,
+    promote_worker_evaluation_caches,
     validate_formal_run_tag,
 )
 from src.evaluation.configuration import load_configuration
@@ -60,6 +61,46 @@ class TestPipeline:
                 {"--model", "--dataset", "--device"},
             )
         ) == (["--epochs", "10"])
+
+    def test_worker_generation_caches_are_promoted_without_overwrite(self):
+        """The post-queue comparison must reuse private worker generations."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            staging = root / "w"
+            cache = staging / "3D/a/1/1/.cache/H/x"
+            cache.mkdir(parents=True)
+            (cache / "generation.npz").write_bytes(b"mesh")
+            (cache / "generation_metadata.json").write_text(
+                '{"signature": "same-mesh"}', encoding="utf-8"
+            )
+            # Worker discovery intentionally relies on a completed evaluation record.
+            result = cache.parents[2] / "results.json"
+            result.write_text("{}", encoding="utf-8")
+            analysis = result.parent / "H/x/raw"
+            analysis.mkdir(parents=True)
+            (analysis / "mesh.npy").write_bytes(b"quality-input")
+            (analysis / "analysis_metadata.json").write_text(
+                '{"signature": "same-analysis", "files": {}}', encoding="utf-8"
+            )
+            canonical = root / "outputs/results/3D"
+            details = promote_worker_evaluation_caches(3, [staging], canonical)
+            target = (
+                canonical / "a/1/1/.cache/H/x"
+            )
+            assert details["generation_copied"] == 1
+            assert details["analysis_copied"] == 1
+            assert (target / "generation.npz").read_bytes() == b"mesh"
+            assert (canonical / "a/1/1/H/x/raw/mesh.npy").read_bytes() == b"quality-input"
+
+            # A conflicting destination cache is never overwritten silently.
+            (target / "generation_metadata.json").write_text(
+                '{"signature": "different"}', encoding="utf-8"
+            )
+            details = promote_worker_evaluation_caches(3, [staging], canonical)
+            assert details["generation_conflicts"] == 1
+            assert (target / "generation_metadata.json").read_text(encoding="utf-8") == (
+                '{"signature": "different"}'
+            )
 
     def test_pairing_and_explicit_checkpoints(self):
         with tempfile.TemporaryDirectory() as directory:

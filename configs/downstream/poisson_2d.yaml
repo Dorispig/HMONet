@@ -6,7 +6,7 @@ evaluation_root: outputs/results
 output_root: outputs/downstream/poisson_2d
 
 datasets:
-  - air_t_ext_1_500_21_21
+  - air_t_ext_1_500_41_41
   - run_ext_1_500_41_41
 
 methods: [tfi, pde, meshonet, pimeshonet, hmonet]
@@ -35,7 +35,7 @@ solver:
   determinant_tolerance: 1.0e-12
 
 case_overrides:
-  air_t_ext_1_500_21_21:
+  air_t_ext_1_500_41_41:
     values: [0.62, 0.65]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     # Optional [xmin, xmax, ymin, ymax] for the high-curvature error zoom.

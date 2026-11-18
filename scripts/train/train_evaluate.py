@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import traceback
 
@@ -560,6 +561,146 @@ def _write_formal_completion_summary(queue_root: Path, payload: dict) -> None:
     )
 
 
+def _formal_evaluation_root(dimension: int, evaluate_extra) -> Path:
+    """Resolve the canonical root used by the shared evaluator."""
+    root = Path(_command_option(evaluate_extra, "--output-root", "outputs/results"))
+    if not root.is_absolute():
+        root = ROOT / root
+    if root.name != f"{dimension}D":
+        root /= f"{dimension}D"
+    return root
+
+
+def _keep_uncompacted_evaluation_outputs(tokens):
+    """Preserve generated meshes and method analyses for queue consolidation."""
+    if _option_present(tokens, "--compact-outputs") or _option_present(
+        tokens, "--no-compact-outputs"
+    ):
+        return list(tokens)
+    return [*tokens, "--no-compact-outputs"]
+
+
+def _cache_signature(directory: Path):
+    """Read a method-generation signature without treating absent metadata as valid."""
+    metadata_file = Path(directory) / "generation_metadata.json"
+    if not metadata_file.is_file():
+        return None
+    try:
+        return json.loads(metadata_file.read_text(encoding="utf-8")).get("signature")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _analysis_signature(directory: Path):
+    """Read a method-analysis signature without accepting incomplete metadata."""
+    metadata_file = Path(directory) / "analysis_metadata.json"
+    if not metadata_file.is_file():
+        return None
+    try:
+        return json.loads(metadata_file.read_text(encoding="utf-8")).get("signature")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def promote_worker_evaluation_caches(dimension: int, staging_roots, canonical_root: Path):
+    """Publish matching per-method worker artifacts for the final comparison.
+
+    Each GPU worker writes a complete single-model evaluation under a private
+    root.  The final canonical evaluation has the same ``case/grid/value``
+    layout, so both mesh-generation caches and single-method quality analyses
+    can be populated without sharing writable directories between workers.
+    Only valid signed artifacts are copied; a conflicting canonical artifact
+    is left untouched and will be regenerated normally by the evaluator.
+    """
+    canonical_root = Path(canonical_root)
+    copied = reused = conflicts = missing = 0
+    analysis_copied = analysis_reused = analysis_conflicts = 0
+    seen_caches = set()
+    seen_analyses = set()
+    for staging_root in map(Path, staging_roots):
+        worker_root = staging_root / f"{dimension}D"
+        if not worker_root.is_dir():
+            missing += 1
+            continue
+        for result_file in worker_root.rglob("results.json"):
+            source_case_root = result_file.parent
+            source_cache_root = source_case_root / ".cache"
+            if not source_cache_root.is_dir():
+                missing += 1
+                continue
+            relative_case_root = source_case_root.relative_to(worker_root)
+            target_case_root = canonical_root / relative_case_root
+            target_cache_root = canonical_root / relative_case_root / ".cache"
+            for source_metadata in source_cache_root.rglob("generation_metadata.json"):
+                source_cache = source_metadata.parent
+                relative_cache = source_cache.relative_to(source_cache_root)
+                target_cache = target_cache_root / relative_cache
+                key = (str(target_cache.resolve()).lower(), _cache_signature(source_cache))
+                if key in seen_caches:
+                    reused += 1
+                    continue
+                seen_caches.add(key)
+                source_signature = _cache_signature(source_cache)
+                if source_signature is None or not (source_cache / "generation.npz").is_file():
+                    missing += 1
+                    continue
+                target_signature = _cache_signature(target_cache)
+                if target_cache.exists() and target_signature not in (None, source_signature):
+                    conflicts += 1
+                    continue
+                if target_signature == source_signature and (target_cache / "generation.npz").is_file():
+                    reused += 1
+                    continue
+                target_cache.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_cache, target_cache, dirs_exist_ok=True)
+                copied += 1
+            for source_metadata in source_case_root.rglob("analysis_metadata.json"):
+                source_analysis = source_metadata.parent
+                relative_analysis = source_analysis.relative_to(source_case_root)
+                # Only method-level artifacts are reusable.  A worker's
+                # comparison group contains a different method set and is
+                # deliberately rebuilt once by the canonical joint stage.
+                if relative_analysis.parts[0] in {".cache", "comparisons"}:
+                    continue
+                target_analysis = target_case_root / relative_analysis
+                source_signature = _analysis_signature(source_analysis)
+                key = (str(target_analysis.resolve()).lower(), source_signature)
+                if key in seen_analyses:
+                    analysis_reused += 1
+                    continue
+                seen_analyses.add(key)
+                if source_signature is None:
+                    missing += 1
+                    continue
+                target_signature = _analysis_signature(target_analysis)
+                if target_analysis.exists() and target_signature not in (None, source_signature):
+                    analysis_conflicts += 1
+                    continue
+                if target_signature == source_signature:
+                    analysis_reused += 1
+                    continue
+                target_analysis.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_analysis, target_analysis, dirs_exist_ok=True)
+                analysis_copied += 1
+    details = {
+        "generation_copied": copied,
+        "generation_already_available": reused,
+        "generation_conflicts": conflicts,
+        "analysis_copied": analysis_copied,
+        "analysis_already_available": analysis_reused,
+        "analysis_conflicts": analysis_conflicts,
+        "missing": missing,
+    }
+    print(
+        "[formal evaluation cache] "
+        f"generation_copied={copied}, generation_reused={reused}, "
+        f"analysis_copied={analysis_copied}, analysis_reused={analysis_reused}, "
+        f"conflicts={conflicts + analysis_conflicts}, missing={missing}",
+        flush=True,
+    )
+    return details
+
+
 def _queued_formal_run(
     args,
     train_extra,
@@ -600,8 +741,13 @@ def _queued_formal_run(
     script = ROOT / "scripts/train/train_evaluate.py"
     # A worker uses a private evaluation root.  The canonical root is written
     # only by the post-queue consolidation below, after all workers finish.
+    # Keep private artifacts intact so their generated meshes can be promoted
+    # into the canonical cache without rerunning inference or PDE generation.
     worker_evaluation_extra = _without_value_options(
         evaluate_extra, {"--device", "--output-root"}
+    )
+    worker_evaluation_extra = _keep_uncompacted_evaluation_outputs(
+        worker_evaluation_extra
     )
     for path in paths:
         dataset_name = path.parent.name if path.is_file() else path.name
@@ -746,12 +892,23 @@ def _queued_formal_run(
             summaries.extend(json.loads(result_file.read_text(encoding="utf-8")))
     failed = [record for record in task_records if record["status"] == "failed"]
     consolidation = "not-run"
+    cache_promotion = None
     if summaries:
-        # Run exactly one canonical, multi-model comparison only after every
-        # worker has finished.  This avoids concurrent writes to results/.
+        # Publish the immutable generation artifacts from private worker roots
+        # before one canonical multi-model comparison.  The evaluator then
+        # cache-hits HMONet/MeshONet/PI-MeshONet/TFI/PDE meshes and performs
+        # only the cross-method summaries and comparison plots.
+        cache_promotion = promote_worker_evaluation_caches(
+            args.dimension,
+            [record["metadata"]["staging_root"] for record in task_records if record["status"] == "completed"],
+            _formal_evaluation_root(args.dimension, evaluate_extra),
+        )
         evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
         consolidated_evaluate_extra = _without_value_options(
             evaluate_extra, {"--device"}
+        )
+        consolidated_evaluate_extra = _keep_uncompacted_evaluation_outputs(
+            consolidated_evaluate_extra
         )
         consolidated_evaluate_extra += ["--device", f"cuda:{gpu_ids[0]}"]
         try:
@@ -768,6 +925,7 @@ def _queued_formal_run(
                 "tasks": task_records,
                 "processes": _formal_queue_process_rows(task_records),
                 "consolidation": consolidation,
+                "evaluation_cache_promotion": cache_promotion,
                 "error": repr(error),
             }
             print_completion_summary(
@@ -781,6 +939,7 @@ def _queued_formal_run(
         "tasks": task_records,
         "processes": _formal_queue_process_rows(task_records),
         "consolidation": consolidation,
+        "evaluation_cache_promotion": cache_promotion,
     }
     print_completion_summary(
         completion["processes"], title="Formal GPU queue completion summary"

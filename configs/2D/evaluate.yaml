@@ -1,16 +1,32 @@
 # 二维参数边界评估配置。命令行覆盖本文件的同名项目。
 # 数据集生成命令见 data/2D/generation_commands.md。
 
-# 当前仅登记已经生成的 v1/500 数据集；其余边界族生成后再添加。
+# 当前正式二维数据集统一采用 v1/500 与 41x41 训练网格。
 cases:
-  air_t_ext_1_500_21_21:
+  air_t_ext_1_500_41_41:
     boundary_type: circle_airfoil_t
     split: extrapolation
     parameter: t
     values: [0.62, 0.65]
-    train_grid: [21, 21]
+    train_grid: [41, 41]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters: {radius: 1.0, m: 0.02, p: 0.4, c: 1.0, center: [0.0, 0.0]}
+  esa_ext_1_500_41_41:
+    boundary_type: eccentric_semiannulus
+    split: extrapolation
+    parameter: inner_center_x
+    values: [0.72, 0.75]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {outer_radius: 0.5, inner_radius: 0.1}
+  rse_ext_1_500_41_41:
+    boundary_type: rect_top_semiellipse
+    split: extrapolation
+    parameter: semi_minor_axis
+    values: [0.42, 0.46, 0.50, 0.55, 0.60]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {length: 1.0, height: 1.0}
   run_ext_1_500_41_41:
     boundary_type: rounded_u_notch
     split: extrapolation
@@ -19,9 +35,25 @@ cases:
     train_grid: [41, 41]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters: {width: 3.0, height: 2.0, notch_width: 0.9, radius: 0.25}
+  scc_ext_1_500_41_41:
+    boundary_type: smooth_constricted_channel
+    split: extrapolation
+    parameter: depth
+    values: [0.42, 0.45, 0.47]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {length: 3.0, height: 1.0}
+  vsc_ext_1_500_41_41:
+    boundary_type: variable_width_s_channel
+    split: extrapolation
+    parameter: constriction
+    values: [0.85, 0.90, 0.95]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {length: 4.0, height: 0.8, bend: 2.0}
 
 evaluation:
-  default_cases: [air_t_ext_1_500_21_21, run_ext_1_500_41_41]
+  default_cases: [air_t_ext_1_500_41_41, esa_ext_1_500_41_41, rse_ext_1_500_41_41, run_ext_1_500_41_41, scc_ext_1_500_41_41, vsc_ext_1_500_41_41]
   methods: [tfi, pde, meshonet, pimeshonet, hmonet, qghmonet]
   hmonet_mapping_mode: corner_corrected_affine
   hmonet_boundary_projection: none

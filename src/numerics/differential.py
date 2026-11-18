@@ -1,16 +1,16 @@
 """Dimension-independent finite-difference and automatic-differentiation operators."""
 
+from functools import lru_cache
 from itertools import combinations
 
 import torch
 
 
-def stencil_offsets(dimension, *, device=None, dtype=None):
-    """Return the centered 9-point 2-D or 19-point 3-D PDE stencil offsets."""
-    if dimension not in (2, 3):
-        raise ValueError("dimension must be 2 or 3")
-    eye = torch.eye(dimension, device=device, dtype=dtype)
-    offsets = [torch.zeros(dimension, device=device, dtype=dtype)]
+@lru_cache(maxsize=16)
+def _cpu_stencil_offsets(dimension, dtype):
+    """Cache immutable CPU stencil templates before device transfer."""
+    eye = torch.eye(dimension, dtype=dtype)
+    offsets = [torch.zeros(dimension, dtype=dtype)]
     for axis in range(dimension):
         offsets.extend((eye[axis], -eye[axis]))
     for first, second in combinations(range(dimension), 2):
@@ -23,6 +23,27 @@ def stencil_offsets(dimension, *, device=None, dtype=None):
             )
         )
     return torch.stack(offsets)
+
+
+@lru_cache(maxsize=32)
+def _device_stencil_offsets(dimension, device_type, device_index, dtype):
+    """Keep the immutable stencil resident on the active accelerator."""
+    device = torch.device(device_type, device_index)
+    return _cpu_stencil_offsets(dimension, dtype).to(device=device)
+
+
+def stencil_offsets(dimension, *, device=None, dtype=None):
+    """Return the centered 9-point 2-D or 19-point 3-D PDE stencil offsets."""
+    if dimension not in (2, 3):
+        raise ValueError("dimension must be 2 or 3")
+    dtype = dtype or torch.get_default_dtype()
+    resolved_device = torch.device("cpu" if device is None else device)
+    # The stencil is tiny (19 x 3 in 3-D), but it is used for every batch.
+    # Cache both construction and the CPU-to-device transfer. It has no
+    # gradients and is never modified by callers.
+    return _device_stencil_offsets(
+        dimension, resolved_device.type, resolved_device.index, dtype
+    )
 
 
 def stencil_queries(centers, steps):

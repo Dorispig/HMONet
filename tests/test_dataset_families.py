@@ -67,8 +67,12 @@ class TestDatasetFamily:
         )
         assert (list(config["cases"])) == (sorted(config["cases"]))
         expected = {
-            "air_t_ext_1_500_21_21": [0.62, 0.65],
+            "air_t_ext_1_500_41_41": [0.62, 0.65],
+            "esa_ext_1_500_41_41": [0.72, 0.75],
+            "rse_ext_1_500_41_41": [0.42, 0.46, 0.50, 0.55, 0.60],
             "run_ext_1_500_41_41": [1.52, 1.55],
+            "scc_ext_1_500_41_41": [0.42, 0.45, 0.47],
+            "vsc_ext_1_500_41_41": [0.85, 0.90, 0.95],
         }
         assert set(config["cases"]) == set(expected)
         for name, values in expected.items():
@@ -100,7 +104,14 @@ class TestStressDataset:
             (root / "configs/2D/evaluate.yaml").read_text(encoding="utf-8")
         )["cases"]
         assert (list(cases)) == (sorted(cases))
-        assert set(cases) == {"air_t_ext_1_500_21_21", "run_ext_1_500_41_41"}
+        assert set(cases) == {
+            "air_t_ext_1_500_41_41",
+            "esa_ext_1_500_41_41",
+            "rse_ext_1_500_41_41",
+            "run_ext_1_500_41_41",
+            "scc_ext_1_500_41_41",
+            "vsc_ext_1_500_41_41",
+        }
         for case in cases.values():
             boundary_type = case["boundary_type"]
             family = (

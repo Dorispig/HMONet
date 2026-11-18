@@ -74,7 +74,7 @@ python scripts/train/train_evaluate.py \
   --gpus 0 1 2 3
 ~~~
 
-队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即完成其独立评估。全部模型任务结束后，入口会在一张指定 GPU 上补做一次正式的多模型汇总对比评估，写入标准 `outputs/results/3D/` 目录。
+队列按“数据集 × 模型”分配任务。比如一个数据集同时选择 HMONet、MeshONet、PI-MeshONet，会形成三个独立的“训练 → 单模型评估”任务，可同时占用三张 GPU；每个任务训练后立即保存自身以及 TFI、PDE 的完整网格、质量和计时结果。全部模型任务结束后，这些生成缓存会被汇入标准 `outputs/results/3D/`；联合阶段直接读取已保存网格，只计算跨方法质量汇总和对比图，不会重复网络推理、TFI 或 PDE 求解。除非显式传入 `--force-regenerate` 或 `--force`。
 
 ## 正式流程与输出
 

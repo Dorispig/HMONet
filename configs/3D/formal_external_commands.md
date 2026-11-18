@@ -5,23 +5,23 @@
 在项目根目录 `E:\projects\HMONet` 运行。运行前请确认对应数据集已生成；数据集生成命令见 [data/3D/generation_commands.md](../../data/3D/generation_commands.md)。
 
 ```powershell
-# cylindrical domain with airfoil hole
+# cylindrical_domain_with_airfoil_hole (cah_t)
 python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.06 0.38 --seed 20261030 --run-tag v1
 
-# sidewall-deformed block
+# sidewall_deformed_block (swb_a)
 python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.02 0.34 --seed 20261030 --run-tag v1
 
-# rounded U-groove extrusion
+# rounded_u_groove_extrusion (ugc_d)
 python scripts/train/train_evaluate.py --dimension 3 --dataset ugc_d_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.20 1.45 --seed 20261030 --run-tag v1
 
-# tapered elliptic-bore block
+# tapered_elliptic_bore_block (teb_b)
 python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.08 0.36 --seed 20261030 --run-tag v1
 
-# bent annular duct
+# bent_annular_duct (bad_a)
 python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 10 105 --seed 20261030 --run-tag v1
 
-# lobed annular duct
+# lobed_annular_duct (lad_a)
 python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0 0.20 --seed 20261030 --run-tag v1
 ```
 
-服务器多 GPU 队列：将任一命令末尾追加 `--gpus 0 1 2 3`。同一数据集的 HMONet、MeshONet、PI-MeshONet 会作为三个独立的训练—评估任务并行分配至可用 GPU；全部结束后自动写出统一的多模型对比结果。
+服务器多 GPU 队列：将任一命令末尾追加 `--gpus 0 1 2 3`。同一数据集的 HMONet、MeshONet、PI-MeshONet 会作为三个独立的训练—评估任务并行分配至可用 GPU；各任务保存自身、TFI、PDE 的评估产物，全部结束后联合阶段复用这些网格，仅生成统一的多模型质量汇总和对比图。

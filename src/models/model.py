@@ -36,6 +36,7 @@ from .pi_meshonet import PIMeshONet2D, PIMeshONet3D
 from src.data.backend.parametric_torch import (
     evaluate_boundary_curves_torch,
     evaluate_boundary_surfaces_torch,
+    evaluate_selected_boundary_surfaces_torch,
 )
 
 # ============================================================
@@ -1682,16 +1683,23 @@ class HMONet3D(_OperatorNet3D):
             (xi, zero, one), (xi, one, one),
         )
         queries = torch.cat([torch.stack(q, -1) for q in edge_queries], dim=1)
-        values = self.project(
-            p_x, p_y, p_z, *queries.unbind(-1),
-            boundary_geometry=boundary_geometry,
-        )
         face_ids = torch.tensor(
             [0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 2, 3], device=xi.device
         ).repeat_interleave(xi.shape[1])
-        values = values.gather(
-            2, face_ids[None, :, None, None].expand(xi.shape[0], -1, 1, 3)
-        ).squeeze(2)
+        if boundary_geometry is not None:
+            # Each shared edge has one selected incident exact face.  Calling
+            # ``project`` here would evaluate all six faces at all 12N edge
+            # queries, even though five results per query are discarded.
+            values = evaluate_selected_boundary_surfaces_torch(
+                boundary_geometry, *queries.unbind(-1), face_ids
+            )
+        else:
+            values = self.project(
+                p_x, p_y, p_z, *queries.unbind(-1),
+                boundary_geometry=None,
+            ).gather(
+                2, face_ids[None, :, None, None].expand(xi.shape[0], -1, 1, 3)
+            ).squeeze(2)
         edges = values.reshape(xi.shape[0], 12, xi.shape[1], 3).transpose(1, 2)
         if xi.device.type == "cpu":
             edge_part = sum(

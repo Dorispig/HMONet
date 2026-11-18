@@ -53,9 +53,9 @@ cd E:\projects\HMONet
 
 | 类别 | 生成族 | 输出数据集 | 默认外推评估参数 |
 | --- | --- | --- | --- |
-| 2D-1 | `circle_airfoil_t` | `air_t_ext_1_500_21_21` | `0.62 0.65` |
-| 2D-2 | `eccentric_semiannulus` | `esa_ext_1_500_21_21` | `0.72 0.75` |
-| 2D-3 | `rect_top_semiellipse` | `rse_ext_1_500_21_21` | `0.42 0.46 0.50 0.55 0.60` |
+| 2D-1 | `circle_airfoil_t` | `air_t_ext_1_500_41_41` | `0.62 0.65` |
+| 2D-2 | `eccentric_semiannulus` | `esa_ext_1_500_41_41` | `0.72 0.75` |
+| 2D-3 | `rect_top_semiellipse` | `rse_ext_1_500_41_41` | `0.42 0.46 0.50 0.55 0.60` |
 | 2D-4 | `rounded_u_notch_compact` | `run_ext_1_500_41_41` | `1.52 1.55` |
 | 2D-5 | `smooth_constricted_channel` | `scc_ext_1_500_41_41` | `0.42 0.45 0.47` |
 | 2D-6 | `variable_width_s_channel` | `vsc_ext_1_500_41_41` | `0.85 0.90 0.95` |
@@ -67,9 +67,9 @@ cd E:\projects\HMONet
 然后逐类训练并评估三种主对比模型：
 
 ```powershell
-python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 2 --dataset esa_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.72 0.75 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 2 --dataset rse_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.42 0.46 0.50 0.55 0.60 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset esa_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.72 0.75 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset rse_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.42 0.46 0.50 0.55 0.60 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 2 --dataset run_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 1.52 1.55 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 2 --dataset scc_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.42 0.45 0.47 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 2 --dataset vsc_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.85 0.90 0.95 --seed 20261030 --run-tag v1
@@ -124,10 +124,10 @@ python scripts/experiments/run.py ex1 baseline rational_affine coons_residual --
 消融实验也可使用同一动态队列：
 
 ```bash
-python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_21_21 --seed 20261030 --grids 101 201 401 --tag v1 --gpus 0 1 2 3
+python scripts/experiments/run.py ex2 baseline all --dataset air_t_ext_1_500_41_41 --seed 20261030 --grids 101 201 401 --tag v1 --gpus 0 1 2 3
 ```
 
-消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。正式训练的队列粒度为“数据集 × 模型”：同一数据集选择多个模型时，这些模型可在不同 GPU 并行完成训练及各自的暂存评估，全部完成后再统一生成标准多模型对比结果。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
+消融入口中 `--gpus` 与串行模式的 `--device` 互斥；正式入口会用队列分配自动替换 `--train-args`/`--evaluate-args` 中的设备值。正式训练的队列粒度为“数据集 × 模型”：同一数据集选择多个模型时，这些模型可在不同 GPU 并行完成训练及各自的单模型评估（同时保存该模型、TFI、PDE 的网格和质量结果）。全部模型任务结束后，入口把这些可复用结果写入标准 `outputs/results/` 缓存；联合阶段只读取已生成网格，计算跨方法质量汇总和对比图，不会再次执行网络推理、TFI 或 PDE 求解。队列通过 `CUDA_VISIBLE_DEVICES` 隔离物理 GPU，每个子进程内部统一使用 `cuda:0`。每张 GPU 在本次队列内同时只运行一个任务；任务结束后立即领取下一项，不检查也不等待队列之外的 GPU 进程。日志和队列状态分别写入 `outputs/gpu_queue/` 或对应实验的 `queue_logs/`。
 
 多 GPU 子进程不写入批次级进度条；每轮训练结束的总损失、各激活损失分量及固定网格 MSE 均保存在任务日志中，主终端默认每500轮转发一次完整汇总。使用 `--queue-terminal-interval 1000` 可改为每1000轮显示一次。单 GPU 命令不受此设置影响，仍保留原有终端输出。
 

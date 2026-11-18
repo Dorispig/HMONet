@@ -6,7 +6,7 @@
 
 ```bash
 # 二维
-python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --values 0.62 0.65 --grids 101 201 401 --methods tfi,pde,meshonet,pimeshonet,hmonet
+python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --values 0.62 0.65 --grids 101 201 401 --methods tfi,pde,meshonet,pimeshonet,hmonet
 
 # 三维
 python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --values 0.02 0.34 --grids 11x21x11 21x41x21 --methods tfi,pde,meshonet,pimeshonet,hmonet
@@ -123,7 +123,7 @@ experiments/<suite>/
 └── queue_logs/<dataset>/<experiment>/seed_<seed>/<run-tag>/
 ```
 
-多 GPU 队列把同一数据集、实验、随机种子和 run-tag 对应的训练与评估输出放在上述同一个目录中；训练指纹仅保留在队列 JSON 元数据中。完整流程使用 `train_evaluate.log`，只训练或只评估分别使用 `training.log`、`evaluation.log`；重复运行该任务时旧日志会在新子进程启动前清空。正式训练采用对应的 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 结构。
+多 GPU 队列把同一数据集、实验、随机种子和 run-tag 对应的训练与评估输出放在上述同一个目录中；训练指纹仅保留在队列 JSON 元数据中。完整流程使用 `train_evaluate.log`，只训练或只评估分别使用 `training.log`、`evaluation.log`；重复运行该任务时旧日志会在新子进程启动前清空。正式训练采用对应的 `outputs/gpu_queue/formal/<dataset>/<experiment>/seed_<seed>/<run-tag>/` 结构。正式多 GPU 的私有单模型评估会保留完整产物，并在任务全部完成后把方法级生成缓存发布到 `outputs/results/2D|3D/`；因此联合比较复用 HMONet、MeshONet、PI-MeshONet、TFI 与 PDE 的已有网格，仅补充跨方法汇总、对比图和联合质量表。
 
 串行或多 GPU 批次结束后，主终端都会逐任务输出 `train=` 与 `evaluate=` 状态，以及失败任务的首个可读错误原因。消融实验的完整批次记录保存为 `experiments/<exN>/batch_runs/<run-tag>.json`；正式多 GPU 任务另保存 `outputs/gpu_queue/formal/completion_summary.json`。因失败未启动的队列任务会明确标记为 `skipped`，而不是从汇总中消失。
 

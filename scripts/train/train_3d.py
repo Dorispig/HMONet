@@ -258,9 +258,14 @@ def _train_hmonet_physics_3d(
                     pde = elliptic_grid_scale_invariant_pde_loss(values, steps)
                 else:
                     pde = elliptic_grid_pde_residual(values, steps).square().sum(-1).mean()
-                extents = boundary.amax(dim=-2) - boundary.amin(dim=-2)
-                characteristic_length = extents.prod(dim=-1).clamp_min(1e-12).pow(1.0 / 3.0)
+                loss = pde_weight * pde
+                batch_losses = {"loss": loss, "loss_pde": pde}
+                progress_losses = {"loss": loss.item(), "pde": pde.item()}
                 if has_mapping_barrier:
+                    extents = boundary.amax(dim=-2) - boundary.amin(dim=-2)
+                    characteristic_length = (
+                        extents.prod(dim=-1).clamp_min(1e-12).pow(1.0 / 3.0)
+                    )
                     mapping_jacobian = (
                         finite_difference_derivatives(values, steps)[0].transpose(-1, -2)
                         if reuse_pde_stencil
@@ -277,14 +282,24 @@ def _train_hmonet_physics_3d(
                             reduction=reduction,
                         )
                     )
-                else:
-                    normalized_jacobian = values.new_zeros(())
-                    singular_value = values.new_zeros(())
-                loss = (
-                    pde_weight * pde
-                    + normalized_jacobian_weight * normalized_jacobian
-                    + singular_value_weight * singular_value
-                )
+                    loss = (
+                        loss
+                        + normalized_jacobian_weight * normalized_jacobian
+                        + singular_value_weight * singular_value
+                    )
+                    batch_losses.update(
+                        normalized_jacobian=normalized_jacobian,
+                        singular_value=singular_value,
+                    )
+                    progress_losses.update(
+                        norm_j=normalized_jacobian.item(),
+                        singular=singular_value.item(),
+                    )
+                # With both barrier weights set to zero (the formal default),
+                # no barrier tensor, Jacobian, characteristic scale or zero
+                # placeholder is created.  The actual objective is L_PDE only.
+                batch_losses["loss"] = loss
+                progress_losses["loss"] = loss.item()
                 if not safe_optimizer_step(
                     loss,
                     model,
@@ -293,19 +308,8 @@ def _train_hmonet_physics_3d(
                     training["skip_nonfinite_loss"],
                 ):
                     continue
-                totals.add(
-                    len(boundary),
-                    loss=loss,
-                    loss_pde=pde,
-                    normalized_jacobian=normalized_jacobian,
-                    singular_value=singular_value,
-                )
-                progress.set_postfix(
-                    loss=loss.item(),
-                    pde=pde.item(),
-                    norm_j=normalized_jacobian.item(),
-                    singular=singular_value.item(),
-                )
+                totals.add(len(boundary), **batch_losses)
+                progress.set_postfix(**progress_losses)
             update_learning_rate(
                 optimizer,
                 epoch,

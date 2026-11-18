@@ -6,8 +6,8 @@
 
 `--dataset` 可写：
 
-1. `air_t_ext_1_500_21_21`；
-2. `data/raw/2D/air_t_ext_1_500_21_21`；
+1. `air_t_ext_1_500_41_41`；
+2. `data/raw/2D/air_t_ext_1_500_41_41`；
 3. 绝对路径。
 
 短名称会自动在 `data/raw/2D` 内解析。训练网格由数据集元数据决定。
@@ -15,15 +15,15 @@
 ## 推荐的训练—评估命令
 
 ~~~powershell
-python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_21_21 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
 ~~~
 
 ## 仅训练
 
 ~~~powershell
-python scripts/train/train_2d.py --dataset air_t_ext_1_500_21_21 --dataset-mode extrapolation --model hmonet --seed 20261030
+python scripts/train/train_2d.py --dataset air_t_ext_1_500_41_41 --dataset-mode extrapolation --model hmonet --seed 20261030
 
-python scripts/train/train_2d.py --dataset air_t_ext_1_500_21_21 --dataset-mode extrapolation --model hmonet,meshonet,pimeshonet --seed 20261030
+python scripts/train/train_2d.py --dataset air_t_ext_1_500_41_41 --dataset-mode extrapolation --model hmonet,meshonet,pimeshonet --seed 20261030
 
 python scripts/train/train_2d.py --dataset-mode both --model hmonet,meshonet,pimeshonet --seed 20261030
 ~~~
@@ -33,7 +33,7 @@ python scripts/train/train_2d.py --dataset-mode both --model hmonet,meshonet,pim
 | 参数 | 示例 | 含义 |
 |---|---|---|
 | `--model` | `hmonet` | 选择模型，多个模型使用逗号分隔。 |
-| `--dataset` | `air_t_ext_1_500_21_21` | 训练数据集。 |
+| `--dataset` | `air_t_ext_1_500_41_41` | 训练数据集。 |
 | `--dataset-mode` | `extrapolation` | 未指定数据集时选择 interpolation、extrapolation 或 both。 |
 | `--epochs` | `50000` | 最大训练轮数。 |
 | `--batch-size` | `32` | 训练批大小。 |
