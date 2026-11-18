@@ -172,17 +172,28 @@ class TestQualitySelection:
                 group = Path(result["comparison_directory"])
                 root = group.parents[1]
                 assert (result["metrics"]) == ({"TFI": {}})
-                assert (group / "mesh_comparison.png").is_file()
-                assert (root / "TFI/mesh.png").is_file()
+                figure = (
+                    "mesh_comparison_overview.png"
+                    if dim == 2
+                    else "volume_mesh_comparison.png"
+                )
+                assert (group / figure).is_file()
+                assert (root / "TFI/mesh_overview.png").is_file()
                 assert not list(root.rglob("quality_*.png"))
                 assert not list(root.rglob("quality_data.npz"))
                 if dim == 3:
                     for section in ("x_mid", "y_mid", "z_mid"):
                         assert (
-                            group / "boundary_faces" / section / "mesh.png"
+                        group
+                        / "boundary_faces"
+                        / section
+                        / "middle_section_mesh_overview.png"
                         ).is_file()
                         assert (
-                            root / "TFI/boundary_faces" / section / "mesh.png"
+                            root
+                            / "TFI/boundary_faces"
+                            / section
+                            / "middle_section_mesh_overview.png"
                         ).is_file()
                 again = self.run_evaluation(
                     dim, config, "--no-compute-grid-quality", "--analysis-only"
@@ -329,7 +340,7 @@ class TestQualitySelection:
             group = Path(result["comparison_directory"])
             root = group.parents[3]
             for stage in ("raw", "none"):
-                folder = root / "HMONet/rational_affine" / stage
+                folder = root / "HMONet/RAP" / stage
                 assert (folder / "mesh.npy").is_file()
                 assert (folder / "boundary_error_summary.json").is_file()
                 assert not (folder / "grid_quality/quality_data.npz").exists()

@@ -5,6 +5,7 @@ from src.models.mapping_modes import (
     CORNER_CORRECTED_AFFINE,
     RATIONAL_AFFINE,
     fingerprint_mapping_mode,
+    mapping_mode_path_name,
     normalize_mapping_mode,
 )
 
@@ -27,6 +28,12 @@ def test_mapping_names_and_archived_aliases(value, expected):
 def test_mapping_rename_preserves_historical_fingerprint_names():
     assert fingerprint_mapping_mode(RATIONAL_AFFINE) == "current"
     assert fingerprint_mapping_mode(CORNER_CORRECTED_AFFINE) == "corner_corrected"
+
+
+def test_mapping_output_paths_are_short_and_stable():
+    assert mapping_mode_path_name(RATIONAL_AFFINE) == "RAP"
+    assert mapping_mode_path_name(COONS_RESIDUAL) == "CR"
+    assert mapping_mode_path_name(CORNER_CORRECTED_AFFINE) == "CCAP"
 
 
 def test_invalid_mapping_name_is_rejected():

@@ -90,7 +90,7 @@ outputs/
 └── results/2D|3D/        # 正式评估
 ```
 
-参数级评估目录按“维度/数据集/网格规模/参数”组织，包含配置身份、计时、边界误差、`results.json`、各方法目录和比较组。网络方法在目录内区分 raw、映射模式和外部后处理；比较目录名称包含实际参与的方法，不额外嵌套 PI-MeshONet 层级。
+参数级评估目录按“维度/数据集/网格规模/参数”组织，包含配置身份、计时、边界误差、`results.json`、各方法目录和比较组。网络方法在目录内区分 raw、映射模式和外部后处理；比较目录名称包含实际参与的方法，不额外嵌套 PI-MeshONet 层级。为控制 Windows 路径长度，硬边界映射目录采用稳定缩写：`RAP`=`rational_affine`，`CR`=`coons_residual`，`CCAP`=`corner_corrected_affine`；比较组中 `H`、`M`、`PI` 分别表示 HMONet、MeshONet、PI-MeshONet，`raw` 表示未进行外部边界后处理，`idw` 表示 inverse-distance 后处理。
 
 常见方法目录包含：
 

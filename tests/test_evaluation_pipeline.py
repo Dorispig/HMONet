@@ -148,7 +148,7 @@ class TestEvaluationPipeline:
             first = self.run_evaluation(dim, config)[0]
             assert (first["method_order"]) == (["TFI", "PDE_Winslow"])
             group = Path(first["comparison_directory"])
-            assert (group.name) == ("tfi_pde")
+            assert (group.name) == ("TFI_PDE")
             with np.load(group / "comparison_mesh_data.npz") as meshes:
                 assert (meshes.files) == (["TFI", "PDE_Winslow"])
                 np.testing.assert_allclose(
@@ -205,13 +205,13 @@ class TestEvaluationPipeline:
             assert (item["boundary_mean_error"]) == pytest.approx(
                 expected.mean(), abs=1e-7
             )
-            assert (root / "HMONet/rational_affine/raw/boundary_error_data.csv").is_file()
+            assert (root / "HMONet/RAP/raw/boundary_error_data.csv").is_file()
             np.testing.assert_array_equal(
-                np.load(root / "HMONet/rational_affine/none/mesh.npy"),
-                np.load(root / "HMONet/rational_affine/raw/mesh.npy"),
+                np.load(root / "HMONet/RAP/none/mesh.npy"),
+                np.load(root / "HMONet/RAP/raw/mesh.npy"),
             )
             assert (record["timings"]["HMONet"]["boundary_projection_seconds"]) == (0.0)
-            assert ("hmonet_none__meshonet_direct") in (str(group))
+            assert ("H_raw__M_direct") in (str(group))
             assert (tuple(record["timings"]["HMONet"]["training_grid"])) == (
                 (5, 4) if dim == 2 else (4, 3, 5)
             )
@@ -238,7 +238,7 @@ class TestEvaluationPipeline:
             record = self.run_evaluation(2, config)[0]
         assert (record["method_order"]) == (["TFI"])
         assert (record["skipped_methods"][0]["method"]) == ("MeshONet")
-        assert (Path(record["comparison_directory"]).name) == ("tfi")
+        assert (Path(record["comparison_directory"]).name) == ("TFI")
 
     def test_pde_failure_never_becomes_a_tfi_mesh(self):
         config = self.configuration(2, ["pde"])
@@ -295,7 +295,7 @@ class TestEvaluationPipeline:
             record = self.run_evaluation(
                 dim, config, "--center-on", "worst", "--metric", "scaled_jacobian"
             )[0]
-            assert ("coons_residual") in (record["comparison_directory"])
+            assert ("CR") in (Path(record["comparison_directory"]).parts)
             assert any(
                 (Path(record["comparison_directory"]) / "zoom_views").rglob("*.json")
             )

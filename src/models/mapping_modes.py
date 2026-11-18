@@ -31,6 +31,14 @@ FINGERPRINT_MAPPING_NAMES = {
     CORNER_CORRECTED_AFFINE: "corner_corrected",
 }
 
+# Reader-facing output directories must stay well below Windows MAX_PATH while
+# configuration files and checkpoint identities retain their explicit names.
+MAPPING_MODE_PATH_NAMES = {
+    RATIONAL_AFFINE: "RAP",
+    COONS_RESIDUAL: "CR",
+    CORNER_CORRECTED_AFFINE: "CCAP",
+}
+
 
 def normalize_mapping_mode(value, *, allow_both: bool = False) -> str:
     """Return one canonical mapping name, accepting archived aliases."""
@@ -60,3 +68,8 @@ def mapping_mode_choices(*, allow_both: bool = False, include_aliases: bool = Tr
 def fingerprint_mapping_mode(value) -> str:
     """Return the historical spelling used by completed-run fingerprints."""
     return FINGERPRINT_MAPPING_NAMES[normalize_mapping_mode(value)]
+
+
+def mapping_mode_path_name(value) -> str:
+    """Return the stable short folder name for a hard-boundary map."""
+    return MAPPING_MODE_PATH_NAMES[normalize_mapping_mode(value)]

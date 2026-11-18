@@ -19,25 +19,25 @@ class TestComparisonDirectory:
         expected = (
             Path("result")
             / "comparisons"
-            / "rational_affine"
-            / "hmonet_none__meshonet_none"
-            / "tfi_pde_meshonet_pimeshonet_hmonet"
+            / "RAP"
+            / "H_raw__M_raw"
+            / "TFI_PDE_M_PI_H"
         )
         assert (actual) == (expected)
-        assert ("pimeshonet_none") not in (actual.parts)
+        assert ("PI_raw") not in (actual.parts)
 
     def test_nondefault_pi_projection_is_encoded_without_extra_level(self):
         names = ["TFI", "MeshONet", "PI-MeshONet", "HMONet"]
         actual = comparison_directory(
             Path("result"), "rational_affine", self.options("direct"), names
         )
-        assert (actual.parent.name) == ("hmonet_none__meshonet_none__pimeshonet_direct")
-        assert (actual.name) == ("tfi_meshonet_pimeshonet_hmonet")
+        assert (actual.parent.name) == ("H_raw__M_raw__PI_direct")
+        assert (actual.name) == ("TFI_M_PI_H")
 
     def test_pi_only_comparison_keeps_one_projection_directory(self):
         actual = comparison_directory(
             Path("result"), "rational_affine", self.options(), ["TFI", "PI-MeshONet"]
         )
         assert (actual) == (
-            Path("result") / "comparisons" / "pimeshonet_none" / "tfi_pimeshonet"
+            Path("result") / "comparisons" / "PI_raw" / "TFI_PI"
         )

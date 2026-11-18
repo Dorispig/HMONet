@@ -37,6 +37,7 @@ from src.evaluation.analysis import (
 )
 from src.evaluation.local_views import run_local_views
 from src.evaluation.retention import compact_evaluation_directory
+from src.models.mapping_modes import mapping_mode_path_name
 from src.utils.quality_selection import quality_settings
 from src.utils.paths import (
     ensure_output_directory,
@@ -271,6 +272,16 @@ def selected_mapping(method, mapping, options):
     return mapping
 
 
+def method_path_name(method):
+    """Use concise, unambiguous method names in evaluation directories."""
+    return {"PDE_Winslow": "PDE"}.get(method, method)
+
+
+def projection_path_name(projection):
+    """Keep postprocessing folders readable without long implementation names."""
+    return {"inverse_distance": "idw", "idw": "idw"}.get(projection, projection)
+
+
 def mapping_combinations(options):
     """Expand requested hard-constraint variants without mixing checkpoint types."""
 
@@ -292,11 +303,11 @@ def mapping_combinations(options):
 
 def method_directory(root, method, mapping, projection=None):
     """Keep weights' internal mapping and external boundary processing separate."""
-    path = root / method
+    path = root / method_path_name(method)
     if method.startswith("HMONet") or method == "QG-HMONet":
-        path = root / "HMONet" / mapping
+        path = root / "HMONet" / mapping_mode_path_name(mapping)
     if projection is not None:
-        path /= projection
+        path /= projection_path_name(projection)
     if method == "HMONet_PDE_refined":
         path /= "pde_refined"
     return path
@@ -310,35 +321,33 @@ def comparison_directory(root, mapping, options, names):
     Non-default PI postprocessing is appended to the existing projection
     directory so distinct configurations still cannot overwrite each other.
     """
-    tags = {"inverse_distance": "idw", "direct": "direct", "none": "none"}
+    tags = {"inverse_distance": "idw", "direct": "direct", "none": "raw"}
     parent = root / "comparisons"
     pimeshonet_projection = tags[options["pimeshonet_boundary_projection"]]
     if "HMONet" in names:
-        parent /= mapping
+        parent /= mapping_mode_path_name(mapping)
         projection_group = (
-            f"hmonet_{tags[options['hmonet_boundary_projection']]}"
-            f"__meshonet_{tags[options['meshonet_boundary_projection']]}"
+            f"H_{tags[options['hmonet_boundary_projection']]}"
+            f"__M_{tags[options['meshonet_boundary_projection']]}"
         )
-        if "PI-MeshONet" in names and pimeshonet_projection != "none":
-            projection_group += f"__pimeshonet_{pimeshonet_projection}"
+        if "PI-MeshONet" in names and pimeshonet_projection != "raw":
+            projection_group += f"__PI_{pimeshonet_projection}"
         parent /= projection_group
     elif "MeshONet" in names:
-        projection_group = (
-            f"meshonet_{tags[options['meshonet_boundary_projection']]}"
-        )
-        if "PI-MeshONet" in names and pimeshonet_projection != "none":
-            projection_group += f"__pimeshonet_{pimeshonet_projection}"
+        projection_group = f"M_{tags[options['meshonet_boundary_projection']]}"
+        if "PI-MeshONet" in names and pimeshonet_projection != "raw":
+            projection_group += f"__PI_{pimeshonet_projection}"
         parent /= projection_group
     elif "PI-MeshONet" in names:
-        parent /= f"pimeshonet_{pimeshonet_projection}"
+        parent /= f"PI_{pimeshonet_projection}"
     slugs = {
-        "TFI": "tfi",
-        "PDE_Winslow": "pde",
-        "MeshONet": "meshonet",
-        "PI-MeshONet": "pimeshonet",
-        "HMONet": "hmonet",
-        "QG-HMONet": "qghmonet",
-        "HMONet_PDE_refined": "hmonet_pde_refined",
+        "TFI": "TFI",
+        "PDE_Winslow": "PDE",
+        "MeshONet": "M",
+        "PI-MeshONet": "PI",
+        "HMONet": "H",
+        "QG-HMONet": "QG",
+        "HMONet_PDE_refined": "H_PDE",
     }
     return parent / "_".join(slugs[name] for name in names)
 
@@ -517,9 +526,11 @@ def evaluate_object(
     identical_raw_analyses = {}
     error_records = []
     for method in selected:
-        cache = root / ".cache" / method
+        cache = root / ".cache" / method_path_name(method)
         if method in ("HMONet", "QG-HMONet"):
-            cache /= selected_mapping(method, mapping, options)
+            cache /= mapping_mode_path_name(
+                selected_mapping(method, mapping, options)
+            )
         points, timing, source_signature = generate(
             cache,
             method,
@@ -627,7 +638,7 @@ def evaluate_object(
                 "tolerance": options["winslow_tolerance"],
             }
         )
-        cache = root / ".cache/HMONet" / mapping / "refinement"
+        cache = root / ".cache/HMONet" / mapping_mode_path_name(mapping) / "refinement"
         meta = read_json(cache / "metadata.json", {})
         if (
             not options["force_regenerate"]
@@ -907,9 +918,9 @@ def run_evaluation(dimension, args, config):
                     )
                     if checkpoint is None:
                         continue
-                    cache = root / ".cache" / method
+                    cache = root / ".cache" / method_path_name(method)
                     if method in ("HMONet", "QG-HMONet"):
-                        cache /= selected_mapping(method, mapping, options)
+                        cache /= mapping_mode_path_name(selected_mapping(method, mapping, options))
                     request = generate(
                         cache,
                         method,
