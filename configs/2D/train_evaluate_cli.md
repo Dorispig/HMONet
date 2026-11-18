@@ -59,7 +59,11 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --evaluate-only --checkpoint final --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
 ~~~
 
-若不存在所需模型的兼容 checkpoint，命令会明确报错，不会静默改用其他模型或 checkpoint。`--evaluate-only` 当前是一个统一联合评估任务，请使用 `--device cuda:0`，不要附加 `--gpus`。
+若不存在所需模型的兼容 checkpoint，命令会明确报错，不会静默改用其他模型或 checkpoint。评估可使用单卡 `--device cuda:0`，也可附加 `--gpus 0 1 2`：后者会将各模型的既有 checkpoint 分配到不同 GPU 生成网格与单方法质量结果，全部完成后仅执行一次联合对比汇总，不会重新训练。
+
+```powershell
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --evaluate-only --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1 --gpus 0 1 2
+```
 
 ## 常用覆盖
 

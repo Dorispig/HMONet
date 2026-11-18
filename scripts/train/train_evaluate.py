@@ -1028,6 +1028,222 @@ def _queued_formal_run(
     return summaries
 
 
+def _queued_formal_evaluation(
+    args,
+    evaluate_extra,
+    models,
+    paths,
+    evaluate_config,
+    selected_methods,
+):
+    """Evaluate existing checkpoints concurrently, then publish one comparison.
+
+    The worker evaluations own separate staging roots, exactly as the training
+    queue does.  Thus a requested ``--evaluate-only --gpus 0 1 2`` run uses
+    all available cards without letting workers write concurrently into the
+    canonical comparison directory.  After the worker artifacts are promoted,
+    one canonical evaluation reuses their cached meshes and writes the joint
+    comparison once.
+    """
+    import shlex
+
+    gpu_ids = parse_gpu_ids(args.gpus)
+    queue_root = Path(args.queue_log_root or ROOT / "outputs/gpu_queue/formal")
+    evaluation_config_path = (
+        args.evaluate_config or f"configs/{args.dimension}D/evaluate.yaml"
+    )
+    train_config_path = args.train_config or f"configs/{args.dimension}D/train.yaml"
+    script = ROOT / "scripts/train/train_evaluate.py"
+    worker_evaluation_extra = _without_value_options(
+        evaluate_extra, {"--device", "--output-root"}
+    )
+    worker_evaluation_extra = _keep_uncompacted_evaluation_outputs(
+        worker_evaluation_extra
+    )
+    tasks = []
+    result_files = []
+    dataset_names = []
+
+    for path in paths:
+        dataset_name = path.parent.name if path.is_file() else path.name
+        dataset_names.append(dataset_name)
+        for model in models:
+            # A worker produces exactly the artifacts required for its one
+            # learned method, plus requested traditional reference methods.
+            if selected_methods is None:
+                worker_methods = None
+            else:
+                worker_methods = [
+                    method
+                    for method in ("tfi", "pde", model)
+                    if method in selected_methods
+                ]
+            task_directory = (
+                Path(dataset_name) / model / f"seed_{args.seed}" / args.run_tag
+            )
+            result_file = queue_root / task_directory / "queue_result.json"
+            status_file = _queue_status_path(result_file)
+            staging_root = queue_root / ".evaluation_work" / task_directory
+            worker_arguments = [
+                *worker_evaluation_extra,
+                "--device",
+                "cuda:0",
+                "--output-root",
+                str(staging_root),
+            ]
+            fingerprint = _formal_queue_fingerprint(
+                dimension=args.dimension,
+                dataset=path,
+                models=[model],
+                train_config=train_config_path,
+                evaluate_config=evaluation_config_path,
+                train_arguments=["--evaluate-only", "--model", model],
+                evaluate_arguments=worker_arguments,
+                evaluate_methods=worker_methods,
+                checkpoint=args.checkpoint,
+            )
+            if not args.dry_run:
+                result_file.parent.mkdir(parents=True, exist_ok=True)
+            result_files.append(result_file)
+            command = [
+                sys.executable,
+                str(script),
+                "--dimension",
+                str(args.dimension),
+                "--train-config",
+                str(train_config_path),
+                "--evaluate-config",
+                str(evaluation_config_path),
+                "--dataset",
+                str(path),
+                "--models",
+                model,
+                "--checkpoint",
+                args.checkpoint,
+                "--evaluate-only",
+                "--queue-worker",
+                "--queue-result",
+                str(result_file),
+                "--evaluate-args",
+                shlex.join(worker_arguments),
+            ]
+            if args.seed is not None:
+                command += ["--seed", str(args.seed)]
+            if worker_methods is not None:
+                command += ["--evaluate-methods", ",".join(worker_methods)]
+            tasks.append(
+                GpuTask(
+                    name=f"evaluate__{dataset_name}__{model}",
+                    command=command,
+                    log_relative_path=task_directory / "evaluate.log",
+                    clear_log_directory=True,
+                    metadata={
+                        "dataset": dataset_name,
+                        "experiment": model,
+                        "seed": args.seed,
+                        "run_tag": args.run_tag,
+                        "task_fingerprint": fingerprint,
+                        "queue_result_path": str(result_file),
+                        "queue_status_path": str(status_file),
+                        "staging_root": str(staging_root),
+                    },
+                )
+            )
+
+    try:
+        task_records = run_gpu_queue(
+            tasks,
+            gpu_ids,
+            cwd=ROOT,
+            log_root=queue_root,
+            continue_on_error=args.continue_on_error,
+            dry_run=args.dry_run,
+            terminal_interval=args.queue_terminal_interval,
+        )
+    except (GpuQueueError, GpuQueueInterrupted) as error:
+        task_records = error.records
+        completion = {
+            "status": "interrupted" if isinstance(error, GpuQueueInterrupted) else "failed",
+            "gpu_ids": gpu_ids,
+            "tasks": task_records,
+            "processes": _formal_queue_process_rows(task_records),
+            "error": str(error),
+        }
+        print_completion_summary(
+            completion["processes"], title="Formal evaluate-only GPU queue summary"
+        )
+        _write_formal_completion_summary(queue_root, completion)
+        raise
+    if args.dry_run:
+        print_completion_summary(
+            _formal_queue_process_rows(task_records),
+            title="Formal evaluate-only GPU queue dry-run summary",
+        )
+        return []
+
+    failed = [record for record in task_records if record["status"] == "failed"]
+    completed_roots = [
+        record["metadata"]["staging_root"]
+        for record in task_records
+        if record["status"] == "completed"
+    ]
+    consolidation = "not-run"
+    cache_promotion = None
+    records = []
+    if completed_roots:
+        cache_promotion = promote_worker_evaluation_caches(
+            args.dimension,
+            completed_roots,
+            _formal_evaluation_root(args.dimension, evaluate_extra),
+        )
+        evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
+        consolidated_evaluate_extra = _without_value_options(evaluate_extra, {"--device"})
+        consolidated_evaluate_extra = _keep_uncompacted_evaluation_outputs(
+            consolidated_evaluate_extra
+        )
+        consolidated_evaluate_extra += ["--device", f"cuda:{gpu_ids[0]}"]
+        try:
+            for command in existing_evaluation_commands(
+                args.dimension,
+                dataset_names,
+                evaluation_config_path,
+                evaluate_config,
+                models,
+                args.checkpoint,
+                selected_methods,
+            ):
+                records.append(evaluate.main(command + consolidated_evaluate_extra))
+            consolidation = "completed"
+        except Exception as error:
+            completion = {
+                "status": "failed",
+                "gpu_ids": gpu_ids,
+                "tasks": task_records,
+                "processes": _formal_queue_process_rows(task_records),
+                "consolidation": "failed",
+                "evaluation_cache_promotion": cache_promotion,
+                "error": repr(error),
+            }
+            print_completion_summary(
+                completion["processes"], title="Formal evaluate-only GPU queue summary"
+            )
+            _write_formal_completion_summary(queue_root, completion)
+            raise
+    completion = {
+        "status": "completed_with_failures" if failed else "completed",
+        "gpu_ids": gpu_ids,
+        "tasks": task_records,
+        "processes": _formal_queue_process_rows(task_records),
+        "consolidation": consolidation,
+        "evaluation_cache_promotion": cache_promotion,
+    }
+    print_completion_summary(
+        completion["processes"], title="Formal evaluate-only GPU queue summary"
+    )
+    _write_formal_completion_summary(queue_root, completion)
+    return records
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dimension", type=int, choices=[2, 3], default=2)
@@ -1324,11 +1540,14 @@ def main(argv=None):
     if args.gpus and args.queue_worker:
         parser.error("--gpus cannot be combined with the internal queue worker")
     if args.evaluate_only:
-        if args.queue_worker:
-            parser.error("--evaluate-only cannot be combined with the internal queue worker")
         if args.gpus:
-            parser.error(
-                "--evaluate-only currently runs one canonical evaluation; use --device instead of --gpus"
+            return _queued_formal_evaluation(
+                args,
+                evaluate_extra,
+                sorted(trained),
+                paths,
+                evaluation_config,
+                selected,
             )
         evaluate = importlib.import_module(
             f"scripts.evaluate.evaluate_{args.dimension}d"
@@ -1352,9 +1571,29 @@ def main(argv=None):
             "complete method artifacts will be retained.",
             flush=True,
         )
+        if args.queue_worker:
+            if not args.queue_result:
+                parser.error("Internal queue workers require --queue-result")
+            result_path = Path(args.queue_result)
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.unlink(missing_ok=True)
+            _queue_status_path(result_path).unlink(missing_ok=True)
+            _write_queue_worker_status(
+                result_path, training="not-run", evaluation="running"
+            )
+        else:
+            result_path = None
         try:
             records = [evaluate.main(command + evaluate_only_extra) for command in commands]
         except Exception as error:
+            if result_path is not None:
+                _write_queue_worker_status(
+                    result_path,
+                    training="not-run",
+                    evaluation="failed",
+                    error=repr(error),
+                    traceback=traceback.format_exc(),
+                )
             print_completion_summary(
                 _formal_local_process_rows(
                     [
@@ -1369,6 +1608,14 @@ def main(argv=None):
                 title="Formal evaluate-only completion summary",
             )
             raise
+        if result_path is not None:
+            result_path.write_text(
+                json.dumps(records, ensure_ascii=False, indent=2, default=_json_default),
+                encoding="utf-8",
+            )
+            _write_queue_worker_status(
+                result_path, training="not-run", evaluation="completed"
+            )
         print_completion_summary(
             _formal_local_process_rows(
                 [
