@@ -975,7 +975,11 @@ def save_quality_comparison(
         axis.set_title(DISPLAY_NAMES.get(name, name))
     fig.tight_layout()
     save_figure_formats(
-        fig, out_dir / "mesh_comparison", save_png=save_png, save_pdf=save_pdf, dpi=220
+        fig,
+        out_dir / "mesh_comparison_overview",
+        save_png=save_png,
+        save_pdf=save_pdf,
+        dpi=220,
     )
     plt.close(fig)
     for metric in plot_metrics:

@@ -180,7 +180,7 @@ def save_method(directory, method, points, shape, options):
             ax = fig.add_subplot(111, projection="3d")
             plot_hex_mesh_paper(points, *shape, ax=ax)
         ax.set_title(method_label(method))
-        save_figure(fig, directory / "mesh", options)
+        save_figure(fig, directory / "mesh_overview", options)
     return quality
 
 
@@ -334,7 +334,11 @@ def save_sections(directory, meshes, shape, options):
                 )
             fig.suptitle(section_name)
             save_figure(
-                fig, target / (f"quality_{metric}" if metric else "mesh"), options
+                fig,
+                target / (
+                    f"quality_{metric}" if metric else "middle_section_mesh_overview"
+                ),
+                options,
             )
     if selected:
         write_json(directory / "surface_quality_summary.json", all_summaries)
@@ -403,7 +407,12 @@ def plot_volumes(directory, meshes, fields, shape, options):
             )
         save_figure(
             fig,
-            Path(directory) / (f"quality_{metric}" if metric else "mesh_comparison"),
+            Path(directory)
+            / (
+                f"quality_{metric}"
+                if metric
+                else "volume_mesh_comparison"
+            ),
             options,
         )
 
@@ -438,7 +447,7 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
                 plot_quad_meshXY(qualities[method]["mesh"], ax=ax, show_node_id=False)
                 ax.set_title(method_label(method))
             fig.tight_layout()
-            save_figure(fig, directory / "mesh_comparison", options)
+            save_figure(fig, directory / "mesh_comparison_overview", options)
         return {m: {} for m in meshes}
     if len(shape) == 2:
         summary = save_quality_comparison(

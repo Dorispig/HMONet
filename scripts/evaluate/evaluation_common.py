@@ -205,6 +205,30 @@ def _reusable_compact_record(root, fingerprint, options, *, announce=True):
     return record
 
 
+def _remove_legacy_compact_plots_before_full_reanalysis(root, options):
+    """Discard orphaned public plots left by an older compact evaluation.
+
+    A compact run intentionally moves images to ``root/plots`` and deletes its
+    mesh/quality data.  A later full-result run must rebuild those artifacts;
+    retaining the old public images would make the image publisher append
+    ``_2``, ``_3`` … suffixes and mix different evaluation identities.
+    """
+    root = Path(root)
+    public_plots = root / "plots"
+    if (
+        options.get("compact_outputs", True)
+        or not public_plots.is_dir()
+        or (root / ".cache").exists()
+    ):
+        return False
+    shutil.rmtree(public_plots)
+    print(
+        f"  removed legacy compact plots before rebuilding full artifacts: {root}",
+        flush=True,
+    )
+    return True
+
+
 def _resolve_checkpoints(name, case, mapping, options, dimension):
     checkpoints = {}
     skipped = []
@@ -488,6 +512,7 @@ def evaluate_object(
     )
     if reused_record is not None:
         return reused_record
+    _remove_legacy_compact_plots_before_full_reanalysis(root, options)
     meshes, raw_meshes, timings, signatures, directories = {}, {}, {}, {}, {}
     identical_raw_analyses = {}
     error_records = []

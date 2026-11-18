@@ -247,9 +247,9 @@ def save_zoom(
         f"{metric}_comparison"
         if len(names) > 1 and plot_type == "quality"
         else (
-            "mesh_comparison"
+            "mesh_zoom_comparison"
             if len(names) > 1
-            else metric if plot_type == "quality" else "mesh"
+            else metric if plot_type == "quality" else "mesh_zoom"
         )
     )
 

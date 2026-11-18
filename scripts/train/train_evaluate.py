@@ -327,6 +327,84 @@ def evaluation_commands(
     return commands
 
 
+_EVALUATION_METHOD_NAMES = {
+    "hmonet": "HMONet",
+    "qghmonet": "QG-HMONet",
+    "meshonet": "MeshONet",
+    "pimeshonet": "PI-MeshONet",
+}
+
+
+def _find_existing_checkpoint(dimension, dataset_name, method, mapping, checkpoint):
+    """Resolve one compatible saved best/final checkpoint for evaluate-only."""
+    from src.models.mapping_modes import normalize_mapping_mode
+
+    root = ROOT / f"outputs/checkpoints/{dimension}D" / dataset_name
+    filename = f"{checkpoint}.pt"
+    candidates = []
+    for path in root.rglob(filename):
+        parts = path.relative_to(root).parts
+        if method not in parts:
+            continue
+        if method in {"HMONet", "QG-HMONet"}:
+            wanted = normalize_mapping_mode(mapping)
+            compatible = []
+            for part in parts:
+                try:
+                    compatible.append(normalize_mapping_mode(part))
+                except ValueError:
+                    pass
+            if wanted not in compatible:
+                continue
+        candidates.append(path)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.parent.name, path.stat().st_mtime_ns))
+
+
+def existing_evaluation_commands(
+    dimension,
+    dataset_names,
+    config_path,
+    evaluation_config,
+    models,
+    checkpoint,
+    evaluate_methods=None,
+):
+    """Build pinned evaluations from existing formal checkpoints.
+
+    Unlike training-backed commands, this path has no new summary file from
+    which to obtain checkpoint locations.  Resolve exactly one compatible
+    ``best.pt`` or ``final.pt`` per requested network and pass it explicitly,
+    so evaluate-only never silently switches to another checkpoint type.
+    """
+    selected = normalize_evaluate_methods(evaluate_methods)
+    mapping = evaluation_config.get("evaluation", {}).get(
+        "hmonet_mapping_mode", "corner_corrected_affine"
+    )
+    commands = []
+    for name in dataset_names:
+        methods = selected if selected is not None else ["tfi", "pde", *models]
+        command = ["--config", str(config_path), "--case", name, "--methods", ",".join(methods)]
+        for alias in methods:
+            method = _EVALUATION_METHOD_NAMES.get(alias)
+            if method is None:
+                continue
+            path = _find_existing_checkpoint(
+                dimension, name, method, mapping, checkpoint
+            )
+            if path is None:
+                raise FileNotFoundError(
+                    f"No compatible {checkpoint}.pt for {method}/{mapping}: "
+                    f"outputs/checkpoints/{dimension}D/{name}"
+                )
+            command += [f"--{alias}-checkpoint", str(path.resolve())]
+            if alias == "hmonet":
+                command += ["--hmonet-mapping-mode", str(mapping)]
+        commands.append(command)
+    return commands
+
+
 def _without_value_options(tokens, names):
     """Remove selected one-value options from a forwarded CLI token list."""
     names = set(names)
@@ -1007,8 +1085,16 @@ def main(argv=None):
         help="Validate selected datasets, cases, grids and values without training.",
     )
     parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help=(
+            "Skip training and evaluate existing compatible checkpoints. "
+            "--checkpoint selects best.pt or final.pt."
+        ),
+    )
+    parser.add_argument(
         "--evaluate-methods",
-        help="Comma-separated evaluation subset, e.g. tfi,pde,meshonet,hmonet; defaults to all models trained in this run plus TFI/PDE",
+        help="Comma-separated evaluation subset, e.g. tfi,pde,meshonet,hmonet; defaults to selected models plus TFI/PDE",
     )
     parser.add_argument("--checkpoint", choices=["best", "final"], default="best")
     parser.add_argument(
@@ -1237,6 +1323,65 @@ def main(argv=None):
         return []
     if args.gpus and args.queue_worker:
         parser.error("--gpus cannot be combined with the internal queue worker")
+    if args.evaluate_only:
+        if args.queue_worker:
+            parser.error("--evaluate-only cannot be combined with the internal queue worker")
+        if args.gpus:
+            parser.error(
+                "--evaluate-only currently runs one canonical evaluation; use --device instead of --gpus"
+            )
+        evaluate = importlib.import_module(
+            f"scripts.evaluate.evaluate_{args.dimension}d"
+        )
+        dataset_names = [
+            Path(path).parent.name if Path(path).is_file() else Path(path).name
+            for path in paths
+        ]
+        commands = existing_evaluation_commands(
+            args.dimension,
+            dataset_names,
+            evaluate_config,
+            evaluation_config,
+            sorted(trained),
+            args.checkpoint,
+            selected,
+        )
+        evaluate_only_extra = _keep_uncompacted_evaluation_outputs(evaluate_extra)
+        print(
+            "Evaluate-only: reusing existing checkpoints; "
+            "complete method artifacts will be retained.",
+            flush=True,
+        )
+        try:
+            records = [evaluate.main(command + evaluate_only_extra) for command in commands]
+        except Exception as error:
+            print_completion_summary(
+                _formal_local_process_rows(
+                    [
+                        {"dataset_name": name, "model": model, "seed": args.seed}
+                        for name in dataset_names
+                        for model in sorted(trained)
+                    ],
+                    training="not-run",
+                    evaluation="failed",
+                    error=repr(error),
+                ),
+                title="Formal evaluate-only completion summary",
+            )
+            raise
+        print_completion_summary(
+            _formal_local_process_rows(
+                [
+                    {"dataset_name": name, "model": model, "seed": args.seed}
+                    for name in dataset_names
+                    for model in sorted(trained)
+                ],
+                training="not-run",
+                evaluation="completed",
+            ),
+            title="Formal evaluate-only completion summary",
+        )
+        return records
     if args.gpus:
         return _queued_formal_run(
             args,

@@ -47,6 +47,20 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1 --check-only
 ~~~
 
+## 仅评估已有 checkpoint
+
+`--evaluate-only` 不训练模型，而是自动定位所选数据集、模型和硬约束方式对应的既有 checkpoint，并显式固定使用 `best.pt`（或 `--checkpoint final` 的 `final.pt`）。该模式会保留完整网格与质量产物，便于之后直接复用。
+
+~~~powershell
+# 重新评估三个既有正式模型及 TFI/PDE；不重新训练
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --evaluate-only --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+
+# 使用既有 final.pt，而不是 best.pt
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet --evaluate-only --checkpoint final --grids 101 201 401 --values 0.62 0.65 --seed 20261030 --run-tag v1
+~~~
+
+若不存在所需模型的兼容 checkpoint，命令会明确报错，不会静默改用其他模型或 checkpoint。`--evaluate-only` 当前是一个统一联合评估任务，请使用 `--device cuda:0`，不要附加 `--gpus`。
+
 ## 常用覆盖
 
 | 需求 | 追加参数 |

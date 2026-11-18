@@ -105,7 +105,7 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_1
 
 ### 单独训练、单独评估与输出
 
-完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练或只评估已有 checkpoint 时，分别使用其中链接的 `train_cli.md`、`evaluate_cli.md`。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。
+完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练可使用其中链接的 `train_cli.md`；只评估已有 checkpoint 时，优先在统一入口追加 `--evaluate-only`，它会固定选择 `best.pt` 或 `--checkpoint final` 的 `final.pt`，而不重新训练。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。
 
 Linux 多 GPU 动态队列（每个数据集连同所选模型的训练—评估占用一张卡，完成后自动领取下一项）：
 

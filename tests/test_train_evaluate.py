@@ -6,6 +6,7 @@ from scripts.train.train_evaluate import (
     _formal_queue_fingerprint,
     _without_value_options,
     evaluation_commands,
+    existing_evaluation_commands,
     promote_worker_evaluation_caches,
     validate_formal_run_tag,
 )
@@ -101,6 +102,33 @@ class TestPipeline:
             assert (target / "generation_metadata.json").read_text(encoding="utf-8") == (
                 '{"signature": "different"}'
             )
+
+    def test_evaluate_only_pins_existing_best_checkpoints(self, monkeypatch):
+        import scripts.train.train_evaluate as train_evaluate
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hmonet = (
+                root
+                / "outputs/checkpoints/2D/air/HMONet/corner_corrected_affine/run/best.pt"
+            )
+            meshonet = root / "outputs/checkpoints/2D/air/MeshONet/run/best.pt"
+            hmonet.parent.mkdir(parents=True)
+            meshonet.parent.mkdir(parents=True)
+            hmonet.touch()
+            meshonet.touch()
+            monkeypatch.setattr(train_evaluate, "ROOT", root)
+            command = existing_evaluation_commands(
+                2,
+                ["air"],
+                "configs/2D/evaluate.yaml",
+                {"evaluation": {"hmonet_mapping_mode": "corner_corrected_affine"}},
+                ["hmonet", "meshonet"],
+                "best",
+            )[0]
+            assert command[command.index("--methods") + 1] == "tfi,pde,hmonet,meshonet"
+            assert command[command.index("--hmonet-checkpoint") + 1] == str(hmonet.resolve())
+            assert command[command.index("--meshonet-checkpoint") + 1] == str(meshonet.resolve())
 
     def test_pairing_and_explicit_checkpoints(self):
         with tempfile.TemporaryDirectory() as directory:

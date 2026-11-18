@@ -109,12 +109,19 @@ def readable_image_path(root: Path, relative: Path) -> Path:
             return _legacy_public_path(root, parts)
     lowered = [part.lower() for part in parts]
     filename = parts[-1]
+    section = None
+    if "boundary_faces" in lowered:
+        index = lowered.index("boundary_faces")
+        if index + 1 < len(parts):
+            section = _safe_component(parts[index + 1])
     if len(parts) == 1:
         return root / "plots" / filename
     if parts[0].lower() == "grid_quality":
         return root / "plots" / "quality" / filename
     if parts[0].lower() in {"comparisons", "comparison"}:
         destination = root / "plots" / "comparison" / _comparison_group(parts[1:-1])
+        if section is not None:
+            destination /= Path("middle_sections") / section
         if "grid_quality" in lowered or "quality" in lowered:
             destination /= "quality"
         return destination / filename
@@ -124,6 +131,8 @@ def readable_image_path(root: Path, relative: Path) -> Path:
         destination /= "raw"
     elif method in {"HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"}:
         destination /= "processed"
+    if section is not None:
+        destination /= Path("middle_sections") / section
     if "grid_quality" in lowered or "quality" in lowered:
         destination /= "quality"
     return destination / filename
@@ -170,6 +179,12 @@ def compact_evaluation_directory(directory: Path) -> Path:
         raise FileNotFoundError(
             f"Cannot compact evaluation without its summary: {result_file}"
         )
+    # A forced reanalysis writes a new set of implementation images.  Remove
+    # the previous public copies first so publishing never silently produces
+    # mesh_2.png, mesh_3.png, ... beside stale results.
+    public_plots = directory / "plots"
+    if public_plots.is_dir():
+        shutil.rmtree(public_plots)
     reorganize_evaluation_images(directory)
     for child in list(directory.rglob("*")):
         if not child.is_file():
