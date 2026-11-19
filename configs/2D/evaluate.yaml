@@ -3,6 +3,15 @@
 
 # 当前正式二维数据集统一采用 v1/500 与 41x41 训练网格。
 cases:
+  # 兼容已有的 21x21 训练结果；不作为当前正式默认数据集。
+  air_t_ext_1_500_21_21:
+    boundary_type: circle_airfoil_t
+    split: extrapolation
+    parameter: t
+    values: [0.62, 0.65]
+    train_grid: [21, 21]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {radius: 1.0, m: 0.02, p: 0.4, c: 1.0, center: [0.0, 0.0]}
   air_t_ext_1_500_41_41:
     boundary_type: circle_airfoil_t
     split: extrapolation
@@ -55,7 +64,11 @@ cases:
 evaluation:
   default_cases: [air_t_ext_1_500_41_41, esa_ext_1_500_41_41, rse_ext_1_500_41_41, run_ext_1_500_41_41, scc_ext_1_500_41_41, vsc_ext_1_500_41_41]
   methods: [tfi, pde, meshonet, pimeshonet, hmonet, qghmonet]
-  hmonet_mapping_mode: corner_corrected_affine
+  # CCAP = Corner-Corrected Affine Projection（角点校正仿射投影）。
+  # 另可选 RAP = rational_affine，CR = coons_residual。
+  hmonet_mapping_mode: CCAP
+  # none = no external boundary postprocessing; the unmodified model output
+  # is stored once in each method's raw/ directory.
   hmonet_boundary_projection: none
   qghmonet_boundary_projection: none
   meshonet_boundary_projection: none

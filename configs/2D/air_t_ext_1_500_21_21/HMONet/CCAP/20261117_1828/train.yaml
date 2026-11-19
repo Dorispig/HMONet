@@ -5,12 +5,11 @@ grid:
   nx: 21
   ny: 21
 model:
-  name: pimeshonet
+  name: hmonet
   common:
     branch_dim: 32
-    trunk_dim: 16
-    coordinate_lift_mode: power_fourier
-    coordinate_lift_max_power: 2
+    trunk_dim: 18
+    coordinate_lift_mode: legacy
     adjust_hidden_dim: 64
     adjust_hidden_layer_num: 4
     branch_hidden_dim: 64
@@ -20,22 +19,20 @@ model:
     output_dim: 64
     branch_mlp_hidden_dim: 64
     branch_mlp_hidden_layer_num: 4
-  pimeshonet:
-    architecture: paper_modified_mlp
-    coordinate_lift_mode: paper
-    coordinate_lift_q: 6
-    branch_dim: 40
-    trunk_dim: 16
-    adjust_hidden_dim: 80
-    adjust_hidden_layer_num: 4
-    branch_hidden_dim: 80
-    branch_hidden_layer_num: 4
-    trunk_hidden_dim: 80
-    trunk_hidden_layer_num: 4
-    output_dim: 80
+  hmonet:
+    hmonet_mapping_mode: CCAP
+    boundary_self_attention_enabled: false
+    weight_head_mlp_enabled: true
+    projection_mlp_hidden_dim: 64
+    attention_dim: 64
+    attention_heads: 4
+    attention_layers: 2
+    attention_feedforward_dim: 128
+    attention_dropout: 0.0
+    residual_regularization_weight: 0.0
 training:
   dataset: extrapolation
-  num_epochs: 50000
+  num_epochs: 100000
   batch_size: 64
   seed: 20261030
   device: cuda
@@ -83,27 +80,66 @@ training:
   stop_file_enabled: true
   gradient_clip_norm: 1.0
   skip_nonfinite_loss: true
-  check_max_point_error: false
-  check_p99_point_error: false
   check_plateau_stability: false
   check_plateau_absolute_stability: false
   check_plateau_near_best: false
   check_plateau_consecutive_stability: false
   check_plateau_best_improvement: false
-pimeshonet_training:
+  active_phase: random_loss_combo
+  phase_transitions:
+  - phase: random_loss_combo
+    start_epoch: 1
+hmonet_training:
+  best_model_metric: training_loss
+  plateau_metric: train_loss
   learning_rate: 0.0004
   lr_warmup_epochs: 1000
   lr_update_interval: 1000
   lr_decay_gamma: 0.9
   lr_stop_below: 1.0e-05
-  pde_loss_weight: 0.0001
-  boundary_loss_weight: 1.0
-  interior_sample_count: 128
-  fd_step:
+  training_strategy: random_loss_combo_from_start
+  random_loss_sample_count: 400
+  pde_fd_step:
   - 0.01
   - 0.01
+  jacobian_fd_step: 0.01
+  random_loss_derivative_backend: finite_difference
+  random_loss_fd_stencil_inside: true
+  random_loss_fd_boundary_scheme: central
+  random_mse_loss_weight: 0.0
+  physics_pde_loss_weight: 1.0
+  physics_scale_invariant_pde_enabled: true
+  physics_normalized_jacobian_loss_weight: 0.0
+  physics_normalized_jacobian_minimum: 0.02
+  physics_singular_value_loss_weight: 0.0
+  physics_singular_value_minimum: 0.05
+  physics_barrier_reduction: all
+  random_loss_sampling_mode: uniform
+  random_loss_global_sample_count: 400
+  random_loss_curvature_sample_count: 0
+  random_loss_boundary_band_sample_count: 0
   check_plateau_stability: false
   check_plateau_absolute_stability: false
   check_plateau_near_best: false
   check_plateau_consecutive_stability: false
   check_plateau_best_improvement: false
+  jacobian_method: finite_difference
+  tfi_warmup_epochs: 5000
+  phase1_max_epochs: 100000
+  phase2_max_epochs: 100000
+  save_phase_best_checkpoints: false
+  physics_jacobian_enabled: false
+  physics_jacobian_minimum: 0.001
+  physics_interior_sample_count: 128
+  fixed_mse_sample_count: 400
+hmonet_sampling:
+  mode: uniform
+  fixed_grid_count: 0
+  global_random_count: 400
+  curvature_adaptive_count: 0
+  candidate_multiplier: 10
+  curvature_quantile: 0.95
+  curvature_power: 1.0
+  distance_sigma_min: 0.02
+  distance_sigma_max: 0.1
+  uniform_probability: 0.05

@@ -22,7 +22,7 @@ cases:
 evaluation:
   default_cases: [air_t_ext_1_500_21_21, run_ext_1_500_41_41]
   methods: [tfi, pde, meshonet, pimeshonet, hmonet, qghmonet]
-  hmonet_mapping_mode: corner_corrected_affine
+  hmonet_mapping_mode: CCAP
   hmonet_boundary_projection: none
   qghmonet_boundary_projection: none
   meshonet_boundary_projection: none

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 RATIONAL_AFFINE = "rational_affine"
 COONS_RESIDUAL = "coons_residual"
+# CCAP = Corner-Corrected Affine Projection.  The descriptive internal value
+# is retained so archived checkpoints/fingerprints stay readable; all new
+# user-facing configuration and directory names use the short CCAP spelling.
 CORNER_CORRECTED_AFFINE = "corner_corrected_affine"
 BOTH = "both"
 
@@ -20,6 +23,7 @@ MAPPING_MODE_ALIASES = {
     "rational_affine_projection": RATIONAL_AFFINE,
     "coons": COONS_RESIDUAL,
     "coons_residual_projection": COONS_RESIDUAL,
+    "ccap": CORNER_CORRECTED_AFFINE,
     "corner_corrected": CORNER_CORRECTED_AFFINE,
     "corner_corrected_projection": CORNER_CORRECTED_AFFINE,
 }
@@ -62,6 +66,10 @@ def mapping_mode_choices(*, allow_both: bool = False, include_aliases: bool = Tr
         choices.append(BOTH)
     if include_aliases:
         choices.extend(alias for alias in MAPPING_MODE_ALIASES if alias not in choices)
+        # CLI choices are otherwise case-sensitive, whereas YAML values are
+        # normalized case-insensitively.  Present the documented abbreviation.
+        if "CCAP" not in choices:
+            choices.append("CCAP")
     return choices
 
 

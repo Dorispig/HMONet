@@ -18,7 +18,11 @@ import numpy as np
 import torch
 import yaml
 
-from src.models.mapping_modes import RATIONAL_AFFINE, normalize_mapping_mode
+from src.models.mapping_modes import (
+    RATIONAL_AFFINE,
+    mapping_mode_path_name,
+    normalize_mapping_mode,
+)
 
 from src.engine.training import (
     FIXED_GRID_MSE_SCALE,
@@ -353,7 +357,7 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
                 "hmonet_mapping_mode", RATIONAL_AFFINE
             )
         )
-        folder = folder / mapping
+        folder = folder / mapping_mode_path_name(mapping)
     return folder / (run_id or datetime.now().strftime("%Y%m%d_%H%M"))
 
 
@@ -369,7 +373,7 @@ def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
         / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet"}.get(name, name))
     )
     if name in ("hmonet", "qghmonet"):
-        folder = folder / normalize_mapping_mode(
+        folder = folder / mapping_mode_path_name(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
             )
@@ -393,7 +397,7 @@ def config_archive_directory(args, config, name, run_id):
         }[name]
     )
     if name in ("hmonet", "qghmonet"):
-        directory /= normalize_mapping_mode(
+        directory /= mapping_mode_path_name(
             config.get("model", {}).get(name, {}).get(
                 "hmonet_mapping_mode", RATIONAL_AFFINE
             )
@@ -446,7 +450,7 @@ def create_run_directories(args, config, mode, name, dimension):
                 "hmonet_mapping_mode", RATIONAL_AFFINE
             )
         )
-        output_parent = output_parent / mapping
+        output_parent = output_parent / mapping_mode_path_name(mapping)
     checkpoint_parent = checkpoint_directory(
         args, config, name, dimension, run_id=timestamp
     ).parent

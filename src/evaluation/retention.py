@@ -189,7 +189,11 @@ def compact_evaluation_directory(directory: Path) -> Path:
     for child in list(directory.rglob("*")):
         if not child.is_file():
             continue
-        if child == result_file or child.suffix.lower() in IMAGE_SUFFIXES:
+        if (
+            child == result_file
+            or child.name == "evaluation_parameters.json"
+            or child.suffix.lower() in IMAGE_SUFFIXES
+        ):
             continue
         # Local-view metadata is small, is referenced by downstream zoom
         # commands, and is not a per-cell quality artifact.

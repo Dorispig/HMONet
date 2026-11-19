@@ -6,7 +6,7 @@ grid: {nx: 21, ny: 21}
 model:
   name: hmonet
   common: {branch_dim: 32, trunk_dim: 16, coordinate_lift_mode: power_fourier, coordinate_lift_max_power: 2, adjust_hidden_dim: 64, adjust_hidden_layer_num: 4, branch_hidden_dim: 64, branch_hidden_layer_num: 4, trunk_hidden_dim: 64, trunk_hidden_layer_num: 4, output_dim: 64, branch_mlp_hidden_dim: 64, branch_mlp_hidden_layer_num: 4}
-  hmonet: {hmonet_mapping_mode: corner_corrected_affine, weight_head_mlp_enabled: true, projection_mlp_hidden_dim: 64, boundary_self_attention_enabled: false, residual_regularization_weight: 0.0}
+  hmonet: {hmonet_mapping_mode: CCAP, weight_head_mlp_enabled: true, projection_mlp_hidden_dim: 64, boundary_self_attention_enabled: false, residual_regularization_weight: 0.0}
 training:
   dataset: extrapolation
   num_epochs: 50000

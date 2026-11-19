@@ -13,11 +13,6 @@ import warnings
 
 WINDOWS_CLASSIC_PATH_LIMIT = 260
 LINUX_PATH_LIMIT = 4096
-# This is an advisory threshold for an actual path.  It must never make an
-# otherwise valid experiment fail before the operating system would fail it.
-EVALUATION_RESERVE_WARNING_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
-# Backwards-compatible public name used by older tests and scripts.
-EVALUATION_PATH_LIMIT = EVALUATION_RESERVE_WARNING_LIMIT
 STAGING_WORKSPACE_NAME = ".w"
 
 
@@ -83,6 +78,18 @@ def exclusive_evaluation_staging_root(staging_root: Path):
 def system_path_limit() -> int:
     """Return the active platform's real total-path threshold."""
     return WINDOWS_CLASSIC_PATH_LIMIT if os.name == "nt" else LINUX_PATH_LIMIT
+
+
+def evaluation_path_warning_limit() -> int:
+    """Return the active platform's advisory threshold for concrete paths."""
+    return int(system_path_limit() * 0.9)
+
+
+# Backwards-compatible names used by the runner and tests.  They are resolved
+# when this module is imported on the current platform, rather than forcing a
+# Windows-sized warning budget onto Linux servers.
+EVALUATION_RESERVE_WARNING_LIMIT = evaluation_path_warning_limit()
+EVALUATION_PATH_LIMIT = EVALUATION_RESERVE_WARNING_LIMIT
 
 
 def _actual_path_length(path: Path) -> int:
@@ -327,7 +334,7 @@ def evaluation_staging_root(
 
 
 def validate_evaluation_destination(source_root: Path, target_root: Path) -> None:
-    """Validate every generated artifact against the 90% Windows path budget."""
+    """Validate generated artifacts against the current platform's budget."""
     source_root = Path(source_root)
     target_root = Path(target_root)
     violations = []

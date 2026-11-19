@@ -1,6 +1,6 @@
 # 首轮训练开始前保存的本次实际生效参数。
 datasets:
-  extrapolation: E:\projects\HMONet\data\raw\2D\esa_ext_1_500_41_41
+  extrapolation: E:\projects\HMONet\data\raw\2D\run_ext_1_500_41_41
 grid:
   nx: 41
   ny: 41
@@ -20,7 +20,7 @@ model:
     branch_mlp_hidden_dim: 64
     branch_mlp_hidden_layer_num: 4
   hmonet:
-    hmonet_mapping_mode: corner_corrected_affine
+    hmonet_mapping_mode: CCAP
     boundary_self_attention_enabled: false
     weight_head_mlp_enabled: true
     projection_mlp_hidden_dim: 64

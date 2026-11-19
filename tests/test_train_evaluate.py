@@ -8,6 +8,7 @@ from scripts.train.train_evaluate import (
     evaluation_commands,
     existing_evaluation_commands,
     promote_worker_evaluation_caches,
+    remove_worker_evaluation_staging_roots,
     validate_formal_run_tag,
 )
 from src.evaluation.configuration import load_configuration
@@ -103,6 +104,46 @@ class TestPipeline:
                 '{"signature": "different"}'
             )
 
+    def test_worker_evaluation_scratch_is_removed_only_under_workspace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "queue"
+            workspace = root / ".evaluate"
+            worker = workspace / "3D/cah_t_ext_1_500_11_21_11/hmonet/20261030/v1"
+            worker.mkdir(parents=True)
+            (worker / "artifact.txt").write_text("scratch", encoding="utf-8")
+            retained = root / "logs/keep.txt"
+            retained.parent.mkdir(parents=True)
+            retained.write_text("log", encoding="utf-8")
+            assert remove_worker_evaluation_staging_roots([worker], workspace) == 1
+            assert not worker.exists()
+            assert retained.read_text(encoding="utf-8") == "log"
+
+    def test_scoped_worker_cache_promotion_strips_temporary_model_layers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scope = (
+                root
+                / "queue/.evaluate/3D/cah_t_ext_1_500_11_21_11/hmonet/20261030/v1"
+            )
+            cache = scope / "11x21x11/0.38/.cache/HMONet/CCAP"
+            cache.mkdir(parents=True)
+            (cache / "generation.npz").write_bytes(b"mesh")
+            (cache / "generation_metadata.json").write_text(
+                '{"signature": "worker-mesh"}', encoding="utf-8"
+            )
+            (scope / "11x21x11/0.38/results.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            canonical = root / "outputs/results/3D"
+            details = promote_worker_evaluation_caches(
+                3, [scope], canonical, scoped_case_roots=True
+            )
+            assert details["generation_copied"] == 1
+            assert (
+                canonical
+                / "cah_t_ext_1_500_11_21_11/11x21x11/0.38/.cache/HMONet/CCAP/generation.npz"
+            ).read_bytes() == b"mesh"
+
     def test_evaluate_only_pins_existing_best_checkpoints(self, monkeypatch):
         import scripts.train.train_evaluate as train_evaluate
 
@@ -110,7 +151,7 @@ class TestPipeline:
             root = Path(directory)
             hmonet = (
                 root
-                / "outputs/checkpoints/2D/air/HMONet/corner_corrected_affine/run/best.pt"
+                / "outputs/checkpoints/2D/air/HMONet/CCAP/run/best.pt"
             )
             meshonet = root / "outputs/checkpoints/2D/air/MeshONet/run/best.pt"
             hmonet.parent.mkdir(parents=True)
@@ -122,7 +163,7 @@ class TestPipeline:
                 2,
                 ["air"],
                 "configs/2D/evaluate.yaml",
-                {"evaluation": {"hmonet_mapping_mode": "corner_corrected_affine"}},
+                {"evaluation": {"hmonet_mapping_mode": "CCAP"}},
                 ["hmonet", "meshonet"],
                 "best",
             )[0]

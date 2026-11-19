@@ -1,11 +1,11 @@
 # 首轮训练开始前保存的本次实际生效参数。
 datasets:
-  extrapolation: E:\projects\HMONet\data\raw\2D\air_t_ext_1_500_21_21
+  extrapolation: E:\projects\HMONet\data\raw\2D\rse_ext_1_500_41_41
 grid:
-  nx: 21
-  ny: 21
+  nx: 41
+  ny: 41
 model:
-  name: pimeshonet
+  name: meshonet
   common:
     branch_dim: 32
     trunk_dim: 18
@@ -19,8 +19,7 @@ model:
     output_dim: 64
     branch_mlp_hidden_dim: 64
     branch_mlp_hidden_layer_num: 4
-  pimeshonet:
-    architecture: paper_modified_mlp
+  meshonet:
     coordinate_lift_mode: legacy
     branch_dim: 40
     trunk_dim: 18
@@ -31,6 +30,9 @@ model:
     trunk_hidden_dim: 80
     trunk_hidden_layer_num: 4
     output_dim: 80
+    shared_branch_fusion_enabled: true
+    branch_mlp_hidden_dim: 80
+    branch_mlp_hidden_layer_num: 4
 training:
   dataset: extrapolation
   num_epochs: 100000
@@ -38,7 +40,7 @@ training:
   seed: 20261030
   device: cuda
   tensorboard_enabled: true
-  best_model_metric: training_loss
+  best_model_metric: dataset_mse
   calculate_dataset_mse: true
   dataset_mse_interval: 1
   check_mse_convergence: false
@@ -48,7 +50,7 @@ training:
   training_loss_tolerance: 1.0e-06
   training_loss_consecutive_epochs: 100
   plateau_enabled: true
-  plateau_metric: train_loss
+  plateau_metric: mse
   plateau_window: 500
   fluctuation_quantiles:
   - 0.1
@@ -81,25 +83,20 @@ training:
   stop_file_enabled: true
   gradient_clip_norm: 1.0
   skip_nonfinite_loss: true
-  check_max_point_error: false
-  check_p99_point_error: false
   check_plateau_stability: false
   check_plateau_absolute_stability: false
   check_plateau_near_best: false
   check_plateau_consecutive_stability: false
   check_plateau_best_improvement: false
-pimeshonet_training:
+meshonet_training:
   learning_rate: 0.0004
   lr_warmup_epochs: 1000
   lr_update_interval: 1000
   lr_decay_gamma: 0.9
   lr_stop_below: 1.0e-05
-  pde_loss_weight: 0.0001
-  boundary_loss_weight: 1.0
-  interior_sample_count: 128
-  fd_step:
-  - 0.01
-  - 0.01
+  alpha: 1.0
+  beta: 5.0
+  interior_sample_count: 400
   check_plateau_stability: false
   check_plateau_absolute_stability: false
   check_plateau_near_best: false

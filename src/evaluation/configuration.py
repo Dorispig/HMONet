@@ -52,6 +52,9 @@ DEFAULTS = dict(
     winslow_tolerance=1e-8,
     hmonet_pde_iterations=0,
     output_root="outputs/results",
+    # ``case_root`` is an internal queue layout: output_root already names
+    # one <dimension>/<dataset>/<model>/<seed>/<tag> scope.
+    output_layout="standard",
     reuse_generated_results=True,
     reuse_analysis_results=True,
     save_plots=True,
@@ -218,8 +221,18 @@ def build_parser(dimension):
         parser.add_argument(
             f"--{model}-boundary-projection",
             choices=["none", "direct", "inverse_distance", "idw"],
+            help=(
+                "Boundary postprocessing mode. 'none' is the default and "
+                "uses the unmodified network output stored in the raw folder."
+            ),
         )
-    for flag in ("output-root", "device"):
+    parser.add_argument("--output-root")
+    parser.add_argument(
+        "--output-layout",
+        choices=["standard", "case_root"],
+        help=argparse.SUPPRESS,
+    )
+    for flag in ("device",):
         parser.add_argument(f"--{flag}")
     for flag in (
         "query-batch-size",

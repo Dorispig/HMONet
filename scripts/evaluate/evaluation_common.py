@@ -54,6 +54,7 @@ _FINGERPRINT_OPTION_EXCLUSIONS = {
     # not invalidate an otherwise identical cached result.
     "device",
     "output_root",
+    "output_layout",
     "save_plots",
     "save_png",
     "save_pdf",
@@ -80,6 +81,33 @@ _FINGERPRINT_OPTION_EXCLUSIONS = {
     "meshonet_checkpoint",
     "pimeshonet_checkpoint",
 }
+
+
+def _evaluation_root(output_root, dimension, name, shape, tag, output_layout="standard"):
+    """Return the one visible result root for an evaluation job."""
+    output = resolve_path(output_root)
+    if output_layout == "case_root":
+        return output / "x".join(map(str, shape)) / tag
+    if output.name != f"{dimension}D":
+        output /= f"{dimension}D"
+    return output / name / "x".join(map(str, shape)) / tag
+
+
+def _write_evaluation_parameters_placeholder(root, *, dimension, name, shape, tag, options):
+    """Create a real, readable evaluation artifact before batched inference."""
+    root = ensure_output_directory(root, context="Evaluation staging root")
+    write_json(
+        root / "evaluation_parameters.json",
+        {
+            "dimension": int(dimension),
+            "case": name,
+            "grid_shape": list(shape),
+            "parameter": tag,
+            "evaluation_started_unix_seconds": time.time(),
+            "evaluation": options,
+        },
+    )
+    return root
 
 
 def _checkpoint_digest(path):
@@ -278,8 +306,18 @@ def method_path_name(method):
 
 
 def projection_path_name(projection):
-    """Keep postprocessing folders readable without long implementation names."""
-    return {"inverse_distance": "idw", "idw": "idw"}.get(projection, projection)
+    """Return the reader-facing artifact folder for boundary handling.
+
+    ``none`` means that no boundary operation is applied.  It is therefore
+    exactly the network's raw output, not a second result variant.  Persist it
+    only under ``raw`` so a no-op postprocessing pass cannot create an
+    identical ``none`` directory beside the original mesh.
+    """
+    return {
+        "none": "raw",
+        "inverse_distance": "idw",
+        "idw": "idw",
+    }.get(projection, projection)
 
 
 def mapping_combinations(options):
@@ -464,7 +502,7 @@ def analyze_method(
             {
                 "method": method,
                 "boundary_projection": "none",
-                "comparison_eligible": False,
+                "comparison_eligible": True,
                 "inference_reused_for_projected_output": True,
                 "grid_shape": shape,
                 "signature": signature,
@@ -488,12 +526,22 @@ def evaluate_object(
     models,
 ):
     started = time.perf_counter()
-    output = resolve_path(options["output_root"])
     dimension = len(shape)
-    if output.name != f"{dimension}D":
-        output /= f"{dimension}D"
-    root = output / name / "x".join(map(str, shape)) / tag
-    root = ensure_output_directory(root, context="Evaluation staging root")
+    root = _write_evaluation_parameters_placeholder(
+        _evaluation_root(
+            options["output_root"],
+            dimension,
+            name,
+            shape,
+            tag,
+            options.get("output_layout", "standard"),
+        ),
+        dimension=dimension,
+        name=name,
+        shape=shape,
+        tag=tag,
+        options=options,
+    )
     exact = sample_boundary(geometry, shape)
     ids = boundary_indices(shape)
     checkpoints, skipped, selected = _resolve_checkpoints(
@@ -596,10 +644,13 @@ def evaluate_object(
                 timing["network_inference_seconds"]
                 + timing["boundary_projection_seconds"]
             )
-            post_summary, _ = boundary_error(points, exact, ids)
-            error_records.append(
-                dict(method=method, stage="postprocessed", **post_summary)
-            )
+            # ``none`` is represented by the raw artifact itself.  Do not
+            # record or analyze an artificial second, identical stage.
+            if mode != "none":
+                post_summary, _ = boundary_error(points, exact, ids)
+                error_records.append(
+                    dict(method=method, stage="postprocessed", **post_summary)
+                )
             signatures[method] = digest(
                 {
                     "raw": source_signature,
@@ -727,19 +778,26 @@ def evaluate_object(
                 points,
             )
     else:
-        qualities = {
-            m: analyze_method(
-                directories[m],
-                m,
-                p,
+        qualities = {}
+        for method, points in meshes.items():
+            raw_directory = identical_raw_analyses.get(method)
+            if raw_directory is not None:
+                # The default/no-op projection is the already analyzed raw
+                # mesh.  Reuse its quality summary instead of cloning it to a
+                # separate ``none`` directory.
+                qualities[method] = load_quality(
+                    Path(raw_directory) / "grid_quality", points, shape, options
+                )
+                continue
+            qualities[method] = analyze_method(
+                directories[method],
+                method,
+                points,
                 shape,
-                signatures[m],
+                signatures[method],
                 exact,
                 options,
-                clone_from=identical_raw_analyses.get(m),
             )
-            for m, p in meshes.items()
-        }
         analysis_signature = digest(
             {
                 "sources": signatures,
@@ -810,7 +868,7 @@ def evaluate_object(
             if not options["generation_only"]
             else {}
         ),
-        "raw_none_metrics": {
+        "raw_metrics": {
             m: next(
                 r for r in error_records if r["method"] == m and r["stage"] == "raw"
             )
@@ -876,11 +934,23 @@ def run_evaluation(dimension, args, config):
         if options["inference_batch_size"] <= 1 or options["analysis_only"]:
             continue
         mappings = mapping_combinations(options)
-        output = resolve_path(options["output_root"])
-        if output.name != f"{dimension}D":
-            output /= f"{dimension}D"
-        root = output / name / "x".join(map(str, shape)) / tag
+        root = _evaluation_root(
+            options["output_root"],
+            dimension,
+            name,
+            shape,
+            tag,
+            options.get("output_layout", "standard"),
+        )
         for mapping, options in mappings:
+            _write_evaluation_parameters_placeholder(
+                root,
+                dimension=dimension,
+                name=name,
+                shape=shape,
+                tag=tag,
+                options=options,
+            )
             if options.get("compact_outputs", True):
                 try:
                     checkpoints, skipped, _ = _resolve_checkpoints(

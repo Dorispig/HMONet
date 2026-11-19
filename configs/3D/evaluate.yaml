@@ -43,9 +43,13 @@ evaluation:
     - bad_a_ext_1_500_11_21_11
     - lad_a_ext_1_500_11_21_11
   methods: [tfi, pde, meshonet, pimeshonet, hmonet, qghmonet]
-  hmonet_mapping_mode: corner_corrected_affine
+  # CCAP = Corner-Corrected Affine Projection（角点校正仿射投影）。
+  # 另可选 RAP = rational_affine，CR = coons_residual。
+  hmonet_mapping_mode: CCAP
   curve_kernel_backend: auto
   inference_batch_size: 1
+  # none = no external boundary postprocessing; the unmodified model output
+  # is stored once in each method's raw/ directory.
   hmonet_boundary_projection: none
   qghmonet_boundary_projection: none
   meshonet_boundary_projection: none

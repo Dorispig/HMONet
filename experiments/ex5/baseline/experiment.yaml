@@ -20,7 +20,7 @@ model:
     branch_mlp_hidden_dim: 64
     branch_mlp_hidden_layer_num: 4
   hmonet:
-    hmonet_mapping_mode: corner_corrected_affine
+    hmonet_mapping_mode: CCAP
     weight_head_mlp_enabled: true
     projection_mlp_hidden_dim: 64
     boundary_self_attention_enabled: false

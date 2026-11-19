@@ -339,7 +339,7 @@ class TestQualitySelection:
             )
             group = Path(result["comparison_directory"])
             root = group.parents[3]
-            for stage in ("raw", "none"):
+            for stage in ("raw",):
                 folder = root / "HMONet/RAP" / stage
                 assert (folder / "mesh.npy").is_file()
                 assert (folder / "boundary_error_summary.json").is_file()

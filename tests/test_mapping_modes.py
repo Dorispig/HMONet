@@ -17,6 +17,7 @@ from src.models.mapping_modes import (
         ("current", RATIONAL_AFFINE),
         ("coons_residual", COONS_RESIDUAL),
         ("coons", COONS_RESIDUAL),
+        ("CCAP", CORNER_CORRECTED_AFFINE),
         ("corner_corrected_affine", CORNER_CORRECTED_AFFINE),
         ("corner_corrected", CORNER_CORRECTED_AFFINE),
     ],

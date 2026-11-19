@@ -27,12 +27,22 @@ PROJECT_TOP_LEVEL_NAMES = {
 # the concrete path that is about to be created or written.
 WINDOWS_CLASSIC_PATH_LIMIT = 260
 LINUX_PATH_LIMIT = 4096
-OUTPUT_PATH_WARNING_LIMIT = int(WINDOWS_CLASSIC_PATH_LIMIT * 0.9)
 
 
 def system_path_limit() -> int:
     """Return the active platform's total-path limit used by project outputs."""
     return WINDOWS_CLASSIC_PATH_LIMIT if os.name == "nt" else LINUX_PATH_LIMIT
+
+
+def output_path_warning_limit() -> int:
+    """Return a platform-native advisory threshold for concrete outputs.
+
+    Windows uses the conservative classic-path budget, whereas Linux may use
+    its substantially larger POSIX total-path budget.  Applying the Windows
+    threshold on a Linux server creates noisy warnings for paths that are not
+    remotely close to failure.
+    """
+    return int(system_path_limit() * 0.9)
 
 
 def output_path_length(path: str | Path) -> int:
@@ -55,6 +65,7 @@ def validate_output_path(
     path = Path(path)
     length = output_path_length(path)
     limit = system_path_limit()
+    warning_limit = output_path_warning_limit()
     oversized = [part for part in path.parts if len(part) > 255]
     if length >= limit or oversized:
         detail = (
@@ -63,10 +74,10 @@ def validate_output_path(
             else f"length={length}, system_limit={limit}"
         )
         raise OSError(f"{context} exceeds the real system path limit: {detail}; path={path}")
-    if warn and length > OUTPUT_PATH_WARNING_LIMIT:
+    if warn and length > warning_limit:
         warnings.warn(
             f"{context} approaches the system path limit "
-            f"({length}>{OUTPUT_PATH_WARNING_LIMIT}) but remains valid "
+            f"({length}>{warning_limit}) but remains valid "
             f"for this system ({limit - 1} maximum usable characters): {path}",
             RuntimeWarning,
             stacklevel=2,

@@ -29,10 +29,10 @@ from src.utils.gpu_queue import (
 from src.utils.run_status import log_error, print_completion_summary
 
 
-# Keep formal queue-log paths within the same portable budget as ablations.
+# Keep formal queue-log paths within the actual budget of the running host.
 FORMAL_RUN_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-FORMAL_PATH_LIMIT = 234
 FORMAL_SYSTEM_PATH_LIMIT = 260 if os.name == "nt" else 4096
+FORMAL_PATH_LIMIT = int(FORMAL_SYSTEM_PATH_LIMIT * 0.9)
 
 
 def validate_formal_run_tag(value: str) -> str:
@@ -185,7 +185,7 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
     ) or {}
     seed = int(_command_option(train_extra, "--seed", configured.get("training", {}).get("seed", 0)))
     mappings = configured.get("model", {}).get("hmonet", {}).get(
-        "hmonet_mapping_mode", "corner_corrected_affine"
+        "hmonet_mapping_mode", "CCAP"
     )
     model_names = {
         "hmonet": "HMONet", "qghmonet": "QG-HMONet",
@@ -380,7 +380,7 @@ def existing_evaluation_commands(
     """
     selected = normalize_evaluate_methods(evaluate_methods)
     mapping = evaluation_config.get("evaluation", {}).get(
-        "hmonet_mapping_mode", "corner_corrected_affine"
+        "hmonet_mapping_mode", "CCAP"
     )
     commands = []
     for name in dataset_names:
@@ -680,7 +680,9 @@ def _analysis_signature(directory: Path):
         return None
 
 
-def promote_worker_evaluation_caches(dimension: int, staging_roots, canonical_root: Path):
+def promote_worker_evaluation_caches(
+    dimension: int, staging_roots, canonical_root: Path, *, scoped_case_roots=False
+):
     """Publish matching per-method worker artifacts for the final comparison.
 
     Each GPU worker writes a complete single-model evaluation under a private
@@ -695,20 +697,44 @@ def promote_worker_evaluation_caches(dimension: int, staging_roots, canonical_ro
     analysis_copied = analysis_reused = analysis_conflicts = 0
     seen_caches = set()
     seen_analyses = set()
-    for staging_root in map(Path, staging_roots):
-        worker_root = staging_root / f"{dimension}D"
-        if not worker_root.is_dir():
-            missing += 1
-            continue
-        for result_file in worker_root.rglob("results.json"):
-            source_case_root = result_file.parent
+    for staging_root in {Path(root) for root in staging_roots}:
+        if scoped_case_roots:
+            # ``staging_root`` is exactly
+            # .evaluate/<dimension>D/<dataset>/<model>/<seed>/<tag>.
+            # The evaluator adds only <grid>/<value> beneath it.
+            if not staging_root.is_dir():
+                missing += 1
+                continue
+            dataset_name = staging_root.parents[2].name
+            result_files = staging_root.rglob("results.json")
+            source_target_pairs = (
+                (
+                    result_file.parent,
+                    canonical_root
+                    / dataset_name
+                    / result_file.parent.relative_to(staging_root),
+                )
+                for result_file in result_files
+            )
+        else:
+            worker_root = staging_root / f"{dimension}D"
+            if not worker_root.is_dir():
+                missing += 1
+                continue
+            source_target_pairs = (
+                (
+                    result_file.parent,
+                    canonical_root
+                    / result_file.parent.relative_to(worker_root),
+                )
+                for result_file in worker_root.rglob("results.json")
+            )
+        for source_case_root, target_case_root in source_target_pairs:
             source_cache_root = source_case_root / ".cache"
             if not source_cache_root.is_dir():
                 missing += 1
                 continue
-            relative_case_root = source_case_root.relative_to(worker_root)
-            target_case_root = canonical_root / relative_case_root
-            target_cache_root = canonical_root / relative_case_root / ".cache"
+            target_cache_root = target_case_root / ".cache"
             for source_metadata in source_cache_root.rglob("generation_metadata.json"):
                 source_cache = source_metadata.parent
                 relative_cache = source_cache.relative_to(source_cache_root)
@@ -779,6 +805,56 @@ def promote_worker_evaluation_caches(dimension: int, staging_roots, canonical_ro
     return details
 
 
+def remove_worker_evaluation_staging_roots(staging_roots, workspace: Path) -> int:
+    """Delete completed formal worker scratch roots after successful publish.
+
+    Worker roots are only disposable after their caches have been promoted and
+    the canonical cross-method evaluation has finished.  Keeping them on a
+    failure is intentional: they contain the direct evidence needed to debug
+    a failed evaluation without rerunning expensive inference.
+    """
+    workspace = Path(workspace).resolve()
+    deleted = 0
+    unique_roots = {Path(root).resolve() for root in staging_roots}
+    for root in sorted(unique_roots, key=lambda item: len(item.parts), reverse=True):
+        try:
+            root.relative_to(workspace)
+        except ValueError:
+            continue
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+            deleted += 1
+        parent = root.parent
+        # Remove empty structural parents only; never touch queue logs or an
+        # active sibling worker's directory.
+        while parent != workspace:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+    try:
+        workspace.rmdir()
+    except OSError:
+        pass
+    return deleted
+
+
+def _successful_worker_staging_roots(task_records):
+    """Return completed scratch roots not shared with a failed worker."""
+    failed_roots = {
+        str(record.get("metadata", {}).get("staging_root"))
+        for record in task_records
+        if record.get("status") != "completed"
+    }
+    return [
+        record["metadata"]["staging_root"]
+        for record in task_records
+        if record.get("status") == "completed"
+        and str(record.get("metadata", {}).get("staging_root")) not in failed_roots
+    ]
+
+
 def _queued_formal_run(
     args,
     train_extra,
@@ -822,7 +898,7 @@ def _queued_formal_run(
     # Keep private artifacts intact so their generated meshes can be promoted
     # into the canonical cache without rerunning inference or PDE generation.
     worker_evaluation_extra = _without_value_options(
-        evaluate_extra, {"--device", "--output-root"}
+        evaluate_extra, {"--device", "--output-root", "--output-layout"}
     )
     worker_evaluation_extra = _keep_uncompacted_evaluation_outputs(
         worker_evaluation_extra
@@ -874,13 +950,23 @@ def _queued_formal_run(
             )
             result_file = queue_root / task_directory / "queue_result.json"
             status_file = _queue_status_path(result_file)
-            staging_root = queue_root / ".evaluation_work" / task_directory
+            staging_root = (
+                queue_root
+                / ".evaluate"
+                / f"{args.dimension}D"
+                / dataset_name
+                / model
+                / str(seed)
+                / args.run_tag
+            )
             worker_evaluate_arguments = [
                 *worker_evaluation_extra,
                 "--device",
                 "cuda:0",
                 "--output-root",
                 str(staging_root),
+                "--output-layout",
+                "case_root",
             ]
             fingerprint = _formal_queue_fingerprint(
                 dimension=args.dimension,
@@ -971,6 +1057,7 @@ def _queued_formal_run(
     failed = [record for record in task_records if record["status"] == "failed"]
     consolidation = "not-run"
     cache_promotion = None
+    staging_cleanup = 0
     if summaries:
         # Publish the immutable generation artifacts from private worker roots
         # before one canonical multi-model comparison.  The evaluator then
@@ -980,6 +1067,7 @@ def _queued_formal_run(
             args.dimension,
             [record["metadata"]["staging_root"] for record in task_records if record["status"] == "completed"],
             _formal_evaluation_root(args.dimension, evaluate_extra),
+            scoped_case_roots=True,
         )
         evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
         consolidated_evaluate_extra = _without_value_options(
@@ -995,6 +1083,10 @@ def _queued_formal_run(
             ):
                 evaluate.main(command + consolidated_evaluate_extra)
             consolidation = "completed"
+            staging_cleanup = remove_worker_evaluation_staging_roots(
+                _successful_worker_staging_roots(task_records),
+                queue_root / ".evaluate",
+            )
         except Exception as error:
             consolidation = "failed"
             completion = {
@@ -1018,6 +1110,7 @@ def _queued_formal_run(
         "processes": _formal_queue_process_rows(task_records),
         "consolidation": consolidation,
         "evaluation_cache_promotion": cache_promotion,
+        "evaluation_staging_roots_deleted": staging_cleanup,
     }
     print_completion_summary(
         completion["processes"], title="Formal GPU queue completion summary"
@@ -1055,7 +1148,7 @@ def _queued_formal_evaluation(
     train_config_path = args.train_config or f"configs/{args.dimension}D/train.yaml"
     script = ROOT / "scripts/train/train_evaluate.py"
     worker_evaluation_extra = _without_value_options(
-        evaluate_extra, {"--device", "--output-root"}
+        evaluate_extra, {"--device", "--output-root", "--output-layout"}
     )
     worker_evaluation_extra = _keep_uncompacted_evaluation_outputs(
         worker_evaluation_extra
@@ -1083,13 +1176,23 @@ def _queued_formal_evaluation(
             )
             result_file = queue_root / task_directory / "queue_result.json"
             status_file = _queue_status_path(result_file)
-            staging_root = queue_root / ".evaluation_work" / task_directory
+            staging_root = (
+                queue_root
+                / ".evaluate"
+                / f"{args.dimension}D"
+                / dataset_name
+                / model
+                / str(args.seed)
+                / args.run_tag
+            )
             worker_arguments = [
                 *worker_evaluation_extra,
                 "--device",
                 "cuda:0",
                 "--output-root",
                 str(staging_root),
+                "--output-layout",
+                "case_root",
             ]
             fingerprint = _formal_queue_fingerprint(
                 dimension=args.dimension,
@@ -1189,12 +1292,14 @@ def _queued_formal_evaluation(
     ]
     consolidation = "not-run"
     cache_promotion = None
+    staging_cleanup = 0
     records = []
     if completed_roots:
         cache_promotion = promote_worker_evaluation_caches(
             args.dimension,
             completed_roots,
             _formal_evaluation_root(args.dimension, evaluate_extra),
+            scoped_case_roots=True,
         )
         evaluate = importlib.import_module(f"scripts.evaluate.evaluate_{args.dimension}d")
         consolidated_evaluate_extra = _without_value_options(evaluate_extra, {"--device"})
@@ -1214,6 +1319,10 @@ def _queued_formal_evaluation(
             ):
                 records.append(evaluate.main(command + consolidated_evaluate_extra))
             consolidation = "completed"
+            staging_cleanup = remove_worker_evaluation_staging_roots(
+                _successful_worker_staging_roots(task_records),
+                queue_root / ".evaluate",
+            )
         except Exception as error:
             completion = {
                 "status": "failed",
@@ -1236,6 +1345,7 @@ def _queued_formal_evaluation(
         "processes": _formal_queue_process_rows(task_records),
         "consolidation": consolidation,
         "evaluation_cache_promotion": cache_promotion,
+        "evaluation_staging_roots_deleted": staging_cleanup,
     }
     print_completion_summary(
         completion["processes"], title="Formal evaluate-only GPU queue summary"

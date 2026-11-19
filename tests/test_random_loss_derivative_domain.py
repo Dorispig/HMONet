@@ -58,17 +58,17 @@ def test_full_open_domain_allows_finite_difference_queries_to_cross_boundary():
     assert torch.any((points < 0.1) | (points > 0.9))
 
 
-def test_formal_defaults_and_derivative_baseline_use_200_global_plus_200_adaptive():
+def test_formal_defaults_and_derivative_baseline_use_400_global_uniform():
     formal = yaml.safe_load((ROOT / "configs/2D/train.yaml").read_text(encoding="utf-8"))
     baseline = load_yaml_mapping(ROOT / "experiments/ex4/baseline/experiment.yaml")
     for config in (formal, baseline):
-        assert config["model"]["hmonet"]["hmonet_mapping_mode"] == "corner_corrected_affine"
-        assert config["hmonet_sampling"]["mode"] == "adaptive"
-        assert config["hmonet_sampling"]["global_random_count"] == 200
-        assert config["hmonet_sampling"]["curvature_adaptive_count"] == 200
+        assert config["model"]["hmonet"]["hmonet_mapping_mode"] == "CCAP"
+        assert config["hmonet_sampling"]["mode"] == "uniform"
+        assert config["hmonet_sampling"]["global_random_count"] == 400
+        assert config["hmonet_sampling"]["curvature_adaptive_count"] == 0
     training = baseline["hmonet_training"]
-    assert training["random_loss_global_sample_count"] == 200
-    assert training["random_loss_curvature_sample_count"] == 200
+    assert training["random_loss_global_sample_count"] == 400
+    assert training["random_loss_curvature_sample_count"] == 0
     assert training["random_loss_boundary_band_sample_count"] == 0
     assert training["random_loss_fd_stencil_inside"] is True
 

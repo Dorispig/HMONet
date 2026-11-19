@@ -69,7 +69,7 @@ model:  # 模型与网络结构配置
     branch_mlp_hidden_layer_num: 4  # 共享Fusion MLP隐藏层数
 
   hmonet:  # HMONet模型配置
-    hmonet_mapping_mode: corner_corrected_affine
+    hmonet_mapping_mode: CCAP
     # 几何系数固定为 Branch Sigmoid × Trunk Sigmoid，不再提供关闭位置调制或Softplus选项。
     boundary_self_attention_enabled: false  # 是否在边界编码器前启用联合自注意力；正式实验默认关闭
     weight_head_mlp_enabled: true  # true默认使用与Location MLP相同宽度、Tanh激活的单隐藏层MLP；false兼容原Linear
@@ -82,7 +82,7 @@ model:  # 模型与网络结构配置
     residual_regularization_weight: 0.0  # 仅coons_residual使用；0表示关闭
 
   qghmonet:  # Query--Geometry Gated Hard-Boundary Mesh Operator Network
-    hmonet_mapping_mode: corner_corrected_affine
+    hmonet_mapping_mode: CCAP
     query_boundary_cross_attention_enabled: true
     boundary_layer_decoder_enabled: true
     decoupled_weight_decoder_enabled: true

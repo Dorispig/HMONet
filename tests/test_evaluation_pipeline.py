@@ -206,9 +206,10 @@ class TestEvaluationPipeline:
                 expected.mean(), abs=1e-7
             )
             assert (root / "HMONet/RAP/raw/boundary_error_data.csv").is_file()
-            np.testing.assert_array_equal(
-                np.load(root / "HMONet/RAP/none/mesh.npy"),
-                np.load(root / "HMONet/RAP/raw/mesh.npy"),
+            assert not (root / "HMONet/RAP/none").exists()
+            assert not any(
+                item["method"] == "HMONet" and item["stage"] == "postprocessed"
+                for item in record["boundary_errors"]
             )
             assert (record["timings"]["HMONet"]["boundary_projection_seconds"]) == (0.0)
             assert ("H_raw__M_direct") in (str(group))
@@ -274,7 +275,13 @@ class TestEvaluationPipeline:
         first = self.run_evaluation(2, config)[0]
         result_file = next((self.root / "results").rglob("results.json"))
         retained = [path for path in result_file.parent.rglob("*") if path.is_file()]
-        assert (retained) == ([result_file])
+        assert set(retained) == {
+            result_file,
+            result_file.parent / "evaluation_parameters.json",
+        }
+        assert json.loads(
+            (result_file.parent / "evaluation_parameters.json").read_text(encoding="utf-8")
+        )["case"] == "test"
         assert ("evaluation_fingerprint") in (first)
         with patch(
             "scripts.evaluate.evaluation_common.generate",
