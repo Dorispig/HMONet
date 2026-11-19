@@ -62,7 +62,9 @@ def audit_grid(points, nx, ny, tolerance=1e-12):
         (grid[:-1, :-1], grid[:-1, 1:], grid[1:, 1:], grid[1:, :-1]), axis=2
     ).reshape(-1, 4, 2)
     finite = np.isfinite(cells).all(axis=(1, 2))
-    edges = np.roll(cells, -1, axis=1) - cells
+    # Nonfinite cells are already invalid; keep their arithmetic out of the audit.
+    clean_cells = np.where(finite[:, None, None], cells, 0.0)
+    edges = np.roll(clean_cells, -1, axis=1) - clean_cells
     nxt = np.roll(edges, -1, axis=1)
     det = edges[:, :, 0] * nxt[:, :, 1] - edges[:, :, 1] * nxt[:, :, 0]
     local_bad = ~finite | (det <= tolerance).any(axis=1)
@@ -75,8 +77,9 @@ def audit_grid(points, nx, ny, tolerance=1e-12):
             cross(d - c, a - c) * cross(d - c, b - c) < 0
         )
 
-    a, b, c, d = (cells[:, i] for i in range(4))
+    a, b, c, d = (clean_cells[:, i] for i in range(4))
     self_cross = crossing(a, b, c, d) | crossing(b, c, d, a)
+    local_bad |= self_cross
     overlap = np.zeros(len(cells), dtype=bool)
     good = np.flatnonzero(~local_bad)
     certified = not local_bad.any() and simple_boundary(grid, tolerance)
@@ -119,7 +122,8 @@ def audit_grid(points, nx, ny, tolerance=1e-12):
         "self_intersecting_cells": int(self_cross.sum()),
         "overlapping_convex_cells": int(overlap.sum()),
         "invalid_cells": int((local_bad | overlap).sum()),
-        "minimum_corner_determinant": float(np.nanmin(det)),
+        "minimum_corner_determinant": float(det[finite].min()) if finite.any() else None,
+        "finite_coordinates": bool(finite.all()),
         "all_cells_legal": bool(not np.any(local_bad | overlap)),
         "nonconvex_overlap_tested": False,
         "global_check": (

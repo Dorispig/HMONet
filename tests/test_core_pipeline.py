@@ -186,7 +186,6 @@ class TestPipeline:
                 "box",
                 [{}],
                 grid_shape=(4, 4, 4),
-                sample_count=5,
                 output_root=td,
             )
             ds = ParametricDataset3D(out, load_boundary=True)
@@ -196,6 +195,7 @@ class TestPipeline:
             assert (ds[0]["boundary"].__class__.__name__) == ("BoundarySurfaceSet3D")
             assert not hasattr(ds, "physical_samples")
             assert not hasattr(ds, "sample_parameters")
+            assert not (out / "physical_samples.npy").exists()
 
             from unittest.mock import patch
 
@@ -210,7 +210,6 @@ class TestPipeline:
             # MeshONet must still work without geometry or unused sample files.
             for filename in (
                 "geometry.json",
-                "physical_samples.npy",
                 "sample_parameters.npy",
             ):
                 (out / filename).unlink()

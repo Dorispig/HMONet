@@ -75,6 +75,7 @@ def write_catalog(root, families, descriptions):
         if audit_path.exists():
             audit = json.loads(audit_path.read_text(encoding="utf-8"))
             m["audit_illegal_samples"] = audit["illegal_samples"]
+            m["audit_checked_samples"] = audit.get("checked_samples", audit["size"])
         if m.get("dimension") == 2:
             records.append(
                 (m.get("boundary_type", m.get("family", "unknown")), directory, m)
@@ -92,7 +93,7 @@ def write_catalog(root, families, descriptions):
         f"每个数据集含 `{NUMERICAL_DATA_FILENAME}`（边界均匀采样点、PDE网格）和 `{BOUNDARY_GEOMETRY_FILENAME}`（参数边界描述和参数）。同索引 sample_id、dataset_id 必须对应。",
         "上下边界参数方向为左到右，左右为下到上；闭合遍历时上边界和左边界反向。每条边均匀参数采样，包含端点，闭合拼接处去重。",
         "训练几何参数等间隔采样并包含区间端点；新数据的两个内插训练区间各500条，外推训练区间1000条。网格真值是 Winslow PDE 迭代结果（TFI仅用于初始化），mesh_points 形状为 (ny*nx, 2)。",
-        "PDE收敛仅代表迭代变化达到容差，并不保证网格合法。新数据的每样本 pde_diagnostics 记录非正角点行列式单元数；该检查不包括全局单元间相交。另存的 quality_audit.json 是逐条完整合法性验收：凸单元内部重叠通过分离轴检测，或在所有角点行列式为正且外边界简单时使用全局单射性判定。",
+        "生成时检查首尾两条 PDE 网格，报告中的受检数量反映实际覆盖范围。PDE 收敛状态逐条记录，可使用独立审计脚本检查整个数据集。",
         "",
         "## 数据集清单",
         "",
@@ -177,7 +178,7 @@ def write_catalog(root, families, descriptions):
         ]
         if "audit_illegal_samples" in m:
             text.append(
-                f"- 全量合法性检查：**{m['audit_illegal_samples']}/{m['size']} 条含非法单元**；[逐条诊断]({directory.name}/quality_audit.json)。凸单元采用分离轴检测内部重叠；非凸单元已作为非法单元记录，不将接缝接触记为重叠。"
+                f"- 合法性检查：**{m['audit_illegal_samples']}/{m['audit_checked_samples']} 条受检网格含非法单元**。[诊断报告]({directory.name}/quality_audit.json)"
             )
         if "samples_with_nonpositive_corner_cells" in m:
             text.append(

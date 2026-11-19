@@ -31,6 +31,8 @@ def save_dataset_examples(directory, records=None, metadata=None, geometry=None)
         ("last", len(records) - 1),
     ):
         points = np.asarray(records[index]["mesh_points"])
+        if not np.isfinite(points).all():
+            continue
         fig, ax = plt.subplots(figsize=(8, 6))
         plot_quad_meshXY(
             QuadMeshXY(nx, ny, points), ax=ax, show_node_id=False, linewidth=0.35
@@ -83,6 +85,8 @@ def save_dataset_examples_3d(
         ("last", len(meshes) - 1),
     )
     for label, index in selections:
+        if not np.isfinite(meshes[index]).all():
+            continue
         figure = plt.figure(figsize=(8, 7))
         axis = figure.add_subplot(111, projection="3d")
         plot_hex_mesh_3d(

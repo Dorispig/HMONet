@@ -98,7 +98,7 @@ class TestCircleAirfoilDataset:
                     output_root=temporary,
                 )
             assert ({path.name for path in output.iterdir() if path.is_file()}) == (
-                {"dataset.npy", "boundary_geometry.npy"}
+                {"dataset.npy", "boundary_geometry.npy", "quality_audit.json"}
             )
             numerical = np.load(output / "dataset.npy", allow_pickle=True)
             geometry_rows = np.load(output / "boundary_geometry.npy", allow_pickle=True)
@@ -247,10 +247,10 @@ class TestCircleAirfoilDataset:
             with pytest.raises(ValueError, match="record count"):
                 ParametricDataset2D(first)
 
-    def test_nonconverged_pde_does_not_publish_dataset(self):
+    def test_nonconverged_pde_is_reported_after_publishing_dataset(self):
         with tempfile.TemporaryDirectory() as temporary:
-            with pytest.raises(RuntimeError, match="PDE did not converge"):
-                generate_circle_airfoil_t_dataset(
+            with pytest.warns(RuntimeWarning, match="2/2 unconverged PDE samples"):
+                output = generate_circle_airfoil_t_dataset(
                     "unfinished",
                     [(0.08, 0.12)],
                     count=2,
@@ -258,7 +258,10 @@ class TestCircleAirfoilDataset:
                     pde_max_iter=1,
                     pde_tolerance=1e-12,
                 )
-            assert (list(Path(temporary).iterdir())) == ([])
+            assert (output / "dataset.npy").is_file()
+            assert (output / "boundary_geometry.npy").is_file()
+            audit = json.loads((output / "quality_audit.json").read_text(encoding="utf-8"))
+            assert audit["nonconverged_sample_ids"] == [0, 1]
 
     def test_existing_dataset_is_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -341,4 +344,4 @@ class TestCircleAirfoilDataset:
             assert ("Winslow PDE 迭代结果") in (catalog)
             assert ("custom_airfoil/boundary_geometry.npy") in (catalog)
             assert ("\ufffd") not in (catalog)
-            assert (len([p for p in output.iterdir() if p.is_file()])) == (2)
+            assert (len([p for p in output.iterdir() if p.is_file()])) == (3)

@@ -230,7 +230,7 @@ class TestDatasetSelection:
                     {"boundary_points", "mesh_points", "boundary"}
                 )
                 assert ({path.name for path in output.iterdir() if path.is_file()}) == (
-                    {"dataset.npy", "boundary_geometry.npy"}
+                    {"dataset.npy", "boundary_geometry.npy", "quality_audit.json"}
                 )
             catalog = (Path(temporary) / "CATALOG.md").read_text(encoding="utf-8")
             for output in outputs:

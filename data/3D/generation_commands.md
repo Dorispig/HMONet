@@ -16,22 +16,22 @@ python src/data/generation/make_dataset_parametric_3d.py
 
 ```powershell
 # cah_t_ext_1_500_11_21_11；thickness ∈ [0.08, 0.34]
-python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.08 0.34 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.08 0.34 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # swb_a_ext_1_500_11_21_11；sidewall_amplitude ∈ [0.04, 0.30]
-python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.30 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # run_e_ext_1_500_41_41_11；与二维 run 截面完全相同，depth ∈ [0.55, 1.50]
-python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.50 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.50 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # teb_b_ext_1_500_11_21_11；minor_axis_out ∈ [0.12, 0.32]
-python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.32 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.32 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # bad_a_ext_1_500_11_21_11；bend_angle_deg ∈ [25, 85]
-python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 25 85 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 25 85 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # lad_a_ext_1_500_11_21_11；amplitude ∈ [0.04, 0.16]
-python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.16 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.16 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 ```
 
 ## 内插数据集
@@ -40,22 +40,22 @@ python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split 
 
 ```powershell
 # cah_t_int_1_500_11_21_11；thickness ∈ [0.06, 0.15] ∪ [0.25, 0.35]
-python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.06 0.15 --parameter-range 0.25 0.35 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.06 0.15 --parameter-range 0.25 0.35 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # swb_a_int_1_500_11_21_11；sidewall_amplitude ∈ [0.03, 0.10] ∪ [0.20, 0.30]
-python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.03 0.10 --parameter-range 0.20 0.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.03 0.10 --parameter-range 0.20 0.30 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # run_e_int_1_500_41_41_11；与二维 run 截面完全相同，depth ∈ [0.55, 1.00] ∪ [1.30, 1.50]
-python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.00 --parameter-range 1.30 1.50 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.00 --parameter-range 1.30 1.50 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # teb_b_int_1_500_11_21_11；minor_axis_out ∈ [0.12, 0.18] ∪ [0.27, 0.32]
-python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # bad_a_int_1_500_11_21_11；bend_angle_deg ∈ [20, 45] ∪ [65, 90]
-python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 20 45 --parameter-range 65 90 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 20 45 --parameter-range 65 90 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # lad_a_int_1_500_11_21_11；amplitude ∈ [0.02, 0.08] ∪ [0.12, 0.18]
-python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.02 0.08 --parameter-range 0.12 0.18 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.02 0.08 --parameter-range 0.12 0.18 --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 ```
 
-`--sample-count 400` 是每个参数面用于保存/编码的离散采样密度；它不同于 `--grid-shape` 指定的 PDE 体网格节点数。生成完成后，应先复核六面共享边、八个角点以及极端参数处的体网格合法性诊断。
+三维生成器只保存参数边界和 PDE 体网格；训练时的域内采样由模型在线完成，因此不再保存随机查询点，也不需要 `--sample-count` 或 `--seed`。`--grid-shape` 指定 PDE 体网格节点数。生成完成后，应先复核六面共享边、八个角点以及极端参数处的体网格合法性诊断。

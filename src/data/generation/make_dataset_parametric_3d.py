@@ -13,16 +13,20 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from src.data.geometry.boundary_generator_3d import generate_boundary
-from src.data.geometry.boundary_generator_2d import rounded_u_notch_boundary
 from src.numerics.traditional.tfi_3d import tfi_from_surfaces
 from src.numerics.traditional.winslow_3d import solve_winslow_3d
-from src.numerics.traditional.winslow_vectorized_2d import solve_winslow_2d_vectorized
-from src.data.mesh.sampling import sample_boundary
+from src.data.mesh.sampling import boundary_indices, sample_faces
+from src.evaluation.quality_3d import surface_quad_quality_fields
 from src.metrics import evaluate_hexahedral_grid_quality
 from src.data.generation.dataset_naming import (
     build_dataset_name as build_canonical_dataset_name,
     default_version_for_split,
     validate_version,
+)
+from src.data.generation.dataset_validation import (
+    endpoint_indices,
+    save_quality_audit,
+    warn_saved_dataset,
 )
 
 
@@ -134,8 +138,6 @@ DEFAULT_GENERATION_OPTIONS = {
     "nx": None,
     "ny": None,
     "nz": None,
-    "sample_count": 400,
-    "seed": 20260905,
     "winslow_max_iter": 1000,
     "winslow_tolerance": 1e-6,
     "timing_samples": 3,
@@ -265,13 +267,61 @@ def update_dataset_catalog(output_root=DEFAULT_OUTPUT_ROOT):
     return destination
 
 
+def _audit_volume_grid(mesh):
+    finite = bool(np.isfinite(mesh).all())
+    cell_count = int(np.prod(np.asarray(mesh.shape[:3]) - 1))
+    if not finite:
+        return {
+            "cell_count": cell_count,
+            "invalid_cells": None,
+            "minimum_scaled_jacobian": None,
+            "finite_coordinates": False,
+            "all_cells_legal": False,
+        }
+    fields = evaluate_hexahedral_grid_quality(
+        mesh, metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"]
+    )
+    flipped = fields["flipped_cell"] > 0
+    degenerate = fields["degenerate_cell"] > 0
+    invalid = int(np.count_nonzero(flipped | degenerate))
+    minimum = float(fields["minimum_scaled_jacobian"].min())
+    return {
+        "cell_count": cell_count,
+        "invalid_cells": invalid,
+        "flipped_cells": int(np.count_nonzero(flipped)),
+        "degenerate_cells": int(np.count_nonzero(degenerate)),
+        "minimum_scaled_jacobian": minimum if np.isfinite(minimum) else None,
+        "finite_coordinates": True,
+        "all_cells_legal": invalid == 0,
+    }
+
+
+def _validated_boundary_samples(geometry, shape, sample_index):
+    """Reject invalid prescribed face grids before starting the volume solve."""
+    try:
+        faces, boundary_grid = sample_faces(geometry, shape)
+    except ValueError as error:
+        raise ValueError(f"Sample {sample_index} has invalid boundary faces: {error}") from error
+    bad_faces = []
+    for name, face in faces.items():
+        fields = surface_quad_quality_fields(
+            face, metrics=("self_intersection", "flipping_cell", "degenerate_cell")
+        )
+        invalid = np.logical_or.reduce([values > 0 for values in fields.values()])
+        if invalid.any():
+            bad_faces.append(f"{int(invalid.sum())} invalid quadrilaterals on {name}")
+    if bad_faces:
+        raise ValueError(f"Sample {sample_index} has invalid prescribed boundary faces: "
+                         + ", ".join(bad_faces))
+    return boundary_grid.reshape(-1, 3)[boundary_indices(shape)]
+
+
 def _solve_dataset_sample_3d(payload):
     """Solve one picklable 3-D sample while preserving its input identity."""
     (
         sample_index,
         boundary_type,
         parameters,
-        logical_queries,
         nx,
         ny,
         nz,
@@ -280,107 +330,36 @@ def _solve_dataset_sample_3d(payload):
     ) = payload
     started = time.perf_counter()
     geometry = generate_boundary(boundary_type, **parameters)
-    if boundary_type == "rounded_u_notch_extrusion":
-        # A strongly concave U notch can invert a direct 3-D Coons/TFI starter
-        # even though each z slice is a valid 2-D domain.  This family is an
-        # exact axial extrusion, so the 3-D Winslow solution is precisely the
-        # converged 2-D Winslow cross-section repeated along z.  Solving that
-        # cross-section avoids an artificial invalid starter while preserving
-        # all six prescribed boundary faces exactly.
-        profile = rounded_u_notch_boundary(
-            width=parameters["width"], height=parameters["height"],
-            notch_width=parameters["notch_width"], depth=parameters["depth"],
-            radius=parameters["radius"],
-        )
-        cross_section, cross_info = solve_winslow_2d_vectorized(
-            profile, nx, ny, max_iter=winslow_max_iter,
-            tolerance=winslow_tolerance, return_info=True,
-        )
-        if not cross_info["converged"]:
-            raise RuntimeError(
-                f"2-D cross-section PDE did not converge for sample {sample_index}: {cross_info}"
-            )
-        cross_section = cross_section.reshape(ny, nx, 2)
-        xi = np.clip(logical_queries[:, 0], 0.0, 1.0) * (nx - 1)
-        eta = np.clip(logical_queries[:, 1], 0.0, 1.0) * (ny - 1)
-        ix, iy = np.floor(xi).astype(int), np.floor(eta).astype(int)
-        ix, iy = np.minimum(ix, nx - 2), np.minimum(iy, ny - 2)
-        fx, fy = xi - ix, eta - iy
-        q00, q10 = cross_section[iy, ix], cross_section[iy, ix + 1]
-        q01, q11 = cross_section[iy + 1, ix], cross_section[iy + 1, ix + 1]
-        physical_xy = (
-            (1.0 - fx)[:, None] * (1.0 - fy)[:, None] * q00
-            + fx[:, None] * (1.0 - fy)[:, None] * q10
-            + (1.0 - fx)[:, None] * fy[:, None] * q01
-            + fx[:, None] * fy[:, None] * q11
-        )
-        z_values = parameters["z_min"] + parameters["length"] * logical_queries[:, 2]
-        physical_queries = np.column_stack((physical_xy, z_values))
-        z = np.linspace(parameters["z_min"], parameters["z_min"] + parameters["length"], nz)
-        mesh = np.empty((nz, ny, nx, 3), dtype=float)
-        mesh[..., :2] = cross_section[None, ...]
-        mesh[..., 2] = z[:, None, None]
-        quality = evaluate_hexahedral_grid_quality(
-            mesh, metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"]
-        )
-        minimum_tfi_jacobian = float(quality["minimum_scaled_jacobian"].min())
-        invalid_tfi_cells = int(
-            np.logical_or(quality["flipped_cell"] > 0, quality["degenerate_cell"] > 0).sum()
-        )
-        if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
-            raise RuntimeError(
-                f"Extruded U-notch solution is invalid for sample {sample_index}: "
-                f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, invalid_cells={invalid_tfi_cells}"
-            )
-        info = dict(cross_info)
-        info.update({
-            "solver": "extruded_2d_winslow",
-            "tfi_minimum_scaled_jacobian": minimum_tfi_jacobian,
-            "tfi_invalid_cells": invalid_tfi_cells,
-        })
-        return (
-            geometry.to_dict(), sample_boundary(geometry, (nx, ny, nz)), physical_queries,
-            mesh, info, time.perf_counter() - started,
-        )
-    physical_queries = tfi_from_surfaces(geometry, parameter_grid=logical_queries)
+    exact = _validated_boundary_samples(geometry, (nx, ny, nz), sample_index)
     initial = tfi_from_surfaces(geometry, xi=nx, eta=ny, zeta=nz)
-    initial_quality = evaluate_hexahedral_grid_quality(
-        initial,
-        metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"],
-    )
-    minimum_tfi_jacobian = float(initial_quality["minimum_scaled_jacobian"].min())
-    invalid_tfi_cells = int(
-        np.logical_or(
-            initial_quality["flipped_cell"] > 0,
-            initial_quality["degenerate_cell"] > 0,
-        ).sum()
-    )
-    if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
-        raise RuntimeError(
-            f"3-D TFI is invalid for sample {sample_index}: "
-            f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, "
-            f"invalid_cells={invalid_tfi_cells}"
+    # An inverted TFI starter can be repaired by the PDE solve.
+    try:
+        mesh, info = solve_winslow_3d(
+            geometry,
+            nx,
+            ny,
+            nz,
+            initial_grid=initial,
+            max_iter=winslow_max_iter,
+            tolerance=winslow_tolerance,
+            return_info=True,
         )
-    mesh, info = solve_winslow_3d(
-        geometry,
-        nx,
-        ny,
-        nz,
-        initial_grid=initial,
-        max_iter=winslow_max_iter,
-        tolerance=winslow_tolerance,
-        return_info=True,
-    )
-    if not info["converged"]:
-        raise RuntimeError(f"3-D PDE did not converge for sample {sample_index}: {info}")
+    except FloatingPointError as error:
+        # A numerical breakdown yields no PDE mesh. Keep the diagnostic
+        # starter at this index and mark it explicitly as a fallback.
+        mesh = initial
+        info = {
+            "converged": False,
+            "solver_error": f"{type(error).__name__}: {error}",
+            "mesh_source": "tfi_fallback",
+        }
     info = dict(info)
-    info["tfi_minimum_scaled_jacobian"] = minimum_tfi_jacobian
-    info["tfi_invalid_cells"] = invalid_tfi_cells
+    info["solver"] = "winslow_3d"
+    mesh = mesh.reshape(nz, ny, nx, 3)
     return (
         geometry.to_dict(),
-        sample_boundary(geometry, (nx, ny, nz)),
-        physical_queries,
-        mesh.reshape(nz, ny, nx, 3),
+        exact,
+        mesh,
         info,
         time.perf_counter() - started,
     )
@@ -391,9 +370,7 @@ def generate_dataset(
     boundary_type,
     parameters,
     grid_shape=(11, 21, 11),
-    sample_count=400,
     output_root="data/raw/3D",
-    seed=20260905,
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
     timing_samples=3,
@@ -405,18 +382,16 @@ def generate_dataset(
     if isinstance(workers, bool) or int(workers) != workers or int(workers) < 1:
         raise ValueError("workers must be an integer >= 1")
     workers = int(workers)
-    rng = np.random.default_rng(seed)
     nx, ny, nz = grid_shape
-    out = Path(output_root) / name
-    if out.exists():
-        if not overwrite:
-            print(f"[skip] Dataset already exists: {out}", flush=True)
-            return out
-        shutil.rmtree(out)
-    out.mkdir(parents=True, exist_ok=True)
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("name must be a single nonempty directory name")
+    root = Path(output_root).resolve()
+    out = root / name
+    if out.exists() and not overwrite:
+        print(f"[skip] Dataset already exists: {out}", flush=True)
+        return out
     geoms = []
     boundary_samples = []
-    physical = []
     meshes = []
     diagnostics = []
     parameters = list(parameters)
@@ -424,12 +399,15 @@ def generate_dataset(
         raise ValueError("parameters must contain at least one sample")
     if timing_samples < 0:
         raise ValueError("timing_samples must be non-negative")
+    # Fail early on bad parameter extremes before starting costly volume solves.
+    for index in endpoint_indices(len(parameters)):
+        geometry = generate_boundary(boundary_type, **parameters[index])
+        _validated_boundary_samples(geometry, (nx, ny, nz), index)
     payloads = [
         (
             sample_index,
             boundary_type,
             params,
-            rng.random((sample_count, 3)),
             nx,
             ny,
             nz,
@@ -440,11 +418,10 @@ def generate_dataset(
     ]
     progress_interval = max(1, len(parameters) // 10)
     def collect(results):
-        for sample_index, (params, result) in enumerate(zip(parameters, results)):
-            geometry, exact, physical_queries, mesh, info, elapsed = result
+        for sample_index, result in enumerate(results):
+            geometry, exact, mesh, info, elapsed = result
             geoms.append(geometry)
             boundary_samples.append(exact)
-            physical.append(physical_queries)
             meshes.append(mesh)
             diagnostics.append(info)
             if sample_index < timing_samples:
@@ -465,8 +442,24 @@ def generate_dataset(
             collect(pool.map(_solve_dataset_sample_3d, payloads, chunksize=1))
     else:
         collect(map(_solve_dataset_sample_3d, payloads))
+    extreme_legality_checks = [
+        {
+            "sample_id": index,
+            "parameters": parameters[index],
+            "mesh_source": diagnostics[index].get("mesh_source", "pde"),
+            **_audit_volume_grid(meshes[index]),
+        }
+        for index in endpoint_indices(len(parameters))
+    ]
+    # Retain any prior output if boundary validation or the solve aborts.
+    if out.exists():
+        if out.resolve().parent != root or out.is_symlink():
+            raise ValueError(f"Cannot overwrite dataset outside output root: {out}")
+        if not overwrite:
+            raise FileExistsError(f"Dataset appeared during generation: {out}")
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
     np.save(out / "boundary_samples.npy", np.asarray(boundary_samples))
-    np.save(out / "physical_samples.npy", np.asarray(physical))
     np.save(out / "pde_mesh.npy", np.asarray(meshes))
     np.save(
         out / "sample_parameters.npy",
@@ -487,17 +480,24 @@ def generate_dataset(
         ),
         encoding="utf-8",
     )
+    scope = "endpoint_pde_grids_hex_local_validity"
+    audit = save_quality_audit(out, name, (nx, ny, nz), extreme_legality_checks, diagnostics, scope)
     metadata = {
         "dataset": name,
         "dimension": 3,
         "size": len(parameters),
         "grid_shape": [nx, ny, nz],
         "boundary_type": boundary_type,
-        "sample_count": sample_count,
         "pde_method": "winslow_iterative",
+        "pde_solver": "winslow_3d",
         "pde_max_iter": int(winslow_max_iter),
         "pde_tolerance": float(winslow_tolerance),
         "workers": workers,
+        "quality_check_scope": scope,
+        "illegal_samples": audit["illegal_samples"],
+        "extreme_grid_legality_checks": extreme_legality_checks,
+        "all_extreme_grids_legal": audit["illegal_samples"] == 0,
+        "all_pde_converged": audit["nonconverged_samples"] == 0,
         "pde_diagnostics": diagnostics,
     }
     if generation_metadata:
@@ -515,6 +515,8 @@ def generate_dataset(
         parameters=parameters,
     )
     update_dataset_catalog(out.parent)
+    print(f"Dataset saved: {out}", flush=True)
+    warn_saved_dataset(out, audit)
     return out
 
 
@@ -528,9 +530,7 @@ def generate_family_dataset(
     nx=None,
     ny=None,
     nz=None,
-    sample_count=400,
     output_root=DEFAULT_OUTPUT_ROOT,
-    seed=20260905,
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
     timing_samples=3,
@@ -576,9 +576,7 @@ def generate_family_dataset(
         DATASET_GENERATORS[specification["function"]],
         parameters,
         grid_shape=(nx, ny, nz),
-        sample_count=sample_count,
         output_root=output_root,
-        seed=seed,
         winslow_max_iter=winslow_max_iter,
         winslow_tolerance=winslow_tolerance,
         timing_samples=timing_samples,
@@ -601,7 +599,6 @@ def generate_family_dataset(
                     float(np.asarray(requested_ranges, dtype=float)[:, 1].max()),
                 ]
             ),
-            "seed": int(seed),
         },
         overwrite=overwrite,
     )
@@ -746,10 +743,6 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--sample-count", type=int, default=DEFAULT_GENERATION_OPTIONS["sample_count"]
-    )
-    parser.add_argument("--seed", type=int, default=DEFAULT_GENERATION_OPTIONS["seed"])
-    parser.add_argument(
         "--winslow-max-iter",
         type=int,
         default=DEFAULT_GENERATION_OPTIONS["winslow_max_iter"],
@@ -790,9 +783,7 @@ if __name__ == "__main__":
         nx=arguments.nx,
         ny=arguments.ny,
         nz=arguments.nz,
-        sample_count=arguments.sample_count,
         output_root=arguments.output_root,
-        seed=arguments.seed,
         winslow_max_iter=arguments.winslow_max_iter,
         winslow_tolerance=arguments.winslow_tolerance,
         timing_samples=arguments.timing_samples,

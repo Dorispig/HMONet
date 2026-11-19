@@ -16,7 +16,6 @@ import sys
 import tempfile
 import time
 import uuid
-import warnings
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -52,6 +51,12 @@ from src.data.generation.dataset_naming import (
     build_dataset_name as build_canonical_dataset_name,
     default_version_for_split,
     validate_version,
+)
+from src.data.generation.dataset_quality_2d import audit_grid
+from src.data.generation.dataset_validation import (
+    endpoint_indices,
+    save_quality_audit,
+    warn_saved_dataset,
 )
 
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parents[3] / "data" / "raw" / "2D"
@@ -360,7 +365,7 @@ def to_computational_boundary(boundary, *, source_order=None, tolerance=1e-6):
 
 
 def _solve_pde_grid(boundary, nx, ny, *, max_iter, tolerance, sample_label):
-    """Sample any oriented 2-D boundary and verify its converged PDE grid.
+    """Sample an oriented 2-D boundary and collect its PDE diagnostics.
 
     Return boundary nodes, the (ny,nx,2) target grid and solver diagnostics.
     All dataset families can reuse the same ordering and convergence checks.
@@ -384,32 +389,18 @@ def _solve_pde_grid(boundary, nx, ny, *, max_iter, tolerance, sample_label):
         return_info=True,
     )
     pde_seconds = time.perf_counter() - started
-    if not info["converged"]:
-        raise RuntimeError(
-            f"PDE did not converge: {sample_label}, "
-            f"iterations={info['iterations']}, "
-            f"relative_difference={info['relative_difference']}"
-        )
     boundary_error = float(np.max(np.linalg.norm(mesh[boundary_ids] - points, axis=1)))
     if boundary_error > 1e-10:
         raise RuntimeError(
             f"PDE boundary changed: {sample_label}, error={boundary_error}"
         )
     grid = mesh.reshape(ny, nx, 2)
-    a, b, c, d = grid[:-1, :-1], grid[:-1, 1:], grid[1:, 1:], grid[1:, :-1]
-    determinants = []
-    for first, second, third in ((a, b, c), (b, c, d), (c, d, a), (d, a, b)):
-        e, f = second - first, third - second
-        determinants.append(e[..., 0] * f[..., 1] - e[..., 1] * f[..., 0])
-    invalid = np.any(np.asarray(determinants) <= 0, axis=0)
     return (
         points,
         grid,
         {
             **info,
             "pde_seconds": pde_seconds,
-            "nonpositive_corner_cell_count": int(invalid.sum()),
-            "minimum_corner_determinant": float(np.min(determinants)),
             "boundary_max_error": boundary_error,
         },
     )
@@ -423,29 +414,17 @@ def _solve_dataset_sample(payload):
     points, mesh, info = _solve_pde_grid(
         boundary, nx, ny, max_iter=max_iter, tolerance=tolerance, sample_label=label
     )
+    with np.errstate(over="ignore", invalid="ignore"):
+        mesh = mesh.astype(np.float32)
     return descriptor, points, mesh, info, time.perf_counter() - start
 
 
 def _check_extreme_grid_legality(
     numerical_records, geometry_records, nx, ny, parameter_name
 ):
-    """Fully assess the meshes at the minimum and maximum parameter values.
-
-    Dataset generation already records a cheap local corner-determinant check for
-    every sample.  This additional check intentionally runs the complete 2-D
-    legality evaluator only for the two parameter extremes, including concavity,
-    cell self-intersection, overlap with another cell, flipping, degeneracy and a
-    non-positive Jacobian.  The returned records are JSON-serializable so they can
-    be retained in the geometry metadata.
-    """
+    """Audit the stored coordinates of the first and last PDE grids."""
     from src.evaluation.quality_output import compute_quad_quality
 
-    values = np.asarray(
-        [row["parameters"][parameter_name] for row in geometry_records], dtype=float
-    )
-    indices = [int(np.argmin(values)), int(np.argmax(values))]
-    # Keep exactly one result if an explicit dataset has a constant parameter.
-    indices = list(dict.fromkeys(indices))
     metrics = (
         "jacobian",
         "scaled_jacobian",
@@ -456,23 +435,40 @@ def _check_extreme_grid_legality(
         "degenerate_cell",
     )
     checks = []
-    for index in indices:
+    for index in endpoint_indices(len(numerical_records)):
+        mesh = numerical_records[index]["mesh_points"]
+        parameters = geometry_records[index]["parameters"]
+        summary = audit_grid(mesh, nx, ny)
+        check = {
+            **summary,
+            "sample_id": index,
+            "parameters": parameters,
+            "parameter": parameter_name,
+            "parameter_value": parameters.get(parameter_name),
+        }
+        if not np.isfinite(mesh).all():
+            check["legal"] = False
+            check["invalid_cell_count"] = summary["invalid_cells"]
+            check["invalid_cell_fraction"] = summary["invalid_cells"] / summary["cell_count"]
+            check["reason_counts"] = {"nonfinite_coordinates": 1}
+            checks.append(check)
+            continue
         quality = compute_quad_quality(
-            numerical_records[index]["mesh_points"], nx, ny, metrics=metrics
+            mesh, nx, ny, metrics=metrics
         )
         invalid = quality["invalid_cells"]
         reason_counts = quality["summary"]["invalid_cells"]["reason_counts"]
-        checks.append(
+        invalid_count = max(len(invalid), summary["invalid_cells"])
+        check.update(
             {
-                "sample_id": index,
-                "parameter": parameter_name,
-                "parameter_value": float(values[index]),
-                "legal": not invalid,
-                "invalid_cell_count": len(invalid),
-                "invalid_cell_fraction": len(invalid) / max((nx - 1) * (ny - 1), 1),
+                "legal": invalid_count == 0,
+                "all_cells_legal": invalid_count == 0,
+                "invalid_cell_count": invalid_count,
+                "invalid_cell_fraction": invalid_count / summary["cell_count"],
                 "reason_counts": reason_counts,
             }
         )
+        checks.append(check)
     return checks
 
 
@@ -521,9 +517,8 @@ def _generate_pde_dataset(
     started = time.perf_counter()
     next_percent = 10
     numerical_records, geometry_records, diagnostics = [], [], []
-    legality_warnings = []
 
-    # Publish both files together only after every PDE solve and write succeeds.
+    # Publish both arrays together before issuing any quality warning.
     with ExitStack() as stack:
         temporary = stack.enter_context(
             tempfile.TemporaryDirectory(prefix=f".{name}_", dir=root)
@@ -553,7 +548,7 @@ def _generate_pde_dataset(
                     "sample_id": index,
                     "dataset_id": identity,
                     "boundary_points": points.astype(np.float32),
-                    "mesh_points": mesh.reshape(-1, 2).astype(np.float32),
+                    "mesh_points": mesh.reshape(-1, 2),
                 }
             )
             geometry_records.append(
@@ -586,21 +581,17 @@ def _generate_pde_dataset(
                 )
                 next_percent += 10
 
-        extreme_legality_checks = (
-            _check_extreme_grid_legality(
-                numerical_records, geometry_records, nx, ny, parameter_names[0]
-            )
-            if parameter_names
-            else []
+        extreme_legality_checks = _check_extreme_grid_legality(
+            numerical_records,
+            geometry_records,
+            nx,
+            ny,
+            metadata.get("parameter", parameter_names[0] if parameter_names else None),
         )
-        for check in extreme_legality_checks:
-            if not check["legal"]:
-                legality_warnings.append(
-                    f"dataset {name}: extreme {check['parameter']}="
-                    f"{check['parameter_value']:.12g} has "
-                    f"{check['invalid_cell_count']} invalid cells "
-                    f"({check['reason_counts']})"
-                )
+        scope = "endpoint_pde_grids_quad_validity_and_overlap"
+        audit = save_quality_audit(
+            stage, name, (nx, ny), extreme_legality_checks, diagnostics, scope
+        )
 
         # Numeric-file metadata contains no curve descriptions or geometry parameters.
         numerical_metadata = {
@@ -637,18 +628,16 @@ def _generate_pde_dataset(
                 "mean": float(np.mean(sample_times)),
                 "total": float(np.sum(sample_times)),
             },
-            "all_pde_converged": True,
+            "all_pde_converged": audit["nonconverged_samples"] == 0,
             "workers": int(workers),
-            "quality_check_scope": "local_corner_determinants_only_not_global_overlap",
+            "quality_check_scope": scope,
+            "illegal_samples": audit["illegal_samples"],
             "extreme_grid_legality_check_scope": (
                 "complete_quad_legality_at_minimum_and_maximum_parameter"
             ),
             "extreme_grid_legality_checks": extreme_legality_checks,
             "all_extreme_grids_legal": all(
                 check["legal"] for check in extreme_legality_checks
-            ),
-            "samples_with_nonpositive_corner_cells": sum(
-                d["nonpositive_corner_cell_count"] > 0 for d in diagnostics
             ),
             "pde_diagnostics": diagnostics,
             "generation_seconds": time.perf_counter() - started,
@@ -673,8 +662,7 @@ def _generate_pde_dataset(
         stage.rename(destination)
     update_dataset_catalog(root)
     print(f"Dataset saved: {destination}", flush=True)
-    for message in legality_warnings:
-        warnings.warn(message, RuntimeWarning, stacklevel=2)
+    warn_saved_dataset(destination, audit)
     return destination
 
 

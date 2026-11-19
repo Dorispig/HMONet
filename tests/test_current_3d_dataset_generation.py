@@ -46,7 +46,6 @@ class TestCurrent3DDatasetGeneration:
                 nx=5,
                 ny=7,
                 nz=5,
-                sample_count=4,
                 output_root=temporary,
                 timing_samples=0,
                 workers=2,
@@ -70,7 +69,6 @@ class TestCurrent3DDatasetGeneration:
                     "sidewall_deformed_block",
                     [{"sidewall_amplitude": 0.15}],
                     grid_shape=(5, 7, 5),
-                    sample_count=1,
                     output_root=temporary,
                     timing_samples=0,
                 )
