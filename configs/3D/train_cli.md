@@ -37,6 +37,14 @@ python scripts/train/train_3d.py --dataset-mode both --model hmonet,meshonet,pim
 | `--seed` | `20261030` | 随机种子。 |
 | `--device` | `cuda:0` | 训练设备。 |
 
+## 只生成训练对比图
+
+~~~bash
+python scripts/train/compare_training.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 cah_t_ext_1_500_11_21_11
+~~~
+
+每个数据集使用三个正式模型各自最新的已完成训练记录，输出全程 MSE、相对 MSE、训练成本图和汇总表。输出位于 `outputs/training/3D/<dataset>/comparison/`，来源记录见 `training_comparison.json`。可只指定一个数据集，也可连续列出多个。训练日志存放在其他位置时，可用 `--training-root` 指定包含 `2D/` 或 `3D/` 的目录。
+
 模型和别名与二维完全相同：`hmonet`、`meshonet`、`pimeshonet`、`qghmonet`；`both`、`pi`、`all`。
 
 ~~~powershell

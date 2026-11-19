@@ -18,8 +18,8 @@ from src.engine.state import (
 from src.engine.training_comparison import ensure_training_comparison
 
 
-def _run(root, model, epoch=10):
-    path = root / "2D" / "sample" / model / "run"
+def _run(root, model, epoch=10, *, dimension=2, dataset="sample"):
+    path = root / f"{dimension}D" / dataset / model / "run"
     path.mkdir(parents=True)
     (path / "training_summary.json").write_text(json.dumps({
         "completed_epochs": epoch,
@@ -46,6 +46,22 @@ def test_training_comparison_waits_then_reuses(tmp_path):
     assert (root / "relative_mse_comparison.png").is_file()
     assert (root / "training_cost_comparison.png").is_file()
     assert ensure_training_comparison(tmp_path, 2, "sample")["status"] == "reused"
+
+
+def test_comparison_cli_handles_multiple_datasets(tmp_path, capsys):
+    from scripts.train.compare_training import main
+
+    for model in ("hmonet", "meshonet", "PI-MeshONet"):
+        _run(tmp_path, model, dimension=3, dataset="complete")
+    args = ["--dimension", "3", "--training-root", str(tmp_path), "--dataset"]
+
+    assert main([*args, "missing", "complete"]) == 1
+    assert (tmp_path / "3D" / "complete" / "comparison" / "mse_comparison.png").is_file()
+    output = capsys.readouterr().out
+    assert "missing completed MSE history for HMONet, MeshONet, PI-MeshONet" in output
+    assert "complete | created" in output
+    assert main([*args, "complete"]) == 0
+    assert "complete | reused" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("dimension", [2, 3])

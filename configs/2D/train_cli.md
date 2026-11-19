@@ -43,6 +43,14 @@ python scripts/train/train_2d.py --dataset-mode both --model hmonet,meshonet,pim
 | `--seed` | `20261030` | 随机种子。 |
 | `--device` | `cuda:0` | 训练设备。 |
 
+## 只生成训练对比图
+
+~~~bash
+python scripts/train/compare_training.py --dimension 2 --dataset air_t_ext_1_500_41_41 run_ext_1_500_41_41
+~~~
+
+可指定一个或多个数据集。脚本读取三个正式模型各自最新的已完成训练记录，将对比图和汇总保存到 `outputs/training/2D/<dataset>/comparison/`。训练日志存放在其他位置时，可用 `--training-root` 指定包含 `2D/` 或 `3D/` 的目录。
+
 模型选择为 `hmonet`、`meshonet`、`pimeshonet`、`qghmonet`；`both`、`pi`、`all` 分别表示 HMONet+MeshONet、PI-MeshONet、全部四个模型。
 
 完整参数：
