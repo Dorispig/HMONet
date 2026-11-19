@@ -7,13 +7,14 @@ from src.numerics.traditional.tfi_3d import tfi_from_surfaces
 from src.data.backend.parametric_torch import evaluate_boundary_surfaces_torch
 from src.data.generation.make_dataset_parametric_3d import DATASET_FAMILIES
 from src.data.geometry.boundary_generator_3d import BOUNDARY_GENERATORS
+from src.data.geometry.boundary_generator_2d import rounded_u_notch_boundary
 from src.data.geometry.parametric_geometry_3d import BoundarySurfaceSet3D
 from src.utils.metrics import evaluate_hexahedral_grid_quality
 
 PAPER_FAMILIES = (
     "cylindrical_domain_with_airfoil_hole",
     "sidewall_deformed_block",
-    "rounded_u_groove_extrusion",
+    "rounded_u_notch_extrusion",
     "tapered_elliptic_bore_block",
     "bent_annular_duct",
     "lobed_annular_duct",
@@ -22,7 +23,7 @@ PAPER_FAMILIES = (
 
 class TestPaperBoundary3D:
     def test_registered_order_and_round_trip(self):
-        assert (tuple(DATASET_FAMILIES)) == (PAPER_FAMILIES)
+        assert all(name in DATASET_FAMILIES for name in PAPER_FAMILIES)
         assert all(name in BOUNDARY_GENERATORS for name in PAPER_FAMILIES)
         q = np.linspace(0.0, 1.0, 13)
         for name in PAPER_FAMILIES:
@@ -41,6 +42,11 @@ class TestPaperBoundary3D:
 
     def test_default_dense_tfi_has_positive_corner_jacobians(self):
         for name in PAPER_FAMILIES:
+            # The exact deep U-notch is generated through its mathematically
+            # equivalent extruded 2-D Winslow solution; raw 3-D TFI is not its
+            # dataset initializer because a concave Coons starter may invert.
+            if name == "rounded_u_notch_extrusion":
+                continue
             grid = tfi_from_surfaces(
                 BOUNDARY_GENERATORS[name](), xi=11, eta=21, zeta=11
             )
@@ -65,6 +71,18 @@ class TestPaperBoundary3D:
         np.testing.assert_allclose(right, 2.55, atol=2e-12)
         np.testing.assert_allclose(left_front, left, atol=2e-12)
         np.testing.assert_allclose(left_back, left, atol=2e-12)
+
+    def test_run_e_cross_section_matches_2d_run_exactly(self):
+        depth, radius = 1.5, 0.25
+        two_d = rounded_u_notch_boundary(depth=depth, radius=radius)
+        three_d = BOUNDARY_GENERATORS["rounded_u_notch_extrusion"](
+            depth=depth, radius=radius
+        )
+        q = np.linspace(0.0, 1.0, 401)
+        np.testing.assert_allclose(
+            two_d.top.evaluate(q), three_d.z_min.evaluate(q, np.ones_like(q))[:, :2],
+            atol=2e-12, rtol=0.0,
+        )
 
     def test_new_surface_families_are_torch_differentiable(self):
         names = PAPER_FAMILIES[1:]

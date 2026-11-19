@@ -10,7 +10,7 @@
 python src/data/generation/make_dataset_parametric_3d.py
 ```
 
-这会按代码中的 `SELECTED_DATASETS` 顺序生成六个正式的外推数据集，统一采用 `v1/500` 与 `11x21x11` 网格。已存在的数据集会跳过，不会被覆盖。内插数据集仍应使用下文的显式命令生成。
+这会按代码中的 `SELECTED_DATASETS` 顺序生成六个正式的外推数据集，统一采用 `v1/500`；其中 `run_e` 使用与二维一致的 `41x41x11` 网格，其余为 `11x21x11`。已存在的数据集会跳过，不会被覆盖。内插数据集仍应使用下文的显式命令生成。
 
 ## 外推数据集
 
@@ -21,8 +21,8 @@ python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split 
 # swb_a_ext_1_500_11_21_11；sidewall_amplitude ∈ [0.04, 0.30]
 python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.04 0.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# ugc_d_ext_1_500_11_21_11；groove_depth ∈ [0.30, 1.30]
-python src/data/generation/make_dataset_parametric_3d.py --family ugc_d --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.30 1.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# run_e_ext_1_500_41_41_11；与二维 run 截面完全相同，depth ∈ [0.55, 1.50]
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.50 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # teb_b_ext_1_500_11_21_11；minor_axis_out ∈ [0.12, 0.32]
 python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.32 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
@@ -45,8 +45,8 @@ python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split 
 # swb_a_int_1_500_11_21_11；sidewall_amplitude ∈ [0.03, 0.10] ∪ [0.20, 0.30]
 python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.03 0.10 --parameter-range 0.20 0.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# ugc_d_int_1_500_11_21_11；groove_depth ∈ [0.30, 0.65] ∪ [1.00, 1.30]
-python src/data/generation/make_dataset_parametric_3d.py --family ugc_d --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.30 0.65 --parameter-range 1.00 1.30 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# run_e_int_1_500_41_41_11；与二维 run 截面完全相同，depth ∈ [0.55, 1.00] ∪ [1.30, 1.50]
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 1 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.00 --parameter-range 1.30 1.50 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
 # teb_b_int_1_500_11_21_11；minor_axis_out ∈ [0.12, 0.18] ∪ [0.27, 0.32]
 python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 1 --size 500 --grid-shape 11x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --sample-count 400 --workers 4 --seed 20260905 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D

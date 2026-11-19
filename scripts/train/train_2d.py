@@ -1696,6 +1696,14 @@ def train_models(names, paths, config, mode, args, device):
                 raise ValueError(f"Unknown model: {name}")
             summary_path = Path(run_args.training_output_dir) / "training_summary.json"
             summaries.append(json.loads(summary_path.read_text(encoding="utf-8")))
+    # A non-force invocation may reach this point with prior runs already
+    # present.  Recheck every dataset after the complete requested training
+    # set, so a missing dataset-level comparison is repaired without retraining.
+    from src.engine.training_comparison import ensure_training_comparison_in_dataset
+    for summary in summaries:
+        directory = Path(summary["training_output_dir"])
+        dataset_root = next(parent for parent in (directory, *directory.parents) if parent.name == summary["dataset_name"])
+        ensure_training_comparison_in_dataset(dataset_root, 2)
     print_training_summaries(summaries, time.perf_counter() - started, dimension=2)
     return summaries
 

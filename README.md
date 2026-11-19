@@ -81,7 +81,7 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset vsc_ext_1_500_41_
 | --- | --- | --- | --- |
 | 3D-1 | `cylindrical_domain_with_airfoil_hole` (`cah_t`) | `cah_t_ext_1_500_11_21_11` | `0.06 0.38` |
 | 3D-2 | `sidewall_deformed_block` (`swb_a`) | `swb_a_ext_1_500_11_21_11` | `0.02 0.34` |
-| 3D-3 | `rounded_u_groove_extrusion` (`ugc_d`) | `ugc_d_ext_1_500_11_21_11` | `0.20 1.45` |
+| 3D-3 | `rounded_u_notch_extrusion` (`run_e`) | `run_e_ext_1_500_41_41_11` | `1.52 1.55` |
 | 3D-4 | `tapered_elliptic_bore_block` (`teb_b`) | `teb_b_ext_1_500_11_21_11` | `0.08 0.36` |
 | 3D-5 | `bent_annular_duct` (`bad_a`) | `bad_a_ext_1_500_11_21_11` | `10 105` |
 | 3D-6 | `lobed_annular_duct` (`lad_a`) | `lad_a_ext_1_500_11_21_11` | `0 0.20` |
@@ -95,7 +95,7 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset vsc_ext_1_500_41_
 ```powershell
 python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.06 0.38 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.02 0.34 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset ugc_d_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.20 1.45 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_1_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x21 161x161x41 --values 1.52 1.55 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.08 0.36 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 10 105 --seed 20261030 --run-tag v1
 python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0 0.20 --seed 20261030 --run-tag v1

@@ -80,6 +80,10 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 
 默认保存网格图和数值汇总，不生成逐质量指标图。旧式 `--grid-shapes 101x101,201x201` 和逗号参数值仍兼容。
 
+## 训练阶段自动对比
+
+当同一数据集的 HMONet、MeshONet 与 PI-MeshONet 都具有完整训练记录时，训练结束后会在 `outputs/training/2D/<dataset>/comparison/` 自动生成：`mse_comparison.png`、相对 MSE 收敛图、训练时长/轮次图及 CSV/JSON 汇总。训练记录未变且这些文件齐全时会直接复用；若图或汇总缺失，下一次非强制训练命令会补齐，不会因补图重训已完成模型。
+
 ## 多 GPU 队列
 
 ~~~bash

@@ -13,11 +13,11 @@ cases:
     parameter: thickness
     values: [0.06, 0.38]
     grid_shape: [11, 21, 11]
-  ugc_d_ext_1_500_11_21_11:
-    boundary: rounded_u_groove_extrusion
-    parameter: groove_depth
-    values: [0.20, 1.45]
-    grid_shape: [11, 21, 11]
+  run_e_ext_1_500_41_41_11:
+    boundary: rounded_u_notch_extrusion
+    parameter: depth
+    values: [1.52, 1.55]
+    grid_shape: [41, 41, 11]
   teb_b_ext_1_500_11_21_11:
     boundary: tapered_elliptic_bore_block
     parameter: minor_axis_out
@@ -38,7 +38,7 @@ evaluation:
   default_cases:
     - cah_t_ext_1_500_11_21_11
     - swb_a_ext_1_500_11_21_11
-    - ugc_d_ext_1_500_11_21_11
+    - run_e_ext_1_500_41_41_11
     - teb_b_ext_1_500_11_21_11
     - bad_a_ext_1_500_11_21_11
     - lad_a_ext_1_500_11_21_11

@@ -11,8 +11,8 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_1
 # sidewall_deformed_block (swb_a)
 python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.02 0.34 --seed 20261030 --run-tag v1
 
-# rounded_u_groove_extrusion (ugc_d)
-python scripts/train/train_evaluate.py --dimension 3 --dataset ugc_d_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.20 1.45 --seed 20261030 --run-tag v1
+# rounded_u_notch_extrusion (run_e): exact extrusion of the 2-D run cross-section
+python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_1_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x21 161x161x41 --values 1.52 1.55 --seed 20261030 --run-tag v1
 
 # tapered_elliptic_bore_block (teb_b)
 python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.08 0.36 --seed 20261030 --run-tag v1

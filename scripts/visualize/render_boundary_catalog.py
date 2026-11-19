@@ -53,7 +53,7 @@ CANONICAL_2D = (
 CANONICAL_3D = (
     ("cylindrical_domain_with_airfoil_hole", "3D-1  Cylinder + airfoil hole"),
     ("sidewall_deformed_block", "3D-2  Sidewall-deformed block"),
-    ("rounded_u_groove_extrusion", "3D-3  Rounded U-groove extrusion"),
+    ("rounded_u_notch_extrusion", "3D-3  Rounded U-notch extrusion"),
     ("tapered_elliptic_bore_block", "3D-4  Tapered elliptic-bore block"),
     ("bent_annular_duct", "3D-5  Bent annular duct"),
     ("lobed_annular_duct", "3D-6  Lobed annular duct"),

@@ -13,8 +13,10 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from src.data.geometry.boundary_generator_3d import generate_boundary
+from src.data.geometry.boundary_generator_2d import rounded_u_notch_boundary
 from src.numerics.traditional.tfi_3d import tfi_from_surfaces
 from src.numerics.traditional.winslow_3d import solve_winslow_3d
+from src.numerics.traditional.winslow_vectorized_2d import solve_winslow_2d_vectorized
 from src.data.mesh.sampling import sample_boundary
 from src.metrics import evaluate_hexahedral_grid_quality
 from src.data.generation.dataset_naming import (
@@ -32,13 +34,15 @@ DATASET_GENERATORS = {
     "cylindrical_domain_with_airfoil_hole": "cylindrical_domain_with_airfoil_hole",
     "sidewall_deformed_block": "sidewall_deformed_block",
     "rounded_u_groove_extrusion": "rounded_u_groove_extrusion",
+    "rounded_u_notch_extrusion": "rounded_u_notch_extrusion",
     "tapered_elliptic_bore_block": "tapered_elliptic_bore_block",
     "bent_annular_duct": "bent_annular_duct",
     "lobed_annular_duct": "lobed_annular_duct",
 }
 
-# The first six entries are the paper datasets, in the same order as the
-# boundary generator. Every family has interpolation and extrapolation sets.
+# The six paper/default families are declared explicitly in SELECTED_DATASETS.
+# ``rounded_u_groove_extrusion`` is retained below as a legacy family so that
+# historical ``ugc_d`` data remain reproducible, but it is not a default set.
 DATASET_FAMILIES = {
     "cylindrical_domain_with_airfoil_hole": {
         "output_name": "cah_t", "function": "cylindrical_domain_with_airfoil_hole",
@@ -61,11 +65,20 @@ DATASET_FAMILIES = {
     "rounded_u_groove_extrusion": {
         "output_name": "ugc_d", "function": "rounded_u_groove_extrusion",
         "parameter": "groove_depth",
-        "description": "二维圆角 U 形凹槽沿轴向延伸形成的三维凹槽块体；变化槽深。",
+        "description": "保留的平滑 U 槽截面沿 z 方向拉伸；变化槽深。",
         "fixed_parameters": {"width": 3.0, "height": 2.0, "groove_width": 0.9, "corner_smoothing": 0.08, "length": 2.5, "z_min": 0.0},
         "grid_shape": [11, 21, 11],
         "interpolation": [[0.30, 0.65], [1.00, 1.30]], "extrapolation": [[0.30, 1.30]],
         "evaluation_values": {"interpolation": [0.75, 0.80, 0.85], "extrapolation": [0.20, 1.45]},
+    },
+    "rounded_u_notch_extrusion": {
+        "output_name": "run_e", "function": "rounded_u_notch_extrusion",
+        "parameter": "depth",
+        "description": "与二维 run 完全相同的四圆角深 U 槽截面沿 z 方向精确拉伸；仅变化槽深。",
+        "fixed_parameters": {"width": 3.0, "height": 2.0, "notch_width": 0.9, "radius": 0.25, "length": 2.5, "z_min": 0.0},
+        "grid_shape": [41, 41, 11],
+        "interpolation": [[0.55, 1.00], [1.30, 1.50]], "extrapolation": [[0.55, 1.50]],
+        "evaluation_values": {"interpolation": [1.10, 1.15, 1.20], "extrapolation": [1.52, 1.55]},
     },
     "tapered_elliptic_bore_block": {
         "output_name": "teb_b", "function": "tapered_elliptic_bore_block",
@@ -109,7 +122,7 @@ SELECTED_DATASETS = [
     # explicit because each family uses two disjoint parameter intervals.
     ("cylindrical_domain_with_airfoil_hole", "extrapolation", 1, 11, 21, 11),
     ("sidewall_deformed_block", "extrapolation", 1, 11, 21, 11),
-    ("rounded_u_groove_extrusion", "extrapolation", 1, 11, 21, 11),
+    ("rounded_u_notch_extrusion", "extrapolation", 1, 41, 41, 11),
     ("tapered_elliptic_bore_block", "extrapolation", 1, 11, 21, 11),
     ("bent_annular_duct", "extrapolation", 1, 11, 21, 11),
     ("lobed_annular_duct", "extrapolation", 1, 11, 21, 11),
@@ -267,6 +280,68 @@ def _solve_dataset_sample_3d(payload):
     ) = payload
     started = time.perf_counter()
     geometry = generate_boundary(boundary_type, **parameters)
+    if boundary_type == "rounded_u_notch_extrusion":
+        # A strongly concave U notch can invert a direct 3-D Coons/TFI starter
+        # even though each z slice is a valid 2-D domain.  This family is an
+        # exact axial extrusion, so the 3-D Winslow solution is precisely the
+        # converged 2-D Winslow cross-section repeated along z.  Solving that
+        # cross-section avoids an artificial invalid starter while preserving
+        # all six prescribed boundary faces exactly.
+        profile = rounded_u_notch_boundary(
+            width=parameters["width"], height=parameters["height"],
+            notch_width=parameters["notch_width"], depth=parameters["depth"],
+            radius=parameters["radius"],
+        )
+        cross_section, cross_info = solve_winslow_2d_vectorized(
+            profile, nx, ny, max_iter=winslow_max_iter,
+            tolerance=winslow_tolerance, return_info=True,
+        )
+        if not cross_info["converged"]:
+            raise RuntimeError(
+                f"2-D cross-section PDE did not converge for sample {sample_index}: {cross_info}"
+            )
+        cross_section = cross_section.reshape(ny, nx, 2)
+        xi = np.clip(logical_queries[:, 0], 0.0, 1.0) * (nx - 1)
+        eta = np.clip(logical_queries[:, 1], 0.0, 1.0) * (ny - 1)
+        ix, iy = np.floor(xi).astype(int), np.floor(eta).astype(int)
+        ix, iy = np.minimum(ix, nx - 2), np.minimum(iy, ny - 2)
+        fx, fy = xi - ix, eta - iy
+        q00, q10 = cross_section[iy, ix], cross_section[iy, ix + 1]
+        q01, q11 = cross_section[iy + 1, ix], cross_section[iy + 1, ix + 1]
+        physical_xy = (
+            (1.0 - fx)[:, None] * (1.0 - fy)[:, None] * q00
+            + fx[:, None] * (1.0 - fy)[:, None] * q10
+            + (1.0 - fx)[:, None] * fy[:, None] * q01
+            + fx[:, None] * fy[:, None] * q11
+        )
+        z_values = parameters["z_min"] + parameters["length"] * logical_queries[:, 2]
+        physical_queries = np.column_stack((physical_xy, z_values))
+        z = np.linspace(parameters["z_min"], parameters["z_min"] + parameters["length"], nz)
+        mesh = np.empty((nz, ny, nx, 3), dtype=float)
+        mesh[..., :2] = cross_section[None, ...]
+        mesh[..., 2] = z[:, None, None]
+        quality = evaluate_hexahedral_grid_quality(
+            mesh, metrics=["minimum_scaled_jacobian", "flipped_cell", "degenerate_cell"]
+        )
+        minimum_tfi_jacobian = float(quality["minimum_scaled_jacobian"].min())
+        invalid_tfi_cells = int(
+            np.logical_or(quality["flipped_cell"] > 0, quality["degenerate_cell"] > 0).sum()
+        )
+        if invalid_tfi_cells or minimum_tfi_jacobian <= 0.0:
+            raise RuntimeError(
+                f"Extruded U-notch solution is invalid for sample {sample_index}: "
+                f"minimum_scaled_jacobian={minimum_tfi_jacobian:.6e}, invalid_cells={invalid_tfi_cells}"
+            )
+        info = dict(cross_info)
+        info.update({
+            "solver": "extruded_2d_winslow",
+            "tfi_minimum_scaled_jacobian": minimum_tfi_jacobian,
+            "tfi_invalid_cells": invalid_tfi_cells,
+        })
+        return (
+            geometry.to_dict(), sample_boundary(geometry, (nx, ny, nz)), physical_queries,
+            mesh, info, time.perf_counter() - started,
+        )
     physical_queries = tfi_from_surfaces(geometry, parameter_grid=logical_queries)
     initial = tfi_from_surfaces(geometry, xi=nx, eta=ny, zeta=nz)
     initial_quality = evaluate_hexahedral_grid_quality(
@@ -542,6 +617,10 @@ def generate_sidewall_deformed_block_dataset(split, **kwargs):
 
 def generate_rounded_u_groove_extrusion_dataset(split, **kwargs):
     return generate_family_dataset("rounded_u_groove_extrusion", split, **kwargs)
+
+
+def generate_rounded_u_notch_extrusion_dataset(split, **kwargs):
+    return generate_family_dataset("rounded_u_notch_extrusion", split, **kwargs)
 
 
 def generate_tapered_elliptic_bore_block_dataset(split, **kwargs):

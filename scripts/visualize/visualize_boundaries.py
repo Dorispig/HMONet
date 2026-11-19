@@ -148,7 +148,7 @@ VARIANTS_2D = {
 VARIANTS_3D = {
     "cylindrical_domain_with_airfoil_hole": {"thickness": 0.20},
     "sidewall_deformed_block": {"sidewall_amplitude": 0.30},
-    "rounded_u_groove_extrusion": {"groove_depth": 1.30},
+    "rounded_u_notch_extrusion": {"depth": 1.30},
     "tapered_elliptic_bore_block": {"minor_axis_out": 0.32},
     "bent_annular_duct": {"bend_angle_deg": 100.0},
     "lobed_annular_duct": {"amplitude": 0.18},

@@ -750,6 +750,13 @@ def train_models(names, paths, config, mode, args, device):
                 raise ValueError(f"Unknown model: {name}")
             summary_path = Path(run_args.training_output_dir) / "training_summary.json"
             summaries.append(json.loads(summary_path.read_text(encoding="utf-8")))
+    # Build/reuse the dataset-level figures after the requested training set.
+    # This also repairs a missing comparison for otherwise reusable runs.
+    from src.engine.training_comparison import ensure_training_comparison_in_dataset
+    for summary in summaries:
+        directory = Path(summary["training_output_dir"])
+        dataset_root = next(parent for parent in (directory, *directory.parents) if parent.name == summary["dataset_name"])
+        ensure_training_comparison_in_dataset(dataset_root, 3)
     print_training_summaries(summaries, time.perf_counter() - started, dimension=3)
     return summaries
 

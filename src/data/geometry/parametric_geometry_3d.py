@@ -345,8 +345,10 @@ VOLUME_MAP_PARAMETER_ORDER = {
         "length_x", "width_y", "length_z", "sidewall_amplitude", "z_min",
     ),
     "rounded_u_groove_extrusion": (
-        "width", "height", "groove_width", "groove_depth",
-        "corner_smoothing", "length", "z_min",
+        "width", "height", "groove_width", "groove_depth", "corner_smoothing", "length", "z_min",
+    ),
+    "rounded_u_notch_extrusion": (
+        "width", "height", "notch_width", "depth", "radius", "length", "z_min",
     ),
     "tapered_elliptic_bore_block": (
         "inner_major_axis", "inner_minor_axis_in", "minor_axis_out",
@@ -371,6 +373,114 @@ VOLUME_MAP_PARAMETER_ORDER = {
 }
 
 
+def _rounded_u_notch_top_numpy(q, width, height, notch_width, depth, radius):
+    """Evaluate the exact 2-D rounded-U-notch top curve by arclength.
+
+    This is the analytic counterpart of ``rounded_u_notch_boundary(...).top``:
+    the same nine line/quarter-circle pieces use the same length allocation.
+    """
+    q = np.clip(np.asarray(q, dtype=float), 0.0, 1.0)
+    margin = 0.5 * (width - notch_width)
+    low = height - depth
+    horizontal_outer = margin - radius
+    vertical = depth - 2.0 * radius
+    horizontal_notch = notch_width - 2.0 * radius
+    # The 2-D PiecewiseCurve allocates circle arclength with 255 straight
+    # chords.  Reuse that allocation so equal logical samples match exactly.
+    quarter = 2.0 * radius * 255.0 * np.sin(np.pi / (4.0 * 255.0))
+    lengths = np.asarray(
+        [horizontal_outer, quarter, vertical, quarter, horizontal_notch,
+         quarter, vertical, quarter, horizontal_outer],
+        dtype=float,
+    )
+    total = lengths.sum()
+    ends = np.cumsum(lengths) / total
+    starts = np.r_[0.0, ends[:-1]]
+    piece = np.searchsorted(ends, q, side="right").clip(0, len(lengths) - 1)
+    local = (q - starts[piece]) * total / lengths[piece]
+    local = np.clip(local, 0.0, 1.0)
+    x = np.empty_like(q)
+    y = np.empty_like(q)
+    a, b, r = margin, width - margin, radius
+    for index in range(len(lengths)):
+        mask = piece == index
+        t = local[mask]
+        if index == 0:
+            x[mask], y[mask] = t * (a - r), height
+        elif index == 1:
+            angle = 0.5 * np.pi * (1.0 - t)
+            x[mask], y[mask] = a - r + r * np.cos(angle), height - r + r * np.sin(angle)
+        elif index == 2:
+            x[mask], y[mask] = a, height - r - t * vertical
+        elif index == 3:
+            angle = np.pi + 0.5 * np.pi * t
+            x[mask], y[mask] = a + r + r * np.cos(angle), low + r + r * np.sin(angle)
+        elif index == 4:
+            x[mask], y[mask] = a + r + t * horizontal_notch, low
+        elif index == 5:
+            angle = -0.5 * np.pi + 0.5 * np.pi * t
+            x[mask], y[mask] = b - r + r * np.cos(angle), low + r + r * np.sin(angle)
+        elif index == 6:
+            x[mask], y[mask] = b, low + r + t * vertical
+        elif index == 7:
+            angle = np.pi - 0.5 * np.pi * t
+            x[mask], y[mask] = b + r + r * np.cos(angle), height - r + r * np.sin(angle)
+        else:
+            x[mask], y[mask] = b + r + t * (a - r), height
+    return np.stack((x, y), axis=-1)
+
+
+def _rounded_u_notch_top_torch(q, width, height, notch_width, depth, radius):
+    """Batched differentiable evaluation of the exact rounded-U-notch top."""
+    q = q.clamp(0, 1)
+    margin = 0.5 * (width - notch_width)
+    low = height - depth
+    horizontal_outer = margin - radius
+    vertical = depth - 2.0 * radius
+    horizontal_notch = notch_width - 2.0 * radius
+    quarter = 2.0 * radius * 255.0 * np.sin(np.pi / (4.0 * 255.0))
+    lengths = (
+        horizontal_outer, quarter, vertical, quarter, horizontal_notch,
+        quarter, vertical, quarter, horizontal_outer,
+    )
+    total = sum(lengths)
+    starts, ends, cursor = [], [], torch.zeros_like(total)
+    for length in lengths:
+        starts.append(cursor)
+        cursor = cursor + length / total
+        ends.append(cursor)
+    a, b, r = margin, width - margin, radius
+    x, y = torch.zeros_like(q), torch.zeros_like(q)
+    for index, (start, end, length) in enumerate(zip(starts, ends, lengths)):
+        is_last = index == len(lengths) - 1
+        mask = (q >= start) & ((q <= end) if is_last else (q < end))
+        t = ((q - start) * total / length).clamp(0, 1)
+        if index == 0:
+            px, py = t * (a - r), height.expand_as(q)
+        elif index == 1:
+            angle = 0.5 * torch.pi * (1.0 - t)
+            px, py = a - r + r * angle.cos(), height - r + r * angle.sin()
+        elif index == 2:
+            px, py = a.expand_as(q), height - r - t * vertical
+        elif index == 3:
+            angle = torch.pi + 0.5 * torch.pi * t
+            px, py = a + r + r * angle.cos(), low + r + r * angle.sin()
+        elif index == 4:
+            px, py = a + r + t * horizontal_notch, low.expand_as(q)
+        elif index == 5:
+            angle = -0.5 * torch.pi + 0.5 * torch.pi * t
+            px, py = b - r + r * angle.cos(), low + r + r * angle.sin()
+        elif index == 6:
+            px, py = b.expand_as(q), low + r + t * vertical
+        elif index == 7:
+            angle = torch.pi - 0.5 * torch.pi * t
+            px, py = b + r + r * angle.cos(), height - r + r * angle.sin()
+        else:
+            px, py = b + r + t * (a - r), height.expand_as(q)
+        x, y = torch.where(mask, px, x), torch.where(mask, py, y)
+    return torch.stack((x, y), dim=-1)
+
+
 def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
     """Evaluate one injective reference-volume map with NumPy arrays."""
     xi, eta, zeta = np.broadcast_arrays(
@@ -393,20 +503,27 @@ def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
             -1,
         )
     if mapping == "rounded_u_groove_extrusion":
-        half_width = 0.5 * p["groove_width"] / p["width"]
-        left, right = 0.5 - half_width, 0.5 + half_width
-        sharpness = max(p["corner_smoothing"] / p["width"], 1e-5)
-        profile = 0.5 * (
-            np.tanh((xi - left) / sharpness)
-            - np.tanh((xi - right) / sharpness)
+        left = 0.5 * (p["width"] - p["groove_width"])
+        right = 0.5 * (p["width"] + p["groove_width"])
+        smoothing = p["corner_smoothing"]
+        groove = 0.5 * (
+            np.tanh((xi - left) / smoothing) - np.tanh((xi - right) / smoothing)
         )
-        centre = 0.5 * (
-            np.tanh((0.5 - left) / sharpness)
-            - np.tanh((0.5 - right) / sharpness)
-        )
-        top = p["height"] - p["groove_depth"] * profile / centre
+        top_y = p["height"] - p["groove_depth"] * groove
         return np.stack(
-            (p["width"] * xi, eta * top, p["z_min"] + p["length"] * zeta),
+            (p["width"] * xi, eta * top_y, p["z_min"] + p["length"] * zeta), -1
+        )
+    if mapping == "rounded_u_notch_extrusion":
+        # Exact four-fillet 2-D ``rounded_u_notch`` on every z section.
+        top = _rounded_u_notch_top_numpy(
+            xi, p["width"], p["height"], p["notch_width"], p["depth"], p["radius"]
+        )
+        return np.stack(
+            (
+                (1.0 - eta) * p["width"] * xi + eta * top[..., 0],
+                eta * top[..., 1],
+                p["z_min"] + p["length"] * zeta,
+            ),
             -1,
         )
     if mapping == "tapered_elliptic_bore_block":
@@ -520,14 +637,31 @@ class MappedVolumeFace3D(ParametricSurface3D):
                 -1,
             )
         if mapping == "rounded_u_groove_extrusion":
-            half_width = 0.5 * values["groove_width"] / values["width"]
-            left, right = 0.5 - half_width, 0.5 + half_width
-            sharpness = (values["corner_smoothing"] / values["width"]).clamp_min(1e-5)
-            profile = 0.5 * (((xi - left) / sharpness).tanh() - ((xi - right) / sharpness).tanh())
-            centre = 0.5 * (((0.5 - left) / sharpness).tanh() - ((0.5 - right) / sharpness).tanh())
-            top = values["height"] - values["groove_depth"] * profile / centre
+            left = 0.5 * (values["width"] - values["groove_width"])
+            right = 0.5 * (values["width"] + values["groove_width"])
+            groove = 0.5 * (
+                ((xi - left) / values["corner_smoothing"]).tanh()
+                - ((xi - right) / values["corner_smoothing"]).tanh()
+            )
+            top_y = values["height"] - values["groove_depth"] * groove
             return torch.stack(
-                (values["width"] * xi, eta * top, values["z_min"] + values["length"] * zeta),
+                (values["width"] * xi, eta * top_y, values["z_min"] + values["length"] * zeta), -1
+            )
+        if mapping == "rounded_u_notch_extrusion":
+            top = _rounded_u_notch_top_torch(
+                xi,
+                values["width"],
+                values["height"],
+                values["notch_width"],
+                values["depth"],
+                values["radius"],
+            )
+            return torch.stack(
+                (
+                    (1.0 - eta) * values["width"] * xi + eta * top[..., 0],
+                    eta * top[..., 1],
+                    values["z_min"] + values["length"] * zeta,
+                ),
                 -1,
             )
         if mapping == "tapered_elliptic_bore_block":

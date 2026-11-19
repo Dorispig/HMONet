@@ -35,7 +35,7 @@ from src.numerics.traditional.tfi_3d import tfi_from_surfaces
 CANONICAL_3D = (
     ("cylindrical_domain_with_airfoil_hole", "3D-1"),
     ("sidewall_deformed_block", "3D-2"),
-    ("rounded_u_groove_extrusion", "3D-3"),
+    ("rounded_u_notch_extrusion", "3D-3"),
     ("tapered_elliptic_bore_block", "3D-4"),
     ("bent_annular_duct", "3D-5"),
     ("lobed_annular_duct", "3D-6"),

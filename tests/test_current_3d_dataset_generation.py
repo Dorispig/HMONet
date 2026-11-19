@@ -19,18 +19,25 @@ from src.data.generation.make_dataset_parametric_3d import (
 
 class TestCurrent3DDatasetGeneration:
     def test_default_selection_uses_current_names_and_shapes(self):
-        assert [item[0] for item in SELECTED_DATASETS] == list(DATASET_FAMILIES)
+        assert [item[0] for item in SELECTED_DATASETS] == [
+            "cylindrical_domain_with_airfoil_hole", "sidewall_deformed_block",
+            "rounded_u_notch_extrusion", "tapered_elliptic_bore_block",
+            "bent_annular_duct", "lobed_annular_duct",
+        ]
         assert [item[1] for item in SELECTED_DATASETS] == ["extrapolation"] * 6
-        assert all(item[3:] == (11, 21, 11) for item in SELECTED_DATASETS)
+        assert [item[3:] for item in SELECTED_DATASETS] == [
+            (11, 21, 11), (11, 21, 11), (41, 41, 11),
+            (11, 21, 11), (11, 21, 11), (11, 21, 11),
+        ]
         assert (
-            build_dataset_name("rounded_u_groove_extrusion", "extrapolation", 1, 500, 11, 21, 11)
-            == "ugc_d_ext_1_500_11_21_11"
+            build_dataset_name("rounded_u_notch_extrusion", "extrapolation", 1, 500, 41, 41, 11)
+            == "run_e_ext_1_500_41_41_11"
         )
 
     def test_interpolation_ranges_and_small_round_trip(self):
-        specification = DATASET_FAMILIES["rounded_u_groove_extrusion"]
+        specification = DATASET_FAMILIES["rounded_u_notch_extrusion"]
         values = sample_parameter_ranges(specification["interpolation"], 4)
-        np.testing.assert_allclose(values, [0.30, 0.65, 1.00, 1.30])
+        np.testing.assert_allclose(values, [0.55, 1.00, 1.30, 1.50])
         with tempfile.TemporaryDirectory() as temporary:
             output = generate_family_dataset(
                 "sidewall_deformed_block",

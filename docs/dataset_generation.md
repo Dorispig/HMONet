@@ -62,7 +62,7 @@ python src/data/generation/make_dataset_parametric_3d.py \
 | `vsc` | 2-D | `variable_width_s_channel` | `constriction` | `[0.00,0.30] ∪ [0.60,0.85]` | `[0.00,0.80]` | `vsc_ext_1_500_41_41` |
 | `cah_t` | 3-D | `cylindrical_domain_with_airfoil_hole` | `thickness` | `[0.06,0.15] ∪ [0.25,0.35]` | `[0.08,0.34]` | `cah_t_ext_1_500_11_21_11` |
 | `swb_a` | 3-D | `sidewall_deformed_block` | `sidewall_amplitude` | `[0.03,0.10] ∪ [0.20,0.30]` | `[0.04,0.30]` | `swb_a_ext_1_500_11_21_11` |
-| `ugc_d` | 3-D | `rounded_u_groove_extrusion` | `groove_depth` | `[0.30,0.65] ∪ [1.00,1.30]` | `[0.30,1.30]` | `ugc_d_ext_1_500_11_21_11` |
+| `run_e` | 3-D | `rounded_u_notch_extrusion` | `depth` | `[0.55,1.00] ∪ [1.30,1.50]` | `[0.55,1.50]` | `run_e_ext_1_500_41_41_11` |
 | `teb_b` | 3-D | `tapered_elliptic_bore_block` | `minor_axis_out` | `[0.12,0.18] ∪ [0.27,0.32]` | `[0.12,0.32]` | `teb_b_ext_1_500_11_21_11` |
 | `bad_a` | 3-D | `bent_annular_duct` | `bend_angle_deg` | `[20,45] ∪ [65,90]` | `[25,85]` | `bad_a_ext_1_500_11_21_11` |
 | `lad_a` | 3-D | `lobed_annular_duct` | `amplitude` | `[0.02,0.08] ∪ [0.12,0.18]` | `[0.04,0.16]` | `lad_a_ext_1_500_11_21_11` |
@@ -119,9 +119,9 @@ python scripts/visualize/render_boundary_family_catalog.py --dimension 3 --outpu
 
 矩形块体的左右侧壁对称地向中心收缩，并沿前后方向贯通为凹椭圆柱面；唯一变化参数为无量纲收缩幅值 `sidewall_amplitude`。前后端面保持平面矩形，左右侧壁在每个前后截面均内凹；该族用于检验对称窄通道下的三维映射稳定性。
 
-### `rounded_u_groove_extrusion`
+### `rounded_u_notch_extrusion`
 
-二维圆角 U 形凹槽沿轴向延伸为三维凹槽块体；唯一变化参数为槽深 `groove_depth`。它不是 PI-MeshONet 的 Test case 4，而是与二维 U 形凹槽同源的轴向延伸几何。
+二维 `run` 的四圆角深 U 槽截面沿轴向精确拉伸为三维块体；唯一变化参数为槽深 `depth`。每个固定 z 截面与二维 `rounded_u_notch` 的边界完全一致，固定参数也相同：`width=3.0`、`height=2.0`、`notch_width=0.9`、`radius=0.25`。它不是 PI-MeshONet 的 Test case 4。
 
 ### `tapered_elliptic_bore_block`
 

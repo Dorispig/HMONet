@@ -39,7 +39,7 @@ PAPER_2D = (
 PAPER_3D = (
     "cylindrical_domain_with_airfoil_hole",
     "sidewall_deformed_block",
-    "rounded_u_groove_extrusion",
+    "rounded_u_notch_extrusion",
     "tapered_elliptic_bore_block",
     "bent_annular_duct",
     "lobed_annular_duct",

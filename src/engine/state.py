@@ -34,6 +34,7 @@ from src.engine.training import (
     write_loss_outputs,
     write_mse_outputs,
 )
+from src.engine.training_comparison import ensure_training_comparison_in_dataset
 from src.utils.config_validation import remove_deprecated_projection_config
 from src.utils.paths import portable_project_path
 from src.utils.progress import in_gpu_queue, short_metric_name
@@ -1333,6 +1334,17 @@ class TrainingState:
             torch.save(payload, self.checkpoint / f"{prefix}.pt")
             torch.save(state, self.checkpoint / f"{prefix}_model.pth")
         summary = self._write_artifacts(best_mse, elapsed)
+        dataset_root = next(
+            parent for parent in (Path(self.output), *Path(self.output).parents)
+            if parent.name == self.datasets[0].root.name
+        )
+        comparison = ensure_training_comparison_in_dataset(dataset_root, self.dimension)
+        if comparison["status"] in {"created", "reused"}:
+            print(
+                "Dataset training comparison "
+                f"{comparison['status']}: {comparison['directory']}",
+                flush=True,
+            )
         print(
             f"Best model parameters saved to: {self.checkpoint / 'best_model.pth'} "
             f"(epoch={self.best_epoch}, {self.training['best_model_metric']}={self.best:.6e})",

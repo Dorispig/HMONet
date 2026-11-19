@@ -22,7 +22,7 @@
 | --- | --- |
 | `cah_t_ext_1_500_11_21_11` | `0.06 0.38` |
 | `swb_a_ext_1_500_11_21_11` | `0.02 0.34` |
-| `ugc_d_ext_1_500_11_21_11` | `0.20 1.45` |
+| `run_e_ext_1_500_41_41_11` | `1.52 1.55` |
 | `teb_b_ext_1_500_11_21_11` | `0.08 0.36` |
 | `bad_a_ext_1_500_11_21_11` | `10 105` |
 | `lad_a_ext_1_500_11_21_11` | `0 0.20` |
@@ -78,6 +78,10 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_1
 | 生成指定质量图 | `--quality-plots minimum_scaled_jacobian center_condition_number` |
 
 三维推荐按几何纵横比显式写每个网格：`--grids 11x31x11 21x61x21` 分别表示两个 `(n_x, n_y, n_z)` 网格。纯数字写法 `--grids 21 31` 是尺度扫描，自动生成两个立方网格 `21×21×21`、`31×31×31`；不建议把二维常用的 401 直接用于三维。旧式逗号写法 `--grid-shapes 11x31x11,21x61x21` 在此正式入口中也兼容，但不得与 `--grids` 同时使用。
+
+## 训练阶段自动对比
+
+当同一数据集的 HMONet、MeshONet 与 PI-MeshONet 都具有完整训练记录时，训练结束后会在 `outputs/training/3D/<dataset>/comparison/` 自动生成：`mse_comparison.png`、相对 MSE 收敛图、训练时长/轮次图及 CSV/JSON 汇总。训练记录未变且这些文件齐全时会直接复用；若图或汇总缺失，下一次非强制训练命令会补齐，不会因补图重训已完成模型。
 
 ## 多 GPU 队列
 

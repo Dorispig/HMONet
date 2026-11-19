@@ -118,25 +118,39 @@ def rounded_u_groove_extrusion_boundary(
     width=3.0, height=2.0, groove_width=0.9, groove_depth=0.8,
     corner_smoothing=0.08, length=2.5, z_min=0.0,
 ):
-    """Extrude the 2-D rounded-U-notch concept along the z direction.
-
-    The top wall has a flat-bottomed smooth U depression.  It preserves the
-    rectangular logical topology while exposing the same concave-wall effect
-    as the 2-D rounded U-notch family.
-    """
+    """Legacy smooth U-groove block retained for reproducibility (``ugc_d``)."""
     if min(width, height, groove_width, groove_depth, corner_smoothing, length) <= 0:
         raise ValueError("U-groove dimensions must be positive")
-    if groove_width >= width or groove_depth >= height:
+    if not (groove_depth < height and groove_width < width):
         raise ValueError("groove width/depth must remain below the outer block dimensions")
-    if corner_smoothing >= 0.5 * groove_width:
-        raise ValueError("corner_smoothing must be below half the groove width")
     parameters = {
         "width": float(width), "height": float(height), "groove_width": float(groove_width),
         "groove_depth": float(groove_depth), "corner_smoothing": float(corner_smoothing),
         "length": float(length), "z_min": float(z_min),
     }
     return _mapped_boundary("rounded_u_groove_extrusion", parameters, {
-        "family": "rounded_u_groove_extrusion", "topology": "concave_u_groove_extrusion", **parameters,
+        "family": "rounded_u_groove_extrusion", "topology": "smooth_u_groove_extrusion", **parameters,
+    })
+
+
+def rounded_u_notch_extrusion_boundary(
+    width=3.0, height=2.0, notch_width=0.9, depth=1.0,
+    radius=0.25, length=2.5, z_min=0.0,
+):
+    """Extrude the exact 2-D ``rounded_u_notch`` (``run``) along ``z``."""
+    margin = 0.5 * (width - notch_width)
+    if min(width, height, notch_width, depth, radius, length) <= 0:
+        raise ValueError("rounded-U-notch dimensions must be positive")
+    if not (depth < height and notch_width < width):
+        raise ValueError("notch width/depth must remain below the outer block dimensions")
+    if not radius < min(margin, 0.5 * notch_width, 0.5 * depth):
+        raise ValueError("radius must leave positive straight walls and fillet segments")
+    parameters = {
+        "width": float(width), "height": float(height), "notch_width": float(notch_width),
+        "depth": float(depth), "radius": float(radius), "length": float(length), "z_min": float(z_min),
+    }
+    return _mapped_boundary("rounded_u_notch_extrusion", parameters, {
+        "family": "rounded_u_notch_extrusion", "topology": "exact_rounded_u_notch_extrusion", **parameters,
     })
 
 
@@ -260,6 +274,7 @@ BOUNDARY_GENERATORS = {
     "stadium_cylinder_with_circular_hole": stadium_cylinder_with_circular_hole,
     "sidewall_deformed_block": sidewall_deformed_block_boundary,
     "rounded_u_groove_extrusion": rounded_u_groove_extrusion_boundary,
+    "rounded_u_notch_extrusion": rounded_u_notch_extrusion_boundary,
     "tapered_elliptic_bore_block": tapered_elliptic_bore_block_boundary,
     "annular_nozzle_diffuser": annular_nozzle_diffuser_boundary,
     "twisted_elliptic_annulus": twisted_elliptic_annulus_boundary,
