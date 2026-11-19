@@ -882,6 +882,12 @@ def evaluate_object(
         "evaluation_identity": identity,
         "evaluation_fingerprint": evaluation_fingerprint,
     }
+    if dimension == 3 and not options["generation_only"]:
+        record["middle_section_metrics"] = (
+            read_json(comparison / "surface_quality_summary.json", {})
+            if metadata["quality_evaluation"]["surface_metrics"]
+            else {}
+        )
     write_json(root / "evaluation_parameters.json", {**metadata, "evaluation": options})
     write_json(
         root / "evaluation_timing.json",

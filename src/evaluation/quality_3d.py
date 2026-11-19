@@ -12,7 +12,7 @@ import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from src.metrics import evaluate_hexahedral_grid_quality
-from src.utils.quality_selection import QUAD_METRICS, metric_names
+from src.utils.quality_selection import MIDDLE_SECTIONS, QUAD_METRICS, metric_names
 from src.utils.paths import ensure_output_directory, prepare_output_file
 from .method_order import ordered_methods, method_label
 
@@ -24,7 +24,7 @@ HIGHER = {
 }
 VOLUME_QUALITY_CACHE_VERSION = 2
 SURFACE_QUALITY_CACHE_VERSION = 3
-SURFACE_NAMES = ("x_mid", "y_mid", "z_mid")
+SURFACE_NAMES = MIDDLE_SECTIONS
 SURFACE_HIGHER_IS_BETTER = {
     "min_angle",
     "jacobian",
@@ -64,13 +64,15 @@ def boundary_surface_grids(grid):
     }
 
 
-def middle_surface_grids(grid):
+def middle_surface_grids(grid, *, sections=SURFACE_NAMES):
     """Physical surfaces at logical xi/eta/zeta=0.5; interpolate even grids."""
     grid = np.asarray(grid, dtype=float)
     if grid.ndim != 4 or grid.shape[-1] != 3 or min(grid.shape[:3]) < 2:
         raise ValueError("grid must have shape (nz>=2, ny>=2, nx>=2, 3)")
     result = {}
     for name, axis in zip(SURFACE_NAMES, (2, 1, 0)):
+        if name not in sections:
+            continue
         position = (grid.shape[axis] - 1) / 2
         lo, hi = int(np.floor(position)), int(np.ceil(position))
         result[name] = (np.take(grid, lo, axis=axis) + np.take(grid, hi, axis=axis)) / 2

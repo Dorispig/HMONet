@@ -13,7 +13,7 @@ from src.models.mapping_modes import (
     mapping_mode_choices,
     normalize_mapping_mode,
 )
-from src.utils.quality_selection import ALL_METRICS, QUAD_METRICS, quality_settings
+from src.utils.quality_selection import ALL_METRICS, QUAD_METRICS, middle_section_names, quality_settings
 
 ROOT = Path(__file__).resolve().parents[2]
 METHODS = {
@@ -283,6 +283,13 @@ def build_parser(dimension):
     parser.add_argument("--cell-padding", type=int, default=2)
     parser.add_argument("--zoom-mode", choices=["slice", "volume"], default="slice")
     parser.add_argument("--slice", choices=["x_mid", "y_mid", "z_mid"], default="z_mid")
+    if dimension == 3:
+        parser.add_argument(
+            "--middle-sections",
+            nargs="+",
+            metavar="SECTION",
+            help="Evaluate x_mid, y_mid, z_mid, all (default), or none.",
+        )
     return parser
 
 
@@ -324,6 +331,11 @@ def evaluation_options(config, case, args):
     # empty configuration value: the default remains no metric figures.
     if args.quality_plots is not None:
         result["quality_plot_metrics"] = list(args.quality_plots)
+    if args.dimension == 3:
+        sections = getattr(args, "middle_sections", None)
+        if sections is None:
+            sections = result.get("middle_sections", "all")
+        result["middle_sections"] = list(middle_section_names(sections))
     result["quality_switches"] = {
         **config.get("evaluation", {}).get("quality_switches", {}),
         **case.get("evaluation", {}).get("quality_switches", {}),

@@ -75,6 +75,7 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 | 指定设备 | `--device cuda:0` |
 | 改用最终模型评估 | `--checkpoint final` |
 | 强制重新评估 | `--force` |
+| 强制重新训练 | `--force-train` |
 | 生成指定质量图 | `--quality-plots scaled_jacobian max_angle` |
 | 生成全部质量图 | `--quality-plots all` |
 

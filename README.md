@@ -107,7 +107,9 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_1
 
 完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练可使用其中链接的 `train_cli.md`；只评估已有 checkpoint 时，优先在统一入口追加 `--evaluate-only`，它会固定选择 `best.pt` 或 `--checkpoint final` 的 `final.pt`，而不重新训练。`--evaluate-only --gpus 0 1 2` 会把各模型的单方法评估并行分派到指定 GPU，随后只做一次联合对比汇总。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。
 
-Linux 多 GPU 动态队列（每个数据集连同所选模型的训练—评估占用一张卡，完成后自动领取下一项）：
+重新执行正式训练时会复用配置一致且已完整保存的模型。三个模型均齐备后，缺失的训练对比图和汇总会自动补到 `outputs/training/<维度>/<数据集>/comparison/`。三维评估默认计算三个中截面，可追加 `--middle-sections z_mid` 仅计算论文常用的中截面，或用 `--middle-sections none` 只评估体网格。
+
+Linux 多 GPU 动态队列（每张卡完成当前模型的训练和评估后领取下一项）：
 
 ```bash
 python scripts/train/train_evaluate.py --dimension 2 --dataset-mode both --models hmonet meshonet pimeshonet --grids 101 201 401 --seed 20261030 --run-tag v1 --gpus 0 1 2 3

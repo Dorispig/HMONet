@@ -16,6 +16,8 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_1
 
 ## 仅训练
 
+配置一致且已有完整训练记录和 best/final checkpoint 的模型会直接复用。三个正式模型齐备后，如果比较图或汇总缺失，命令会在 `outputs/training/3D/<dataset>/comparison/` 补齐。需要重训时显式加 `--force-train`。
+
 ~~~powershell
 python scripts/train/train_3d.py --dataset swb_a_ext_1_500_11_21_11 --dataset-mode extrapolation --model hmonet --seed 20261030
 

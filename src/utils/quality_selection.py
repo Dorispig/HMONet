@@ -29,6 +29,23 @@ HEX_METRICS = (
     "degenerate_cell",
 )
 ALL_METRICS = tuple(dict.fromkeys((*QUAD_METRICS, *HEX_METRICS)))
+MIDDLE_SECTIONS = ("x_mid", "y_mid", "z_mid")
+
+
+def middle_section_names(selection="all"):
+    """Resolve a 3-D evaluation's independent quadrilateral section selection."""
+    if isinstance(selection, str):
+        selection = (selection,)
+    if not isinstance(selection, (list, tuple)):
+        raise ValueError("middle_sections must be all, none, or a list of section names")
+    names = tuple(part.strip().lower() for item in selection for part in str(item).split(","))
+    if names == ("all",):
+        return MIDDLE_SECTIONS
+    if names == ("none",) or not names:
+        return ()
+    if set(names) - set(MIDDLE_SECTIONS):
+        raise ValueError("--middle-sections accepts x_mid, y_mid, z_mid, all, or none")
+    return tuple(name for name in MIDDLE_SECTIONS if name in names)
 
 
 def _normalize_plot_selection(selection):
@@ -139,18 +156,22 @@ def selected_quality_plot_metrics(options, dimension=2, *, surface=False):
 
 def quality_settings(options, dimension):
     """Resolved selections for metadata and analysis-cache invalidation."""
-    return {
+    sections = middle_section_names(options.get("middle_sections", "all")) if dimension == 3 else ()
+    settings = {
         "compute_grid_quality": options.get("compute_grid_quality", True),
         "metrics": list(selected_quality_metrics(options, dimension)),
         "surface_metrics": (
             list(selected_quality_metrics(options, dimension, surface=True))
-            if dimension == 3
+            if sections
             else []
         ),
         "plot_metrics": list(selected_quality_plot_metrics(options, dimension)),
         "surface_plot_metrics": (
             list(selected_quality_plot_metrics(options, dimension, surface=True))
-            if dimension == 3
+            if sections
             else []
         ),
     }
+    if dimension == 3:
+        settings["middle_sections"] = list(sections)
+    return settings

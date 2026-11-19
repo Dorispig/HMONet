@@ -4,6 +4,8 @@
 
 在项目根目录 `E:\projects\HMONet` 运行。运行前请确认对应数据集已生成；数据集生成命令见 [data/3D/generation_commands.md](../../data/3D/generation_commands.md)。
 
+三维评估默认计算三个逻辑中截面。论文只展示 `z_mid` 时，可在任一命令末尾加上 `--middle-sections z_mid`。只评估体网格时使用 `--middle-sections none`。
+
 ```powershell
 # cylindrical_domain_with_airfoil_hole (cah_t)
 python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --grids 11x21x11 21x41x21 41x81x41 --values 0.06 0.38 --seed 20261030 --run-tag v1

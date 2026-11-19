@@ -75,7 +75,17 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_1
 | 指定设备 | `--device cuda:0` |
 | 改用最终模型评估 | `--checkpoint final` |
 | 强制重新评估 | `--force` |
+| 强制重新训练 | `--force-train` |
 | 生成指定质量图 | `--quality-plots minimum_scaled_jacobian center_condition_number` |
+| 选择三维中截面 | `--middle-sections z_mid`，也支持 `x_mid y_mid z_mid` 的组合、`all`（默认）和 `none` |
+
+例如使用已有模型，评估体网格及论文常用的 `z_mid` 中截面。
+
+~~~powershell
+python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_11_21_11 --models hmonet meshonet pimeshonet --evaluate-only --grids 11x21x11 21x41x21 --values 0.02 0.34 --middle-sections z_mid
+~~~
+
+截面的计算方式及汇总字段见 [三维评估说明](evaluate_cli.md)。
 
 三维推荐按几何纵横比显式写每个网格：`--grids 11x31x11 21x61x21` 分别表示两个 `(n_x, n_y, n_z)` 网格。纯数字写法 `--grids 21 31` 是尺度扫描，自动生成两个立方网格 `21×21×21`、`31×31×31`；不建议把二维常用的 401 直接用于三维。旧式逗号写法 `--grid-shapes 11x31x11,21x61x21` 在此正式入口中也兼容，但不得与 `--grids` 同时使用。
 

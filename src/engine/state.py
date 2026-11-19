@@ -34,9 +34,12 @@ from src.engine.training import (
     write_loss_outputs,
     write_mse_outputs,
 )
-from src.engine.training_comparison import ensure_training_comparison_in_dataset
+from src.engine.training_comparison import (
+    completed_training_runs,
+    ensure_training_comparison_in_dataset,
+)
 from src.utils.config_validation import remove_deprecated_projection_config
-from src.utils.paths import portable_project_path
+from src.utils.paths import portable_project_path, resolve_project_path
 from src.utils.progress import in_gpu_queue, short_metric_name
 
 
@@ -337,6 +340,45 @@ def model_specific_training_config(config, name, dataset_path=None, mode=None):
     return selected
 
 
+def prepare_pimeshonet_training_config(config, args, shape):
+    """Resolve the PI-MeshONet objective and its per-axis stencil."""
+    config = copy.deepcopy(config)
+    pi = config.setdefault("pimeshonet_training", {})
+    for key, default in (
+        ("pde_loss_weight", 1e-4),
+        ("boundary_loss_weight", 1.0),
+        ("interior_sample_count", 128),
+        ("fd_step", None),
+    ):
+        override = getattr(args, "pimeshonet_" + key, None)
+        if override is None:
+            override = getattr(args, "pi_" + key, None)
+        if override is None and key == "interior_sample_count":
+            override = getattr(args, key, None)
+        pi[key] = override if override is not None else pi.get(key, default)
+    config.setdefault("training", {}).update(
+        best_model_metric="training_loss",
+        check_mse_convergence=False,
+        check_max_point_error=False,
+        check_p99_point_error=False,
+        plateau_metric="train_loss",
+    )
+    config = prepare_training_config(config, "pimeshonet", args)
+    pi = config["pimeshonet_training"]
+    steps = pi["fd_step"]
+    if steps is None:
+        steps = [1 / (n - 1) for n in shape]
+    if np.isscalar(steps):
+        steps = [float(steps)]
+    if len(steps) == 1:
+        steps = list(steps) * len(shape)
+    if len(steps) != len(shape) or not all(np.isfinite(h) and 0 < h < 0.5 for h in steps):
+        raise ValueError("fd_step must have one value per axis strictly between 0 and 0.5")
+    pi["fd_step"] = list(map(float, steps))
+    config.setdefault("model", {}).setdefault("pimeshonet", {})["architecture"] = "paper_modified_mlp"
+    return config
+
+
 def checkpoint_directory(args, config, name, dimension, run_id=None):
     """Follow the dataset/model/mapping/date-and-minute hierarchy."""
     root = Path(getattr(args, "checkpoint_root", "outputs/checkpoints"))
@@ -360,6 +402,89 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
         )
         folder = folder / mapping_mode_path_name(mapping)
     return folder / (run_id or datetime.now().strftime("%Y%m%d_%H%M"))
+
+
+def _matches_saved_settings(requested, saved):
+    """Compare effective settings, allowing additional defaults in the archive."""
+    if not isinstance(saved, dict):
+        return False
+    for key, value in requested.items():
+        previous = saved.get(key)
+        if isinstance(value, dict):
+            if not _matches_saved_settings(value, previous):
+                return False
+        elif key == "hmonet_mapping_mode" and previous is not None:
+            if normalize_mapping_mode(value) != normalize_mapping_mode(previous):
+                return False
+        elif value != previous:
+            return False
+    return True
+
+
+def reuse_completed_training(config, name, dataset_path, mode, args, dimension):
+    """Reuse a completed formal training run with compatible settings and weights."""
+    if getattr(args, "flat_run_root", None) or getattr(args, "force_train", False):
+        return None
+    candidates = completed_training_runs(Path(args.output_root), name)
+    if not candidates:
+        return None
+    if name == "pimeshonet":
+        shape = tuple(config["grid"][axis] for axis in ("nx", "ny", "nz")[:dimension])
+        effective = prepare_pimeshonet_training_config(config, args, shape)
+    else:
+        effective = prepare_training_config(config, name, args)
+    requested = model_specific_training_config(
+        effective, name, dataset_path, mode
+    )
+    dataset = requested.pop("datasets")[mode]
+    for key in ("device", "tensorboard_enabled", "plateau_log_interval", "save_best_immediately", "stop_file_enabled"):
+        requested["training"].pop(key, None)
+    for directory, summary in candidates:
+        try:
+            saved = json.loads((directory / "config.json").read_text(encoding="utf-8-sig"))
+            saved_dataset = saved["datasets"][mode]
+            if resolve_project_path(saved_dataset) != resolve_project_path(dataset):
+                continue
+            if not _matches_saved_settings(requested, saved):
+                continue
+            checkpoint = checkpoint_directory(args, config, name, f"{dimension}D", directory.name)
+            checkpoints = {}
+            for selection in ("best", "final"):
+                key = f"{selection}_checkpoint"
+                candidates = [checkpoint / f"{selection}.pt"]
+                if summary.get(key):
+                    candidates.append(resolve_project_path(summary[key]))
+                found = next(
+                    (path for path in candidates if path.is_file() and path.stat().st_size),
+                    None,
+                )
+                if found is None:
+                    break
+                checkpoints[key] = str(found.resolve())
+        except (KeyError, OSError, TypeError, ValueError):
+            continue
+        if len(checkpoints) == 2:
+            print(f"[training] {args.dataset_name}/{name}: reusing completed run {directory.name}", flush=True)
+            return {
+                **summary,
+                **checkpoints,
+                "training_output_dir": str(directory.resolve()),
+                "training_reused": True,
+            }
+    return None
+
+
+def finish_dataset_training_comparisons(dataset_runs, dimension):
+    for dataset_root, selected_runs in dataset_runs.items():
+        comparison = ensure_training_comparison_in_dataset(
+            dataset_root, dimension, selected_runs=selected_runs
+        )
+        missing = comparison["missing_models"]
+        message = (
+            f"waiting for completed MSE history: {', '.join(missing)}"
+            if missing else comparison["status"]
+        )
+        print(f"[training comparison] {message} | {comparison['directory']}", flush=True)
 
 
 def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
@@ -1334,17 +1459,6 @@ class TrainingState:
             torch.save(payload, self.checkpoint / f"{prefix}.pt")
             torch.save(state, self.checkpoint / f"{prefix}_model.pth")
         summary = self._write_artifacts(best_mse, elapsed)
-        dataset_root = next(
-            parent for parent in (Path(self.output), *Path(self.output).parents)
-            if parent.name == self.datasets[0].root.name
-        )
-        comparison = ensure_training_comparison_in_dataset(dataset_root, self.dimension)
-        if comparison["status"] in {"created", "reused"}:
-            print(
-                "Dataset training comparison "
-                f"{comparison['status']}: {comparison['directory']}",
-                flush=True,
-            )
         print(
             f"Best model parameters saved to: {self.checkpoint / 'best_model.pth'} "
             f"(epoch={self.best_epoch}, {self.training['best_model_metric']}={self.best:.6e})",

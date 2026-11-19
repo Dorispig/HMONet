@@ -103,6 +103,15 @@ def validate_formal_evaluation_request(dimension, tokens, cases, case_names):
         create_geometry,
         csv_values,
     )
+    from src.utils.quality_selection import middle_section_names
+
+    if _option_present(tokens, "--middle-sections"):
+        if dimension != 3:
+            raise ValueError("--middle-sections is only available for 3-D evaluation")
+        sections = _command_values(tokens, "--middle-sections")
+        if not sections:
+            raise ValueError("--middle-sections requires at least one value")
+        middle_section_names(sections)
 
     compact = _command_values(tokens, "--grids")
     legacy = _command_option(tokens, "--grid-shapes")
@@ -612,7 +621,7 @@ def _formal_local_process_rows(summaries, *, training, evaluation, error=None):
                 "dataset": summary.get("dataset_name"),
                 "variant": summary.get("model"),
                 "seed": summary.get("seed"),
-                "training": training,
+                "training": "reused" if summary.get("training_reused") else training,
                 "evaluation": evaluation,
                 "error": error,
             }
@@ -1059,6 +1068,18 @@ def _queued_formal_run(
     cache_promotion = None
     staging_cleanup = 0
     if summaries:
+        from src.engine.state import finish_dataset_training_comparisons
+
+        dataset_runs = {}
+        training_root = Path(
+            _command_option(train_extra, "--output-root", f"outputs/training/{args.dimension}D")
+        )
+        for summary in summaries:
+            dataset_root = training_root / summary["dataset_name"]
+            dataset_runs.setdefault(dataset_root, {})[summary["model"]] = Path(
+                summary["training_output_dir"]
+            ).resolve()
+        finish_dataset_training_comparisons(dataset_runs, args.dimension)
         # Publish the immutable generation artifacts from private worker roots
         # before one canonical multi-model comparison.  The evaluator then
         # cache-hits HMONet/MeshONet/PI-MeshONet/TFI/PDE meshes and performs
@@ -1448,6 +1469,12 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--middle-sections",
+        nargs="+",
+        metavar="SECTION",
+        help="3-D only: evaluate x_mid, y_mid, z_mid, all (default), or none.",
+    )
+    parser.add_argument(
         "--gpus",
         nargs="+",
         help="Dynamic GPU queue, e.g. --gpus 0 1 2 3 or --gpus 0,1,2,3.",
@@ -1466,6 +1493,10 @@ def main(argv=None):
         help="Force regeneration and reanalysis during the evaluation stage.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--force-train", action="store_true",
+        help="Train again even if a compatible completed run exists.",
+    )
     parser.add_argument("--queue-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--queue-result", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -1474,6 +1505,10 @@ def main(argv=None):
 
     train_extra = shlex.split(args.train_args, posix=True)
     evaluate_extra = shlex.split(args.evaluate_args, posix=True)
+    if args.force_train:
+        if args.evaluate_only:
+            parser.error("--force-train cannot be combined with --evaluate-only")
+        train_extra.append("--force-train")
     _append_simple_option(
         parser, train_extra, "--dataset", args.dataset, source="--dataset"
     )
@@ -1514,6 +1549,9 @@ def main(argv=None):
     )
     _append_simple_option(
         parser, evaluate_extra, "--values", args.values, source="--values"
+    )
+    _append_simple_option(
+        parser, evaluate_extra, "--middle-sections", args.middle_sections, source="--middle-sections"
     )
     if _option_present(evaluate_extra, "--grids") and _option_present(
         evaluate_extra, "--grid-shapes"
@@ -1766,12 +1804,17 @@ def main(argv=None):
     else:
         result_path = None
     summaries = []
+    training_status = "failed"
     try:
         summaries = train.main(["--config", str(train_config)] + train_extra)
+        training_status = (
+            "reused" if summaries and all(s.get("training_reused") for s in summaries)
+            else "completed"
+        )
         if result_path is not None:
             _write_queue_worker_status(
                 result_path,
-                training="completed",
+                training=training_status,
                 evaluation="running",
                 summaries=summaries,
             )
@@ -1783,7 +1826,7 @@ def main(argv=None):
         if result_path is not None:
             _write_queue_worker_status(
                 result_path,
-                training="completed" if summaries else "failed",
+                training=training_status,
                 evaluation="failed" if summaries else "not-started",
                 summaries=summaries,
                 error=repr(error),
@@ -1793,7 +1836,7 @@ def main(argv=None):
             print_completion_summary(
                 _formal_local_process_rows(
                     summaries,
-                    training="completed" if summaries else "failed",
+                    training=training_status,
                     evaluation="failed" if summaries else "not-started",
                     error=repr(error),
                 ),
@@ -1807,7 +1850,7 @@ def main(argv=None):
         )
         _write_queue_worker_status(
             result_path,
-            training="completed",
+            training=training_status,
             evaluation="completed",
             summaries=summaries,
         )

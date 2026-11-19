@@ -1,6 +1,5 @@
 """Self-supervised PI-MeshONet training, shared by 2-D and 3-D entry points."""
 
-import copy
 import numpy as np
 import torch
 from src.utils.progress import training_progress as tqdm
@@ -15,39 +14,16 @@ from src.engine.training import (
     seed_everything,
     update_learning_rate,
 )
-from src.engine.state import TrainingState, prepare_training_config
+from src.engine.state import TrainingState, prepare_pimeshonet_training_config
 
 
 def train_pimeshonet(datasets, config, mode, args, device):
     """Optimize boundary/PDE losses only; mesh labels are monitoring-only."""
-    config = copy.deepcopy(config)
-    pi = config.setdefault("pimeshonet_training", {})
-    defaults = dict(
-        pde_loss_weight=1e-4,
-        boundary_loss_weight=1.0,
-        interior_sample_count=128,
-        fd_step=None,
-    )
-    for key, value in defaults.items():
-        override = getattr(args, "pimeshonet_" + key, None)
-        if override is None:
-            override = getattr(args, "pi_" + key, None)
-        if override is None and key == "interior_sample_count":
-            override = getattr(args, "interior_sample_count", None)
-        pi[key] = override if override is not None else pi.get(key, value)
-    config.setdefault("training", {})["best_model_metric"] = "training_loss"
-    # Labels may be reported, but must never select or stop a self-supervised run.
-    config["training"].update(
-        check_mse_convergence=False,
-        check_max_point_error=False,
-        check_p99_point_error=False,
-        plateau_metric="train_loss",
-    )
-    config = prepare_training_config(config, "pimeshonet", args)
-    training = config["training"]
-    pi = config["pimeshonet_training"]
     shape = tuple(datasets[0].grid_shape)
     dimension = len(shape)
+    config = prepare_pimeshonet_training_config(config, args, shape)
+    training = config["training"]
+    pi = config["pimeshonet_training"]
     count = int(pi["interior_sample_count"])
     weights = [float(pi["pde_loss_weight"]), float(pi["boundary_loss_weight"])]
     if count < 1 or not all(np.isfinite(w) and w > 0 for w in weights):
@@ -55,22 +31,8 @@ def train_pimeshonet(datasets, config, mode, args, device):
             "PI-MeshONet requires positive finite PDE/boundary weights and sample count"
         )
     steps = pi["fd_step"]
-    if steps is None:
-        steps = [1 / (n - 1) for n in shape]
-    if np.isscalar(steps):
-        steps = [float(steps)] * dimension
-    if len(steps) == 1:
-        steps = steps * dimension
-    if len(steps) != dimension or not all(
-        np.isfinite(h) and 0 < h < 0.5 for h in steps
-    ):
-        raise ValueError(
-            "fd_step must have one value per axis strictly between 0 and 0.5"
-        )
-    pi["fd_step"] = list(map(float, steps))
     seed_everything(int(training["seed"]))
-    model_section = config.setdefault("model", {}).setdefault("pimeshonet", {})
-    model_section["architecture"] = "paper_modified_mlp"
+    model_section = config["model"]["pimeshonet"]
     options = {
         **config["model"].get("common", {}),
         **model_section,

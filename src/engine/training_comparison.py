@@ -10,7 +10,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 MODEL_LAYOUT = (
@@ -32,24 +34,27 @@ def _summary_signature(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _latest_run(dataset_root: Path, folder: str) -> tuple[Path, dict] | None:
-    """Find the latest complete record for one model (including HMONet modes)."""
-    root = dataset_root / folder
-    if not root.is_dir():
-        return None
+def completed_training_runs(dataset_root: Path, model: str):
+    """Return completed records newest first, including legacy model folders."""
+    if not dataset_root.is_dir():
+        return []
     candidates: list[tuple[int, Path, dict]] = []
-    for path in root.rglob("training_summary.json"):
-        try:
-            summary = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+    for root in dataset_root.iterdir():
+        if not root.is_dir() or root.name.casefold().replace("-", "") != model:
             continue
-        if not (path.parent / "mse_history.csv").is_file():
-            continue
-        candidates.append((path.stat().st_mtime_ns, path.parent, summary))
-    if not candidates:
-        return None
-    _, directory, summary = max(candidates, key=lambda item: item[0])
-    return directory, summary
+        for path in root.rglob("training_summary.json"):
+            try:
+                summary = json.loads(path.read_text(encoding="utf-8"))
+                completed = int(summary.get("completed_epochs") or 0)
+                reason = str(summary.get("stop_reason", ""))
+                if not completed or reason.startswith("failed") or reason == "stop_file_requested":
+                    continue
+                if reason == "maximum_epochs" and completed < int(summary.get("requested_epochs") or completed):
+                    continue
+                candidates.append((path.stat().st_mtime_ns, path.parent, summary))
+            except (AttributeError, OSError, TypeError, ValueError):
+                continue
+    return [(directory, summary) for _, directory, summary in sorted(candidates, reverse=True)]
 
 
 def _history(path: Path) -> list[tuple[int, float]]:
@@ -60,19 +65,30 @@ def _history(path: Path) -> list[tuple[int, float]]:
                 rows.append((int(float(row["epoch"])), float(row["dataset_mse"])))
             except (KeyError, TypeError, ValueError):
                 continue
-    return [(epoch, value) for epoch, value in rows if value >= 0.0]
+    return [(epoch, value) for epoch, value in rows if math.isfinite(value) and value >= 0.0]
 
 
-def _records(dataset_root: Path) -> tuple[list[dict], list[str]]:
+def _records(dataset_root: Path, selected_runs: dict) -> tuple[list[dict], list[str]]:
     records, missing = [], []
     for key, label in MODEL_LAYOUT:
-        found = _latest_run(dataset_root, key)
+        candidates = completed_training_runs(dataset_root, key)
+        selected = selected_runs.get(key)
+        found = next(
+            (run for run in candidates if selected is None or run[0].resolve() == selected),
+            None,
+        )
         if found is None:
             missing.append(label)
             continue
         directory, summary = found
-        history_path = directory / "mse_history.csv"
-        history = _history(history_path)
+        history = {}
+        for epoch, value in zip(summary.get("dataset_mse_epochs", []), summary.get("dataset_mse_history", [])):
+            if value is not None and math.isfinite(value) and value >= 0.0:
+                history[int(epoch)] = float(value)
+        for filename in ("training_history.csv", "mse_history.csv"):
+            history_path = directory / filename
+            if history_path.is_file():
+                history.update(_history(history_path))
         if not history:
             missing.append(label)
             continue
@@ -82,9 +98,11 @@ def _records(dataset_root: Path) -> tuple[list[dict], list[str]]:
                 "model": label,
                 "directory": directory,
                 "summary": summary,
-                "history": history,
+                "history": sorted(history.items()),
                 "summary_signature": _summary_signature(directory / "training_summary.json"),
-                "mse_signature": _summary_signature(history_path),
+                "mse_signature": hashlib.sha256(
+                    json.dumps(sorted(history.items())).encode("utf-8")
+                ).hexdigest(),
             }
         )
     return records, missing
@@ -186,12 +204,14 @@ def _plot(folder: Path, records: list[dict], title: str) -> None:
     plt.close(figure)
 
 
-def ensure_training_comparison_in_dataset(dataset_root: str | Path, dimension: int) -> dict:
+def ensure_training_comparison_in_dataset(
+    dataset_root: str | Path, dimension: int, *, selected_runs=None
+) -> dict:
     """Create or reuse one comparison when the concrete dataset root is known."""
     dataset_root = Path(dataset_root)
     dataset_name = dataset_root.name
     folder = dataset_root / "comparison"
-    records, missing = _records(dataset_root)
+    records, missing = _records(dataset_root, selected_runs or {})
     if missing:
         return {"status": "waiting_for_models", "directory": str(folder), "missing_models": missing}
     manifest_path = folder / "training_comparison.json"
@@ -199,9 +219,6 @@ def ensure_training_comparison_in_dataset(dataset_root: str | Path, dimension: i
         return {"status": "reused", "directory": str(folder), "missing_models": []}
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        title = f"{dataset_name} ({int(dimension)}D)"
-        _plot(folder, records, title)
-        _write_table(folder, records)
         sources = [
             {
                 "model": item["model"],
@@ -211,12 +228,18 @@ def ensure_training_comparison_in_dataset(dataset_root: str | Path, dimension: i
             }
             for item in records
         ]
-        (folder / "training_comparison.json").write_text(
-            json.dumps(
-                {"dataset": str(dataset_name), "dimension": int(dimension), "sources": sources},
-                ensure_ascii=False, indent=2,
-            ), encoding="utf-8",
-        )
+        with TemporaryDirectory(prefix=".comparison-", dir=dataset_root) as temporary:
+            staging = Path(temporary)
+            _plot(staging, records, f"{dataset_name} ({int(dimension)}D)")
+            _write_table(staging, records)
+            (staging / "training_comparison.json").write_text(
+                json.dumps(
+                    {"dataset": dataset_name, "dimension": int(dimension), "sources": sources},
+                    ensure_ascii=False, indent=2,
+                ), encoding="utf-8",
+            )
+            for name in REQUIRED_FILES:
+                (staging / name).replace(folder / name)
     except ImportError:
         return {"status": "matplotlib_unavailable", "directory": str(folder), "missing_models": []}
     return {"status": "created", "directory": str(folder), "missing_models": []}

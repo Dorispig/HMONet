@@ -68,6 +68,7 @@ evaluation:
   force_reanalyze: false
   compute_grid_quality: true
   quality_metrics: both
+  middle_sections: all  # all、none，或 [x_mid, y_mid, z_mid] 的任意子集
   quality_plot_metrics: []
   save_plots: true
   save_png: true

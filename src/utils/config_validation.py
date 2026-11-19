@@ -7,6 +7,7 @@ import numpy as np
 import warnings
 
 from src.models.mapping_modes import normalize_mapping_mode
+from src.utils.quality_selection import middle_section_names
 
 
 def remove_deprecated_projection_config(config):
@@ -389,6 +390,8 @@ def validate_evaluate_config(config: dict, *, dimension: int | None = None) -> N
     if dimension not in (2, 3):
         raise ValueError("evaluation dimension must be 2 or 3")
     evaluation = config["evaluation"]
+    if dimension == 3:
+        middle_section_names(evaluation.get("middle_sections", "all"))
     methods = evaluation.get("methods", [])
     if not isinstance(methods, list) or not methods or set(methods) - {
         "hmonet",
@@ -480,6 +483,9 @@ def validate_evaluate_config(config: dict, *, dimension: int | None = None) -> N
         if not isinstance(case, dict):
             raise ValueError(f"case {name} must be a mapping")
         if dimension == 3:
+            middle_section_names(
+                case.get("evaluation", {}).get("middle_sections", "all")
+            )
             for field in ("boundary", "parameter", "values", "grid_shape"):
                 if field not in case:
                     raise ValueError(f"case {name} is missing field: {field}")

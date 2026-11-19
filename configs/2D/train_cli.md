@@ -20,6 +20,8 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 
 ## 仅训练
 
+配置一致且已有完整训练记录和 best/final checkpoint 的模型会直接复用。三个正式模型齐备后，如果比较图或汇总缺失，命令会在 `outputs/training/2D/<dataset>/comparison/` 补齐。需要重训时显式加 `--force-train`。
+
 ~~~powershell
 python scripts/train/train_2d.py --dataset air_t_ext_1_500_41_41 --dataset-mode extrapolation --model hmonet --seed 20261030
 

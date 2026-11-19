@@ -28,6 +28,7 @@ from .quality_3d import middle_surface_grids, surface_quad_quality_fields, HIGHE
 from .zoom_3d import quad_cells, draw_volume, DEFAULTS as ZOOM_DEFAULTS
 from src.metrics import evaluate_hexahedral_grid_quality
 from src.utils.quality_selection import (
+    middle_section_names,
     selected_quality_metrics,
     selected_quality_plot_metrics,
 )
@@ -186,16 +187,21 @@ def save_method(directory, method, points, shape, options):
 
 def save_sections(directory, meshes, shape, options):
     """Intrinsic 3-D section metrics, drawn with the same axes as local views."""
+    section_names = middle_section_names(options.get("middle_sections", "all"))
+    if not section_names:
+        return
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
     directory = Path(directory)
     sections = {
-        m: middle_surface_grids(v.reshape(*shape[::-1], 3)) for m, v in meshes.items()
+        m: middle_surface_grids(v.reshape(*shape[::-1], 3), sections=section_names)
+        for m, v in meshes.items()
     }
     selected = selected_quality_metrics(options, 3, surface=True)
     all_summaries = {}
     intersection_rows = []
     projection_axes = {"x_mid": (1, 2), "y_mid": (0, 2), "z_mid": (0, 1)}
-    for section_name, axes in projection_axes.items():
+    for section_name in section_names:
+        axes = projection_axes[section_name]
         target = directory / "boundary_faces" / section_name
         target = ensure_output_directory(
             target, context="Evaluation 3-D section directory"

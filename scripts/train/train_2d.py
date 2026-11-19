@@ -54,6 +54,8 @@ from src.engine.training import (
     update_learning_rate,
 )
 from src.engine.state import (
+    finish_dataset_training_comparisons,
+    reuse_completed_training,
     TrainingState,
     prepare_training_config,
     print_training_summaries,
@@ -1623,6 +1625,7 @@ def train_models(names, paths, config, mode, args, device):
     """Train every selected model/dataset pair independently."""
     root = Path(__file__).resolve().parents[2]
     summaries = []
+    dataset_runs = {}
     started = time.perf_counter()
     for name in names:
         for path in paths:
@@ -1676,6 +1679,15 @@ def train_models(names, paths, config, mode, args, device):
             run_config.setdefault("grid", {}).update(
                 dict(zip(("nx", "ny"), map(int, data.grid_shape)))
             )
+            dataset_root = Path(run_args.output_root)
+            selected_runs = dataset_runs.setdefault(dataset_root, {})
+            reused = reuse_completed_training(
+                run_config, name, data.root, run_mode, run_args, 2
+            )
+            if reused is not None:
+                selected_runs[name] = Path(reused["training_output_dir"])
+                summaries.append(reused)
+                continue
             print(
                 f"[{run_mode}] model={name}, dataset={dataset_name}, "
                 f"grid={data.grid_shape} (read from dataset)",
@@ -1696,14 +1708,9 @@ def train_models(names, paths, config, mode, args, device):
                 raise ValueError(f"Unknown model: {name}")
             summary_path = Path(run_args.training_output_dir) / "training_summary.json"
             summaries.append(json.loads(summary_path.read_text(encoding="utf-8")))
-    # A non-force invocation may reach this point with prior runs already
-    # present.  Recheck every dataset after the complete requested training
-    # set, so a missing dataset-level comparison is repaired without retraining.
-    from src.engine.training_comparison import ensure_training_comparison_in_dataset
-    for summary in summaries:
-        directory = Path(summary["training_output_dir"])
-        dataset_root = next(parent for parent in (directory, *directory.parents) if parent.name == summary["dataset_name"])
-        ensure_training_comparison_in_dataset(dataset_root, 2)
+            selected_runs[name] = summary_path.parent.resolve()
+    if not getattr(args, "flat_run_root", None):
+        finish_dataset_training_comparisons(dataset_runs, 2)
     print_training_summaries(summaries, time.perf_counter() - started, dimension=2)
     return summaries
 
@@ -1731,6 +1738,7 @@ def main(argv=None):
     )
     parser.add_argument("--output-root", default="outputs/training/2D")
     parser.add_argument("--flat-run-root", help=argparse.SUPPRESS)
+    parser.add_argument("--force-train", action="store_true", help="Train again even if a compatible completed run exists.")
     parser.add_argument("--nx", type=int)
     parser.add_argument("--ny", type=int)
     # Operator-network capacity overrides. These options are primarily used by

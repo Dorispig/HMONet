@@ -290,6 +290,27 @@ class TestEvaluationPipeline:
             second = self.run_evaluation(2, config)[0]
         assert (first["evaluation_fingerprint"]) == (second["evaluation_fingerprint"])
 
+    def test_middle_section_selection_controls_analysis_and_compact_cache(self):
+        config = self.configuration(3, ["tfi"], compact_outputs=True)
+        first = self.run_evaluation(3, config, "--middle-sections", "z_mid")[0]
+        assert set(first["middle_section_metrics"]) == {"z_mid"}
+        assert "max_angle" in first["middle_section_metrics"]["z_mid"]["TFI"]
+        assert "minimum_scaled_jacobian" in first["metrics"]["TFI"]
+        with patch(
+            "scripts.evaluate.evaluation_common.generate",
+            side_effect=AssertionError("Matching section selection should reuse the summary"),
+        ):
+            reused = self.run_evaluation(3, config, "--middle-sections", "z_mid")[0]
+        assert reused["evaluation_fingerprint"] == first["evaluation_fingerprint"]
+
+        disabled = self.run_evaluation(3, config, "--middle-sections", "none")[0]
+        assert disabled["middle_section_metrics"] == {}
+        assert disabled["metrics"] == first["metrics"]
+        assert disabled["evaluation_fingerprint"] != first["evaluation_fingerprint"]
+
+        default = self.run_evaluation(3, config)[0]
+        assert set(default["middle_section_metrics"]) == {"x_mid", "y_mid", "z_mid"}
+
     def test_coons_checkpoint_and_local_worst_without_plots(self):
         for dim in (2, 3):
             hp = self.checkpoint(dim, "hmonet", mapping="coons_residual")
