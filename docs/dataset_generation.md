@@ -1,13 +1,13 @@
 # 参数化数据集与边界族指南
 
-九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。所有新数据集名称版本为1，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
+九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。三维新数据集名称版本为2，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
 
 本指南以**边界族**为单位组织数据，而非以每一个已生成的数据集目录组织。一个边界族可以对应多个内插/外推划分、样本规模、网格规模和版本；它们共享同一组几何公式与边界定向约定。这样既避免重复描述，又能让读者从边界定义直接复现实验。
 
 ## 注意事项与快速复现
 
 1. 数据集名采用 `<short-name>_<int|ext>_<version>_<size>_<grid-shape>`：`int`/`ext` 分别表示内插/外推划分，`version` 表示几何定义或参数范围的人工版本，`size` 是几何样本数，`grid-shape` 是生成 PDE 网格的节点数。例如，`air_t_ext_1_500_41_41` 表示翼型孔边界族的外推版本 1、500 个几何样本和 `41×41` 节点网格。
-2. 改变几何定义时应区分数据版本。本次按要求统一使用名称版本 `1`，通过元数据中的几何修订号 `3` 和参数面方案识别新格式；旧同名三维数据不会被当作新格式跳过，需显式 `--force` 重建。旧模型不能仅改名后用于新边界。
+2. 改变几何定义时应区分数据版本。二维名称版本默认为 `1`，三维九类名称版本默认为 `2`，通过元数据中的几何修订号 `3` 和参数面方案识别新格式；旧同名三维数据不会被当作新格式跳过，需显式 `--force` 重建。旧模型不能仅改名后用于新边界。
 3. 二维和三维生成器均只对首、尾样本的 PDE 网格做合法性检查。若发现非法网格，先保存全部样本和质量报告（quality_audit.json），再发出警告，报告列出受检样本数、非法样本数和样本编号。PDE 求解器的收敛状态仍逐条记录。
    三维在求解前检查每个样本的六个规定边界面。若边界面有自交、翻转、退化或共享边不一致，立即报错。所有三维边界族（包括 run_e）均使用体 TFI 初始化后求解三维 Winslow 方程。若三维求解器发生数值异常并回退到体 TFI，该样本会标记为 tfi_fallback。
 4. 同名输出目录不会被静默覆盖。需要重建时，先确认旧数据不再需要；三维仅在显式加入 `--force` 时替换已有目录。
@@ -42,7 +42,7 @@ python src/data/generation/make_dataset_parametric_2d.py \
 
 ```bash
 python src/data/generation/make_dataset_parametric_3d.py \
-  --family swb_a --split extrapolation --version 1 \
+  --family swb_a --split extrapolation --version 2 \
   --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.30 \
   --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6
 ```
@@ -72,15 +72,15 @@ python src/data/generation/make_dataset_parametric_3d.py \
 | `tri_p` | 2-D | `symmetric_convex_tri` | `protrusion_distance` | `[0.05,0.20] ∪ [0.30,0.50]` | `[0.05,0.40]` | `tri_p_ext_1_500_41_41` |
 | `gsp_a` | 2-D | `gear_spline` | `amplitude` | `[0.02,0.10] ∪ [0.15,0.20]` | `[0.02,0.18]` | `gsp_a_ext_1_500_41_41` |
 | `fca_a` | 2-D | `four_convex_arcs` | `arc_angle_deg` | `[30,50] ∪ [70,90]` | `[30,120]` | `fca_a_ext_1_500_41_41` |
-| `cah_t` | 3-D | `cylindrical_domain_with_airfoil_hole` | `thickness` | `[0.06,0.15] ∪ [0.25,0.35]` | `[0.08,0.34]` | `cah_t_ext_1_500_21_21_11` |
-| `swb_a` | 3-D | `sidewall_deformed_block` | `sidewall_amplitude` | `[0.03,0.10] ∪ [0.20,0.30]` | `[0.04,0.30]` | `swb_a_ext_1_500_21_21_11` |
-| `run_e` | 3-D | `rounded_u_notch_extrusion` | `depth` | `[0.55,1.00] ∪ [1.30,1.50]` | `[0.55,1.50]` | `run_e_ext_1_500_41_41_11` |
-| `teb_b` | 3-D | `tapered_elliptic_bore_block` | `minor_axis_out` | `[0.12,0.18] ∪ [0.27,0.32]` | `[0.12,0.32]` | `teb_b_ext_1_500_21_21_11` |
-| `bad_a` | 3-D | `bent_annular_duct` | `bend_angle_deg` | `[20,45] ∪ [65,90]` | `[25,85]` | `bad_a_ext_1_500_21_21_11` |
-| `lad_a` | 3-D | `lobed_annular_duct` | `amplitude` | `[0.02,0.08] ∪ [0.12,0.18]` | `[0.04,0.16]` | `lad_a_ext_1_500_21_21_11` |
-| `srt_r` | 3-D | `square_to_round_transition` | `outlet_radius` | `[0.58,0.68] ∪ [0.80,0.90]` | `[0.55,0.92]` | `srt_r_ext_1_500_21_21_11` |
-| `sad_c` | 3-D | `variable_area_s_duct` | `area_ratio_out` | `[0.60,0.82] ∪ [1.08,1.30]` | `[0.55,1.35]` | `sad_c_ext_1_500_21_21_11` |
-| `tbp_a` | 3-D | `twisted_blade_passage` | `twist_angle_deg` | `[0,30] ∪ [60,90]` | `[0,90]` | `tbp_a_ext_1_500_21_21_11` |
+| `cah_t` | 3-D | `cylindrical_domain_with_airfoil_hole` | `thickness` | `[0.06,0.15] ∪ [0.25,0.35]` | `[0.08,0.34]` | `cah_t_ext_2_500_21_21_11` |
+| `swb_a` | 3-D | `sidewall_deformed_block` | `sidewall_amplitude` | `[0.03,0.10] ∪ [0.20,0.30]` | `[0.04,0.30]` | `swb_a_ext_2_500_21_21_11` |
+| `run_e` | 3-D | `rounded_u_notch_extrusion` | `depth` | `[0.55,1.00] ∪ [1.30,1.50]` | `[0.55,1.50]` | `run_e_ext_2_500_41_41_11` |
+| `teb_b` | 3-D | `tapered_elliptic_bore_block` | `minor_axis_out` | `[0.12,0.18] ∪ [0.27,0.32]` | `[0.12,0.32]` | `teb_b_ext_2_500_21_21_11` |
+| `bad_a` | 3-D | `bent_annular_duct` | `bend_angle_deg` | `[20,45] ∪ [65,90]` | `[25,85]` | `bad_a_ext_2_500_21_21_11` |
+| `lad_a` | 3-D | `lobed_annular_duct` | `amplitude` | `[0.02,0.08] ∪ [0.12,0.18]` | `[0.04,0.16]` | `lad_a_ext_2_500_21_21_11` |
+| `srt_r` | 3-D | `square_to_round_transition` | `outlet_radius` | `[0.58,0.68] ∪ [0.80,0.90]` | `[0.55,0.92]` | `srt_r_ext_2_500_21_21_11` |
+| `sad_c` | 3-D | `variable_area_s_duct` | `area_ratio_out` | `[0.60,0.82] ∪ [1.08,1.30]` | `[0.55,1.35]` | `sad_c_ext_2_500_21_21_11` |
+| `tbp_a` | 3-D | `twisted_blade_passage` | `twist_angle_deg` | `[0,30] ∪ [60,90]` | `[0,90]` | `tbp_a_ext_2_500_21_21_11` |
 
 ## 外推区间审计
 

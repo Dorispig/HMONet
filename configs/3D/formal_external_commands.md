@@ -6,7 +6,7 @@
 
 补充核验：run_e在81×81×11下，1.52与1.55的端面及PDE体网格均通过本次局部合法性检查，翻转单元数均为0；41×41×11的已知凹单元仍如实保留。详见[规模和耗时报告](../../reports/validation/pde_caps_3d/grid_scale_review.md)。
 
-九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。所有新数据集名称版本为1，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
+九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。三维新数据集名称版本为2，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
 
 默认评估体网格和z_mid；仅截面追加`--no-volume-evaluation --middle-sections z_mid`，全部截面追加`--middle-sections all`。run_e示例采用当前默认41×41×11；该规模在深凹评估参数下有已知非法单元，详见下方说明。
 
@@ -14,31 +14,31 @@
 
 ```powershell
 # cylindrical_domain_with_airfoil_hole (cah_t)
-python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.06 0.38 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.06 0.38 --seed 20261030 --run-tag v1
 
 # sidewall_deformed_block (swb_a)
-python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --seed 20261030 --run-tag v1
 
 # rounded_u_notch_extrusion (run_e)
-python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_1_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 1.52 1.55 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_2_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 1.52 1.55 --seed 20261030 --run-tag v1
 
 # tapered_elliptic_bore_block (teb_b)
-python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.08 0.36 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.08 0.36 --seed 20261030 --run-tag v1
 
 # bent_annular_duct (bad_a)
-python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 10 105 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 10 105 --seed 20261030 --run-tag v1
 
 # lobed_annular_duct (lad_a)
-python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 0.2 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 0.2 --seed 20261030 --run-tag v1
 
 # square_to_round_transition (srt_r)
-python scripts/train/train_evaluate.py --dimension 3 --dataset srt_r_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.52 0.96 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset srt_r_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.52 0.96 --seed 20261030 --run-tag v1
 
 # variable_area_s_duct (sad_c)
-python scripts/train/train_evaluate.py --dimension 3 --dataset sad_c_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.5 1.42 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset sad_c_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.5 1.42 --seed 20261030 --run-tag v1
 
 # twisted_blade_passage (tbp_a)
-python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 100 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 100 --seed 20261030 --run-tag v1
 
 ```
 

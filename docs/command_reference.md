@@ -65,7 +65,7 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset-mode both --model
 
 ```bash
 python src/data/generation/make_dataset_parametric_2d.py --family circle_airfoil_t --split extrapolation --version 1 --size 500 --grid-shape 21x21 --parameter-range 0.055 0.6
-python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 1 --size 500 --grid-shape 11x21x11
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 2 --size 500 --grid-shape 11x21x11
 python -m unittest discover -s tests -p "test_*.py" -v
 python -m pytest tests -q
 tensorboard --logdir outputs/training --port 6006

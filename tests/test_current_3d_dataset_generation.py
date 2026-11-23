@@ -29,7 +29,7 @@ class TestCurrent3DDatasetGeneration:
             "twisted_blade_passage",
         ]
         assert [item[1] for item in SELECTED_DATASETS] == ["extrapolation"] * 9
-        assert [item[2] for item in SELECTED_DATASETS] == [1] * 9
+        assert [item[2] for item in SELECTED_DATASETS] == [2] * 9
         expected = [(41, 41, 11) if item[0] == "rounded_u_notch_extrusion" else (21, 21, 11)
                     for item in SELECTED_DATASETS]
         assert [item[3:] for item in SELECTED_DATASETS] == expected

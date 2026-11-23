@@ -1,6 +1,3 @@
-# 当前九类默认训练规模：run_e=41x41x11，其余=21x21x11。
-# 默认评估规模统一为41x41x11、81x81x11；旧case仅保留以支持已有数据。
-# 九类均使用独立PDE端面；名称版本1，geometry_revision=3。
 stop_on_error: false
 cases:
   cah_t_ext_1_500_11_21_11:
@@ -848,17 +845,516 @@ cases:
     - - 81
       - 81
       - 11
+  cah_t_ext_2_500_21_21_11:
+    boundary: cylindrical_domain_with_airfoil_hole
+    fixed_parameters:
+      outer_radius: 1.5
+      chord: 1.0
+      camber: 0.02
+      camber_position: 0.4
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: thickness
+    values:
+    - 0.06
+    - 0.38
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  cah_t_int_2_500_21_21_11:
+    boundary: cylindrical_domain_with_airfoil_hole
+    fixed_parameters:
+      outer_radius: 1.5
+      chord: 1.0
+      camber: 0.02
+      camber_position: 0.4
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: thickness
+    values:
+    - 0.18
+    - 0.2
+    - 0.22
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  swb_a_ext_2_500_21_21_11:
+    boundary: sidewall_deformed_block
+    fixed_parameters:
+      length_x: 3.0
+      width_y: 2.0
+      length_z: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: sidewall_amplitude
+    values:
+    - 0.02
+    - 0.34
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  swb_a_int_2_500_21_21_11:
+    boundary: sidewall_deformed_block
+    fixed_parameters:
+      length_x: 3.0
+      width_y: 2.0
+      length_z: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: sidewall_amplitude
+    values:
+    - 0.13
+    - 0.15
+    - 0.17
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  run_e_ext_2_500_41_41_11:
+    boundary: rounded_u_notch_extrusion
+    fixed_parameters:
+      width: 3.0
+      height: 2.0
+      notch_width: 0.9
+      radius: 0.25
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: depth
+    values:
+    - 1.52
+    - 1.55
+    grid_shape:
+    - 41
+    - 41
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  run_e_int_2_500_41_41_11:
+    boundary: rounded_u_notch_extrusion
+    fixed_parameters:
+      width: 3.0
+      height: 2.0
+      notch_width: 0.9
+      radius: 0.25
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: depth
+    values:
+    - 1.1
+    - 1.15
+    - 1.2
+    grid_shape:
+    - 41
+    - 41
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  teb_b_ext_2_500_21_21_11:
+    boundary: tapered_elliptic_bore_block
+    fixed_parameters:
+      inner_major_axis: 0.32
+      inner_minor_axis_in: 0.18
+      outer_half_width: 1.5
+      outer_half_height: 1.0
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: minor_axis_out
+    values:
+    - 0.08
+    - 0.36
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  teb_b_int_2_500_21_21_11:
+    boundary: tapered_elliptic_bore_block
+    fixed_parameters:
+      inner_major_axis: 0.32
+      inner_minor_axis_in: 0.18
+      outer_half_width: 1.5
+      outer_half_height: 1.0
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: minor_axis_out
+    values:
+    - 0.21
+    - 0.225
+    - 0.24
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  bad_a_ext_2_500_21_21_11:
+    boundary: bent_annular_duct
+    fixed_parameters:
+      inner_radius: 0.25
+      outer_radius: 0.6
+      bend_radius: 3.0
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: bend_angle_deg
+    values:
+    - 10.0
+    - 105.0
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  bad_a_int_2_500_21_21_11:
+    boundary: bent_annular_duct
+    fixed_parameters:
+      inner_radius: 0.25
+      outer_radius: 0.6
+      bend_radius: 3.0
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: bend_angle_deg
+    values:
+    - 50.0
+    - 55.0
+    - 60.0
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  lad_a_ext_2_500_21_21_11:
+    boundary: lobed_annular_duct
+    fixed_parameters:
+      inner_radius: 0.35
+      outer_radius: 1.0
+      lobes: 5
+      phase_twist_deg: 45.0
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: amplitude
+    values:
+    - 0.0
+    - 0.2
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  lad_a_int_2_500_21_21_11:
+    boundary: lobed_annular_duct
+    fixed_parameters:
+      inner_radius: 0.35
+      outer_radius: 1.0
+      lobes: 5
+      phase_twist_deg: 45.0
+      length: 2.5
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: amplitude
+    values:
+    - 0.09
+    - 0.1
+    - 0.11
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  srt_r_ext_2_500_21_21_11:
+    boundary: square_to_round_transition
+    fixed_parameters:
+      inlet_half_width: 1.0
+      inlet_half_height: 0.75
+      length: 3.0
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: outlet_radius
+    values:
+    - 0.52
+    - 0.96
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  srt_r_int_2_500_21_21_11:
+    boundary: square_to_round_transition
+    fixed_parameters:
+      inlet_half_width: 1.0
+      inlet_half_height: 0.75
+      length: 3.0
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: outlet_radius
+    values:
+    - 0.72
+    - 0.74
+    - 0.76
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  sad_c_ext_2_500_21_21_11:
+    boundary: variable_area_s_duct
+    fixed_parameters:
+      inlet_half_width: 0.55
+      inlet_half_height: 0.4
+      centerline_offset: 0.25
+      length: 3.2
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: area_ratio_out
+    values:
+    - 0.5
+    - 1.42
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  sad_c_int_2_500_21_21_11:
+    boundary: variable_area_s_duct
+    fixed_parameters:
+      inlet_half_width: 0.55
+      inlet_half_height: 0.4
+      centerline_offset: 0.25
+      length: 3.2
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: area_ratio_out
+    values:
+    - 0.9
+    - 0.95
+    - 1.0
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  tbp_a_ext_2_500_21_21_11:
+    boundary: twisted_blade_passage
+    fixed_parameters:
+      chord: 2.0
+      pitch: 1.0
+      height: 1.5
+      camber_amplitude: 0.22
+      blade_thickness: 0.12
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: twist_angle_deg
+    values:
+    - 0.0
+    - 100.0
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
+  tbp_a_int_2_500_21_21_11:
+    boundary: twisted_blade_passage
+    fixed_parameters:
+      chord: 2.0
+      pitch: 1.0
+      height: 1.5
+      camber_amplitude: 0.22
+      blade_thickness: 0.12
+      z_min: 0.0
+      cap_nx: 201
+      cap_ny: 201
+      cap_max_iter: 1000
+      cap_tolerance: 1.0e-10
+    parameter: twist_angle_deg
+    values:
+    - 40.0
+    - 45.0
+    - 50.0
+    grid_shape:
+    - 21
+    - 21
+    - 11
+    grid_shapes:
+    - - 41
+      - 41
+      - 11
+    - - 81
+      - 81
+      - 11
 evaluation:
   default_cases:
-  - cah_t_ext_1_500_21_21_11
-  - swb_a_ext_1_500_21_21_11
-  - run_e_ext_1_500_41_41_11
-  - teb_b_ext_1_500_21_21_11
-  - bad_a_ext_1_500_21_21_11
-  - lad_a_ext_1_500_21_21_11
-  - srt_r_ext_1_500_21_21_11
-  - sad_c_ext_1_500_21_21_11
-  - tbp_a_ext_1_500_21_21_11
+  - cah_t_ext_2_500_21_21_11
+  - swb_a_ext_2_500_21_21_11
+  - run_e_ext_2_500_41_41_11
+  - teb_b_ext_2_500_21_21_11
+  - bad_a_ext_2_500_21_21_11
+  - lad_a_ext_2_500_21_21_11
+  - srt_r_ext_2_500_21_21_11
+  - sad_c_ext_2_500_21_21_11
+  - tbp_a_ext_2_500_21_21_11
   methods:
   - tfi
   - pde

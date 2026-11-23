@@ -20,7 +20,6 @@ from src.evaluation.quality_3d import surface_quad_quality_fields
 from src.metrics import evaluate_hexahedral_grid_quality
 from src.data.generation.dataset_naming import (
     build_dataset_name as build_canonical_dataset_name,
-    default_version_for_split,
     validate_version,
 )
 from src.data.generation.dataset_validation import (
@@ -149,19 +148,21 @@ for _specification in DATASET_FAMILIES.values():
     _specification['fixed_parameters'].update(
         cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-10)
 
+DEFAULT_DATASET_VERSION = 2
+
 SELECTED_DATASETS = [
     # The no-argument batch creates the nine current extrapolation sets.
     # Existing directories are reported and skipped; interpolation sets remain
     # explicit because each family uses two disjoint parameter intervals.
-    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 1, 21, 21, 11),
-    ("sidewall_deformed_block", "extrapolation", 1, 21, 21, 11),
-    ("rounded_u_notch_extrusion", "extrapolation", 1, 41, 41, 11),
-    ("tapered_elliptic_bore_block", "extrapolation", 1, 21, 21, 11),
-    ("bent_annular_duct", "extrapolation", 1, 21, 21, 11),
-    ("lobed_annular_duct", "extrapolation", 1, 21, 21, 11),
-    ("square_to_round_transition", "extrapolation", 1, 21, 21, 11),
-    ("variable_area_s_duct", "extrapolation", 1, 21, 21, 11),
-    ("twisted_blade_passage", "extrapolation", 1, 21, 21, 11),
+    ("cylindrical_domain_with_airfoil_hole", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("sidewall_deformed_block", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("rounded_u_notch_extrusion", "extrapolation", DEFAULT_DATASET_VERSION, 41, 41, 11),
+    ("tapered_elliptic_bore_block", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("bent_annular_duct", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("lobed_annular_duct", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("square_to_round_transition", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("variable_area_s_duct", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
+    ("twisted_blade_passage", "extrapolation", DEFAULT_DATASET_VERSION, 21, 21, 11),
 ]
 
 DEFAULT_GENERATION_OPTIONS = {
@@ -615,7 +616,7 @@ def generate_family_dataset(
         for value in values
     ]
     if version is None:
-        version = next((item[2] for item in SELECTED_DATASETS if item[0] == family), 1)
+        version = next((item[2] for item in SELECTED_DATASETS if item[0] == family), DEFAULT_DATASET_VERSION)
     version = validate_version(version)
     name = build_dataset_name(family, split, version, size, nx, ny, nz)
     print(f"Dataset: {name}", flush=True)
@@ -705,7 +706,7 @@ def generate_selected_datasets(selected=None, **kwargs):
     for item in selected:
         if len(item) == 2:
             family, split = item
-            selected_version = default_version_for_split(normalize_split(split))
+            selected_version = DEFAULT_DATASET_VERSION
             selected_shape = None
         elif len(item) == 3:
             family, split, selected_version = item
@@ -856,7 +857,7 @@ if __name__ == "__main__":
     if arguments.family is not None:
         family = resolve_family(arguments.family)
         revisions = {item[0]: item[2] for item in SELECTED_DATASETS}
-        common["version"] = revisions.get(family, 1) if arguments.version is None else arguments.version
+        common["version"] = revisions.get(family, DEFAULT_DATASET_VERSION) if arguments.version is None else arguments.version
         generate_family_dataset(family, arguments.split, **common)
         raise SystemExit(0)
     generate_selected_datasets(

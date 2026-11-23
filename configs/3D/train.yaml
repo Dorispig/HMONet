@@ -1,7 +1,7 @@
 ﻿# 三维训练配置。公共参数的默认值、排列顺序和注释与二维 train.yaml 保持一致。
 
 datasets:  # 当前正式三维训练数据集（生成后可直接使用）
-  extrapolation: data/raw/3D/swb_a_ext_1_500_21_21_11
+  extrapolation: data/raw/3D/swb_a_ext_2_500_21_21_11
   # 内插数据集生成后通过命令行 --dataset 显式指定。
 
 grid:  # 三维训练网格尺寸

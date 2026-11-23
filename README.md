@@ -83,19 +83,19 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset fca_a_ext_1_500_4
 
 ### 三维：九类外推数据集
 
-九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。所有新数据集名称版本为1，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
+九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。三维新数据集名称版本为2，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
 
 | 类别 | 生成族（简称） | 输出数据集 | 默认外推评估参数 |
 | --- | --- | --- | --- |
-| 3D-1 | `cylindrical_domain_with_airfoil_hole` (`cah_t`) | `cah_t_ext_1_500_21_21_11` | `0.06 0.38` |
-| 3D-2 | `sidewall_deformed_block` (`swb_a`) | `swb_a_ext_1_500_21_21_11` | `0.02 0.34` |
-| 3D-3 | `rounded_u_notch_extrusion` (`run_e`) | `run_e_ext_1_500_41_41_11` | `1.52 1.55` |
-| 3D-4 | `tapered_elliptic_bore_block` (`teb_b`, standard rectangle) | `teb_b_ext_1_500_21_21_11` | `0.08 0.36` |
-| 3D-5 | `bent_annular_duct` (`bad_a`) | `bad_a_ext_1_500_21_21_11` | `10 105` |
-| 3D-6 | `lobed_annular_duct` (`lad_a`) | `lad_a_ext_1_500_21_21_11` | `0 0.20` |
-| 3D-7 | `square_to_round_transition` (`srt_r`) | `srt_r_ext_1_500_21_21_11` | `0.52 0.96` |
-| 3D-8 | `variable_area_s_duct` (`sad_c`) | `sad_c_ext_1_500_21_21_11` | `0.50 1.42` |
-| 3D-9 | `twisted_blade_passage` (`tbp_a`) | `tbp_a_ext_1_500_21_21_11` | `0 100` |
+| 3D-1 | `cylindrical_domain_with_airfoil_hole` (`cah_t`) | `cah_t_ext_2_500_21_21_11` | `0.06 0.38` |
+| 3D-2 | `sidewall_deformed_block` (`swb_a`) | `swb_a_ext_2_500_21_21_11` | `0.02 0.34` |
+| 3D-3 | `rounded_u_notch_extrusion` (`run_e`) | `run_e_ext_2_500_41_41_11` | `1.52 1.55` |
+| 3D-4 | `tapered_elliptic_bore_block` (`teb_b`, standard rectangle) | `teb_b_ext_2_500_21_21_11` | `0.08 0.36` |
+| 3D-5 | `bent_annular_duct` (`bad_a`) | `bad_a_ext_2_500_21_21_11` | `10 105` |
+| 3D-6 | `lobed_annular_duct` (`lad_a`) | `lad_a_ext_2_500_21_21_11` | `0 0.20` |
+| 3D-7 | `square_to_round_transition` (`srt_r`) | `srt_r_ext_2_500_21_21_11` | `0.52 0.96` |
+| 3D-8 | `variable_area_s_duct` (`sad_c`) | `sad_c_ext_2_500_21_21_11` | `0.50 1.42` |
+| 3D-9 | `twisted_blade_passage` (`tbp_a`) | `tbp_a_ext_2_500_21_21_11` | `0 100` |
 
 先逐类生成训练数据：
 
@@ -104,15 +104,15 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset fca_a_ext_1_500_4
 再用三种显式网格规模完成训练和评估：
 
 ```powershell
-python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.06 0.38 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_1_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 1.52 1.55 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.08 0.36 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 10 105 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 0.20 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset srt_r_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.52 0.96 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset sad_c_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.50 1.42 --seed 20261030 --run-tag v1
-python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_1_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 100 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.06 0.38 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset run_e_ext_2_500_41_41_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 1.52 1.55 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset teb_b_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.08 0.36 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset bad_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 10 105 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset lad_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 0.20 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset srt_r_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.52 0.96 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset sad_c_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0.50 1.42 --seed 20261030 --run-tag v1
+python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_2_500_21_21_11 --models hmonet meshonet pimeshonet --grids 41x41x11 81x81x11 --values 0 100 --seed 20261030 --run-tag v1
 ```
 
 三维 `41x121x41` 的 PDE 基线和质量分析成本显著更高；显存或时长受限时，可先只保留前两个网格形状，后续只运行评估阶段补充最大规模。两维生成器都会拒绝同名目录；三维确需替换时才显式追加 `--force`。数据目录被 `.gitignore` 忽略，需要在本地生成或单独获取。
@@ -123,7 +123,7 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_1_500_2
 
 重新执行正式训练时会复用配置一致且已完整保存的模型。三个模型均齐备后，缺失的训练对比图和汇总会自动补到 `outputs/training/<维度>/<数据集>/comparison/`。三维评估默认计算体网格和 `z_mid`；仅评估 `z_mid` 用 `--no-volume-evaluation --middle-sections z_mid`，仅体网格用 `--middle-sections none`，全部开启用 `--volume-evaluation --middle-sections all`。已有匹配网格或缓存时，可使用 `--evaluate-only --analysis-only` 只补图片和分析，不重新推理或求解 PDE；该模式不能与 `--force` 同时使用。
 
-只生成训练对比图时，可运行 `python scripts/train/compare_training.py --dimension 3 --dataset swb_a_ext_1_500_21_21_11`，二维使用 `--dimension 2`。
+只生成训练对比图时，可运行 `python scripts/train/compare_training.py --dimension 3 --dataset swb_a_ext_2_500_21_21_11`，二维使用 `--dimension 2`。
 
 Linux 多 GPU 动态队列（每张卡完成当前模型的训练和评估后领取下一项）：
 

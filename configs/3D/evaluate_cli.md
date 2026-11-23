@@ -2,12 +2,12 @@
 
 三维评估入口为 `scripts/evaluate/evaluate_3d.py`，与二维使用同样的 `--case`、`--grids`、`--values` 规则。完整正式流程见 [三维训练—评估说明](train_evaluate_cli.md)。
 
-当前九类边界使用新的 PDE 端面参数化。仅评估时也会核对 checkpoint 中的 `dataset_geometry`（边界族、几何修订号、端面和侧面方案）。旧参数面训练的模型不能直接用于新参数面；需要重新生成数据并重新训练三个模型，不能通过重命名权重绕过。数据集名称的版本号仍可为 1，与内部几何修订号不是同一个概念。
+当前九类边界使用新的 PDE 端面参数化。仅评估时也会核对 checkpoint 中的 `dataset_geometry`（边界族、几何修订号、端面和侧面方案）。旧参数面训练的模型不能直接用于新参数面；需要重新生成数据并重新训练三个模型，不能通过重命名权重绕过。三维数据集名称默认版本为 2，内部几何修订号仍为 3；实验标签 `--run-tag v1` 与数据集版本相互独立。
 
 ## 统一简写
 
 ~~~powershell
-python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_2_500_21_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34
 ~~~
 
 每个显式 `--grids` 参数均按 `n_x×n_y×n_z` 书写：`--grids 11x31x11 21x61x21` 表示两个非立方网格。纯数字 `--grids 21 31` 自动展开为 `21×21×21`、`31×31×31`，适合立方尺度扫描。旧式逗号写法 `--grid-shapes 11x31x11,21x61x21` 仍兼容，且不能与 `--grids` 同时使用。
@@ -16,16 +16,16 @@ python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods
 
 ~~~powershell
 # 指定 HMONet checkpoint
-python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods tfi,pde,hmonet --hmonet-checkpoint outputs/checkpoints/3D/<checkpoint>/best.pt --grids 41x41x11 81x81x11 --values 0.02 0.34
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_2_500_21_21_11 --methods tfi,pde,hmonet --hmonet-checkpoint outputs/checkpoints/3D/<checkpoint>/best.pt --grids 41x41x11 81x81x11 --values 0.02 0.34
 
 # 强制重新评估
-python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --force
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_2_500_21_21_11 --methods tfi,pde,hmonet,meshonet,pimeshonet --grids 41x41x11 81x81x11 --values 0.02 0.34 --force
 
 # 输出指定质量图
-python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods tfi,pde,hmonet --grids 31 --values 0.02 --quality-plots minimum_scaled_jacobian center_condition_number
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_2_500_21_21_11 --methods tfi,pde,hmonet --grids 31 --values 0.02 --quality-plots minimum_scaled_jacobian center_condition_number
 
 # 仅计算 z 中截面的二维四边形质量，附加最大角质量图
-python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods tfi,pde,hmonet --grids 41x41x11 81x81x11 --values 0.02 --no-volume-evaluation --middle-sections z_mid --quality-plots max_angle
+python scripts/evaluate/evaluate_3d.py --case swb_a_ext_2_500_21_21_11 --methods tfi,pde,hmonet --grids 41x41x11 81x81x11 --values 0.02 --no-volume-evaluation --middle-sections z_mid --quality-plots max_angle
 ~~~
 
 | 参数 | 作用 |
@@ -49,9 +49,9 @@ python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_21_21_11 --methods
 
 ```powershell
 # 默认：体网格 + z_mid
-python scripts/evaluate/evaluate_3d.py --case cah_t_ext_1_500_21_21_11 --methods tfi,pde --grids 41x41x11 81x81x11 --volume-evaluation --middle-sections z_mid
+python scripts/evaluate/evaluate_3d.py --case cah_t_ext_2_500_21_21_11 --methods tfi,pde --grids 41x41x11 81x81x11 --volume-evaluation --middle-sections z_mid
 # 只算 z_mid，跳过昂贵的体网格质量计算
-python scripts/evaluate/evaluate_3d.py --case cah_t_ext_1_500_21_21_11 --methods tfi,pde --grids 41x81x41 --no-volume-evaluation --middle-sections z_mid
+python scripts/evaluate/evaluate_3d.py --case cah_t_ext_2_500_21_21_11 --methods tfi,pde --grids 41x81x41 --no-volume-evaluation --middle-sections z_mid
 # 只算体网格：--volume-evaluation --middle-sections none
 # 只算 x_mid 与 y_mid：--no-volume-evaluation --middle-sections x_mid y_mid
 # 四项全开：--volume-evaluation --middle-sections all
@@ -79,7 +79,7 @@ python scripts/evaluate/evaluate_3d.py --help
 三维使用同一脚本和目录规则；`--grids` 保持 `n_x×n_y×n_z`：
 
 ~~~powershell
-python scripts/evaluate/generate_dataset_comparison_figures.py --dimension 3 --dataset swb_a_ext_1_500_21_21_11 --grids 41x41x11 81x81x11 --values 0.02 0.34 --quality-metrics all --idw-chunk-size 256
+python scripts/evaluate/generate_dataset_comparison_figures.py --dimension 3 --dataset swb_a_ext_2_500_21_21_11 --grids 41x41x11 81x81x11 --values 0.02 0.34 --quality-metrics all --idw-chunk-size 256
 ~~~
 
 每个体网格质量指标同样输出六张五方法柱状图：`raw/direct/IDW × mean/worst`，顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet。推理时间图中 MeshONet 与 PI-MeshONet 在单个横轴位置重叠显示 raw、raw+direct、raw+IDW 三种总耗时。三维全局 IDW 需要计算所有内部点到边界面的距离，计算量明显高于二维；可通过 `--idw-chunk-size` 控制内存，通过 `--timing-repeats` 控制计时重复次数。输出位于 `outputs/results/3D/<数据集>/<网格>/<参数>/summary_comparisons/`。
