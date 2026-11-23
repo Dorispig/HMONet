@@ -45,9 +45,6 @@ from src.data.backend.parametric_torch import (
 # from .utils import helper_function
 import src.models.modules as modules
 from src.models.inference_optimizations import fuse_coordinates
-from src.models.stencil_projection import (
-    can_reuse_central_projections, central_stencil_faces, central_stencil_edges,
-)
 from src.models.mapping_modes import (
     COONS_RESIDUAL,
     CORNER_CORRECTED_AFFINE,
@@ -1636,7 +1633,7 @@ class HMONet3D(_OperatorNet3D):
 
     def evaluate_corner_corrected_points(
         self, p_x, p_y, p_z, xi, eta, zeta, raw, coefficients,
-        boundary_geometry=None, central_stencil=False,
+        boundary_geometry=None,
     ):
         """Six-face, twelve-edge, eight-corner extension of scheme B."""
         unbatched = xi.dim() == 1
@@ -1658,15 +1655,9 @@ class HMONet3D(_OperatorNet3D):
         dx, dy, dz = (1 - xi, xi), (1 - eta, eta), (1 - zeta, zeta)
         beta = 32 * qx * qy * qz  # 64*qx*qy*qz*a0, a0 = 1/2.
 
-        reuse = central_stencil and can_reuse_central_projections(
-            boundary_geometry, xi, eta, zeta
-        )
-        faces = (
-            central_stencil_faces(boundary_geometry, xi, eta, zeta)
-            if reuse else self.project(
-                p_x, p_y, p_z, xi, eta, zeta,
-                boundary_geometry=boundary_geometry,
-            )
+        faces = self.project(
+            p_x, p_y, p_z, xi, eta, zeta,
+            boundary_geometry=boundary_geometry,
         )
         if xi.device.type == "cpu":
             # Scalar accumulation avoids large temporary weight tensors on CPU.
@@ -1683,36 +1674,33 @@ class HMONet3D(_OperatorNet3D):
 
         # Evaluate each shared edge and corner from one incident exact face.
         # Compatible parameter surfaces must agree on those intersections.
-        if reuse:
-            edges = central_stencil_edges(boundary_geometry, xi, eta, zeta)
-        else:
-            edge_queries = (
-                (zero, zero, zeta), (one, zero, zeta),
-                (zero, one, zeta), (one, one, zeta),
-                (zero, eta, zero), (one, eta, zero),
-                (zero, eta, one), (one, eta, one),
-                (xi, zero, zero), (xi, one, zero),
-                (xi, zero, one), (xi, one, one),
+        edge_queries = (
+            (zero, zero, zeta), (one, zero, zeta),
+            (zero, one, zeta), (one, one, zeta),
+            (zero, eta, zero), (one, eta, zero),
+            (zero, eta, one), (one, eta, one),
+            (xi, zero, zero), (xi, one, zero),
+            (xi, zero, one), (xi, one, one),
+        )
+        queries = torch.cat([torch.stack(q, -1) for q in edge_queries], dim=1)
+        face_ids = torch.tensor(
+            [0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 2, 3], device=xi.device
+        ).repeat_interleave(xi.shape[1])
+        if boundary_geometry is not None:
+            # Each shared edge has one selected incident exact face.  Calling
+            # ``project`` here would evaluate all six faces at all 12N edge
+            # queries, even though five results per query are discarded.
+            values = evaluate_selected_boundary_surfaces_torch(
+                boundary_geometry, *queries.unbind(-1), face_ids
             )
-            queries = torch.cat([torch.stack(q, -1) for q in edge_queries], dim=1)
-            face_ids = torch.tensor(
-                [0, 1, 0, 1, 0, 1, 0, 1, 2, 3, 2, 3], device=xi.device
-            ).repeat_interleave(xi.shape[1])
-            if boundary_geometry is not None:
-                # Each shared edge has one selected incident exact face.  Calling
-                # ``project`` here would evaluate all six faces at all 12N edge
-                # queries, even though five results per query are discarded.
-                values = evaluate_selected_boundary_surfaces_torch(
-                    boundary_geometry, *queries.unbind(-1), face_ids
-                )
-            else:
-                values = self.project(
-                    p_x, p_y, p_z, *queries.unbind(-1),
-                    boundary_geometry=None,
-                ).gather(
-                    2, face_ids[None, :, None, None].expand(xi.shape[0], -1, 1, 3)
-                ).squeeze(2)
-            edges = values.reshape(xi.shape[0], 12, xi.shape[1], 3).transpose(1, 2)
+        else:
+            values = self.project(
+                p_x, p_y, p_z, *queries.unbind(-1),
+                boundary_geometry=None,
+            ).gather(
+                2, face_ids[None, :, None, None].expand(xi.shape[0], -1, 1, 3)
+            ).squeeze(2)
+        edges = values.reshape(xi.shape[0], 12, xi.shape[1], 3).transpose(1, 2)
         if xi.device.type == "cpu":
             edge_part = sum(
                 (ax[i] * ay[j])[..., None] * edges[..., j * 2 + i, :]
@@ -1775,9 +1763,8 @@ class HMONet3D(_OperatorNet3D):
         zeta,
         return_displacement=False,
         boundary_geometry=None,
-        central_stencil=False,
     ):
-        """Map queries; central_stencil explicitly identifies ordered 19-point FD queries."""
+        """Map queries with six exact surfaces or interpolated sampled faces."""
         if (
             self.training
             and hasattr(boundary_geometry, "project_torch")
@@ -1810,7 +1797,6 @@ class HMONet3D(_OperatorNet3D):
             result = self.evaluate_corner_corrected_points(
                 p_x, p_y, p_z, xi, eta, zeta, raw, coefficients,
                 boundary_geometry=boundary_geometry,
-                central_stencil=central_stencil,
             )
             displacement = torch.zeros_like(result)
         else:

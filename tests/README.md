@@ -3,29 +3,6 @@
 The project test suite uses `pytest`. Run every command below from the project
 root after activating the project environment.
 
-CCAP central-stencil projection reuse (CPU/CUDA, float32/float64, output,
-PDE loss, parameter gradients and coordinate-autograd fallback):
-
-```bash
-python -m pytest tests/test_stencil_projection.py tests/test_selected_surface_projection.py
-```
-
-To verify real serialized PDE-cap boundaries and compare complete training
-updates against MeshONet and PI-MeshONet, use actual dataset directories:
-
-```bash
-python scripts/benchmark/benchmark_ccap_stencil.py --validate-datasets data/raw/3D/teb_b_ext_2_500_21_21_11 --dataset data/raw/3D/teb_b_ext_2_500_21_21_11 --batch-size 64 --points 400 --repeats 10 --output reports/validation/ccap_stencil.json
-```
-
-`--validate-datasets` accepts multiple directories, including all nine families.
-It checks the first and last stored samples with three random seeds in both
-float32 and float64. Timing uses the dataset's grid shape; smaller datasets are
-cycled to fill the requested batch and restored into independent geometry
-objects. The script uses each model's formal training objective
-(HMONet: normalized PDE; MeshONet: supervised interior/boundary MSE;
-PI-MeshONet: PDE/boundary losses), including backward, clipping and Adam.
-No training configuration, dataset, checkpoint or evaluation result is replaced.
-
 Dataset/3-D evaluation regression checks (no trained checkpoints required):
 
 ```bash
