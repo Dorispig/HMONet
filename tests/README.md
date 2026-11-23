@@ -101,6 +101,8 @@ python -m pytest --collect-only -q
 - CUDA-specific assertions must check device availability and retain a CPU
   path whenever the tested operation supports CPU execution.
 
-GPU数据生成回归：`python -m pytest tests/test_gpu_dataset_generation.py -q`。包含CPU参考数值对照、真实CUDA数值对照和双设备队列模拟；没有CUDA时跳过真实GPU测试。双设备模拟不等于真实多卡硬件验证。
+GPU数据生成回归：`python -m pytest tests/test_gpu_dataset_generation.py -q`。包含CPU参考数值对照、真实CUDA数值对照、数据集级任务构建和日志核验；没有CUDA时跳过真实GPU测试。双设备模拟不等于真实多卡硬件验证。
 
-三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。首次使用安装 `python -m pip install -r requirements-gpu-generation.txt`；CPU 仍为默认，不需要此依赖。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+
+数据集级 GPU 调度和日志回归：`python -m pytest tests/test_gpu_dataset_generation.py tests/test_dataset_batch_command.py tests/test_gpu_queue.py -q`。

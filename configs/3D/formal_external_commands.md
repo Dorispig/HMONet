@@ -10,7 +10,25 @@
 
 默认评估体网格和z_mid；仅截面追加`--no-volume-evaluation --middle-sections z_mid`，全部截面追加`--middle-sections all`。run_e示例采用当前默认41×41×11；该规模在深凹评估参数下有已知非法单元，详见下方说明。
 
-生成命令见[data/3D/generation_commands.md](../../data/3D/generation_commands.md)。
+## 先生成数据集
+
+九类外推数据集使用四张 GPU 动态生成，一张 GPU 完整生成一个数据集，完成校验与保存后才领取下一个；已有完整数据集跳过：
+
+```powershell
+python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw --queue-log-root outputs/gpu_queue/generation
+```
+
+CPU 生成仍可使用：
+
+```powershell
+python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
+```
+
+GPU 进度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`：默认仅前三个样本记录耗时，之后每跨过 10% 记录总体进度，终端显示任务开始、完成、跳过及异常。单类生成、指定参数范围、内插和部分数据集批量命令见[三维生成命令](../../data/3D/generation_commands.md)。
+
+## 训练与评估
+
+下面命令按数据集训练和评估三个模型；训练的 `--gpus` 调度与上面的数据集生成队列相互独立。
 
 ```powershell
 # cylindrical_domain_with_airfoil_hole (cah_t)
@@ -50,6 +68,8 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_2_500_2
 
 run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及体网格通过；评估参数1.52、1.55的PDE体网格分别存在16、20个翻转单元，1.55的两个端面各有2个内凹四边形。数据集生成会拦截非法端面；评估会正常记录网格质量，不能把求解收敛或评估结束当作网格合法。61×21×11的通过记录保留在核验报告中。
 
-三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](../../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用数据集级多GPU生成；完整参数和示例见[三维生成说明](../../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
 
-三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。首次使用安装 `python -m pip install -r requirements-gpu-generation.txt`；CPU 仍为默认，不需要此依赖。完整 CPU/多 GPU 命令见 [生成命令](../../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+
+GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。

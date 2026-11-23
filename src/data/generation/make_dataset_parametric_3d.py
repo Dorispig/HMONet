@@ -27,6 +27,7 @@ from src.data.generation.dataset_validation import (
     save_quality_audit,
     warn_saved_dataset,
 )
+from src.data.generation.generation_logging import log_gpu_generation
 
 
 
@@ -421,6 +422,7 @@ def validate_existing_dataset(path):
             'Existing files were preserved.')
 
 
+@log_gpu_generation
 def generate_dataset(
     name,
     boundary_type,
@@ -435,6 +437,7 @@ def generate_dataset(
     overwrite=False,
     solver_backend="cpu",
     gpus=None,
+    queue_log_root=None,
 ):
     """Generate matching parameter surfaces, boundary samples, and PDE meshes."""
     if isinstance(workers, bool) or int(workers) != workers or int(workers) < 1:
@@ -450,7 +453,7 @@ def generate_dataset(
             validate_existing_dataset(out)
         print(f"[skip] Dataset already exists: {out}", flush=True)
         return out
-    from src.data.generation.gpu_samples import validate_gpu_options, gpu_sample_map
+    from src.data.generation.gpu_datasets import validate_gpu_options
     gpu_ids = validate_gpu_options(solver_backend, gpus)
     parameters = list(parameters)
     if not parameters:
@@ -479,10 +482,10 @@ def generate_dataset(
         )
         for sample_index, params in enumerate(parameters)
     ]
-    progress_interval = max(1, len(parameters) // 10)
-    def collect(results, indexed=False):
+    def collect(results):
+        last_progress_bucket = 0
         for completed, item in enumerate(results, start=1):
-            sample_index, result = item if indexed else (completed-1,item)
+            sample_index, result = completed-1, item
             geometry, exact, mesh, info, elapsed = result
             geoms[sample_index] = geometry
             boundary_samples[sample_index] = exact
@@ -493,7 +496,9 @@ def generate_dataset(
                     f"Sample {sample_index + 1}/{len(parameters)}: {elapsed:.6f} s",
                     flush=True,
                 )
-            if completed % progress_interval == 0 or completed == len(parameters):
+            progress_bucket = completed * 10 // len(parameters)
+            if progress_bucket > last_progress_bucket:
+                last_progress_bucket = progress_bucket
                 print(
                     f"Progress: {completed}/{len(parameters)} "
                     f"({100.0 * completed / len(parameters):.0f}%)",
@@ -501,9 +506,14 @@ def generate_dataset(
                 )
 
     if solver_backend == 'cuda':
-        from contextlib import closing
-        with closing(gpu_sample_map(_solve_dataset_sample_3d,payloads,gpu_ids)) as results:
-            collect(results, indexed=True)
+        import torch
+        torch.cuda.set_device(gpu_ids[0])
+        torch.set_num_threads(1)
+        print(f'Complete dataset assigned to GPU {gpu_ids[0]}; {len(payloads)} sequential samples.', flush=True)
+        if len(gpu_ids) > 1:
+            print('Only one dataset requested here; remaining GPUs are unused. Use the batch entry point for dataset parallelism.', flush=True)
+        solver_options = dict(solver_backend='cuda', device=f'cuda:{gpu_ids[0]}')
+        collect(_solve_dataset_sample_3d(payload, solver_options) for payload in payloads)
     elif workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             collect(pool.map(_solve_dataset_sample_3d, payloads, chunksize=1))
@@ -565,8 +575,9 @@ def generate_dataset(
         "workers": workers,
         "solver_backend": solver_backend,
         "linear_solver": "cudss_lu" if solver_backend == "cuda" else "scipy_spsolve",
-        "gpus": gpu_ids,
-        "gpu_worker_count": len(gpu_ids),
+        "gpus": gpu_ids[:1],
+        "gpu_worker_count": 1 if solver_backend == 'cuda' else 0,
+        "gpu_task_scope": "complete_dataset" if solver_backend == 'cuda' else None,
         "quality_check_scope": scope,
         "illegal_samples": audit["illegal_samples"],
         "extreme_grid_legality_checks": extreme_legality_checks,
@@ -613,6 +624,7 @@ def generate_family_dataset(
     parameter_ranges=None,
     solver_backend="cpu",
     gpus=None,
+    queue_log_root=None,
 ):
     """Generate one registered dataset family and split."""
     if family not in DATASET_FAMILIES:
@@ -649,7 +661,7 @@ def generate_family_dataset(
     print(f"Training ranges: {requested_ranges}", flush=True)
     print(f"Size: {size}; grid: {nx}x{ny}x{nz}", flush=True)
     if solver_backend == 'cuda':
-        print(f"PDE backend: cuDSS direct CUDA float64; GPUs: {gpus if gpus is not None else [0]}; one sample per GPU", flush=True)
+        print(f"PDE backend: cuDSS direct CUDA float64; one complete dataset per GPU", flush=True)
     else:
         print(f"PDE backend: CPU; workers: {workers}", flush=True)
     return generate_dataset(
@@ -684,6 +696,7 @@ def generate_family_dataset(
         overwrite=overwrite,
         solver_backend=solver_backend,
         gpus=gpus,
+        queue_log_root=queue_log_root,
     )
 
 
@@ -724,7 +737,7 @@ def generate_twisted_blade_passage_dataset(split, **kwargs):
 
 
 def generate_selected_datasets(selected=None, **kwargs):
-    """Validate all selected jobs, then generate them sequentially."""
+    """Validate/skip jobs; CPU sequential datasets or whole-dataset GPU queue."""
     selected = SELECTED_DATASETS if selected is None else list(selected)
     if not selected:
         raise ValueError("SELECTED_DATASETS is empty")
@@ -784,6 +797,9 @@ def generate_selected_datasets(selected=None, **kwargs):
         names.add(name)
         jobs.append((family, split, version, *shape))
 
+    if kwargs.get('solver_backend', 'cpu') == 'cuda':
+        from src.data.generation.gpu_datasets import run_registered_gpu_datasets
+        return run_registered_gpu_datasets(jobs, **kwargs)
     outputs = []
     for family, split, version, nx, ny, nz in jobs:
         generation_kwargs = {
@@ -818,6 +834,7 @@ if __name__ == "__main__":
     parser.add_argument("--version", type=int, default=None)
     parser.add_argument('--solver-backend', choices=('cpu','cuda'), default=DEFAULT_GENERATION_OPTIONS['solver_backend'])
     parser.add_argument('--gpus', type=int, nargs='+', default=DEFAULT_GENERATION_OPTIONS['gpus'], help='CUDA-visible indices; requires --solver-backend cuda')
+    parser.add_argument('--queue-log-root', type=Path, help='GPU logs root; default outputs/gpu_queue/generation')
     parser.add_argument("--size", type=int, default=DEFAULT_GENERATION_OPTIONS["size"])
     parser.add_argument("--nx", type=int)
     parser.add_argument("--ny", type=int)
@@ -886,6 +903,7 @@ if __name__ == "__main__":
         parameter_ranges=arguments.parameter_ranges,
         solver_backend=arguments.solver_backend,
         gpus=arguments.gpus,
+        queue_log_root=arguments.queue_log_root,
     )
     if arguments.family is not None:
         family = resolve_family(arguments.family)

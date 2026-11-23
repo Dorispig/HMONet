@@ -1,8 +1,10 @@
 # 3D 九类数据集生成命令（内插与外推）
 
-在项目根目录运行，九类边界的外推、内插各提供 CPU 和多 GPU 两种完整命令，共36条单类命令，另附批量命令。命令显式给出样本数、节点规模、版本、参数范围及求解设置。
+在项目根目录运行，九类边界的外推、内插各提供 CPU 和单 GPU 两种完整命令，共36条单类命令，另附多 GPU 数据集队列命令。命令显式给出样本数、节点规模、版本、参数范围及求解设置。
 
 九类三维边界的两个端面分别采用201×201节点二维Winslow求解，再以精确Coons边界加三次样条位移定义连续参数面。四侧面在原参数域使用TFI，保留原解析几何；不做参数重分布、不复用上下端面求值。体内仍求解三维PDE。run_e默认41×41×11，其余八类默认21×21×11。三维新数据集名称版本为2，内部几何修订号为3。旧参数面数据与旧模型不能仅改名后复用。
+
+统一安装依赖：`python -m pip install -r requirements.txt`。GPU 模式需要 CUDA 12 PyTorch 与可加载的 cuDSS；CPU 模式仍是默认。
 
 ## 九类当前默认参数
 
@@ -24,7 +26,7 @@
 
 ## 批量生成
 
-每组 CPU / GPU 命令二选一即可，后端不同但目标数据集名称相同；完整数据集已存在时会跳过。GPU 示例使用 `0 1 2 3`，单卡可改为 `0`，两卡可改为 `0 1`。省略 `--solver-backend` 时仍默认 CPU。
+每组 CPU / GPU 命令二选一即可，后端不同但目标数据集名称相同；完整数据集已存在时会跳过。批量 GPU 示例使用 `0 1 2 3`：最多同时生成四个完整数据集，每张卡完成当前数据集的全部样本、校验、保存和示例图后，再领取下一个数据集。单卡可改为 `0`，两卡可改为 `0 1`。省略 `--solver-backend` 时仍默认 CPU。
 
 ```powershell
 # 一次生成九类外推数据集
@@ -32,21 +34,33 @@
 python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
 
 # 多 GPU（按服务器实际情况修改 GPU 编号）
-python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
+python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw --queue-log-root outputs/gpu_queue/generation
 
 # 只生成九类内插数据集
 # CPU（默认后端）
 python scripts/data/generate_datasets.py --dimension 3 --families all --split int --size 500 --version 2 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
 
 # 多 GPU（按服务器实际情况修改 GPU 编号）
-python scripts/data/generate_datasets.py --dimension 3 --families all --split int --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
+python scripts/data/generate_datasets.py --dimension 3 --families all --split int --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw --queue-log-root outputs/gpu_queue/generation
 
 # 同时生成内插与外推（共18个数据集）
 # CPU（默认后端）
 python scripts/data/generate_datasets.py --dimension 3 --families all --split both --size 500 --version 2 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
 
 # 多 GPU（按服务器实际情况修改 GPU 编号）
-python scripts/data/generate_datasets.py --dimension 3 --families all --split both --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw
+python scripts/data/generate_datasets.py --dimension 3 --families all --split both --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw --queue-log-root outputs/gpu_queue/generation
+```
+
+只生成部分数据集（两张 GPU 动态分配三个完整数据集）：
+
+```powershell
+python scripts/data/generate_datasets.py --dimension 3 --families cah_t swb_a run_e --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw --queue-log-root outputs/gpu_queue/generation
+```
+
+运行前只查看任务清单，不生成数据：
+
+```powershell
+python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --queue-log-root outputs/gpu_queue/generation --dry-run
 ```
 
 将`--split ext`改为`int`只生成九类内插集，改为`both`生成18个。`--dry-run`只列出任务。`--families`可直接写边界缩写列表；`new`只是最近新增三类的快捷筛选，与其余族共用同一注册表。
@@ -55,69 +69,71 @@ python scripts/data/generate_datasets.py --dimension 3 --families all --split bo
 
 ## 九类默认外推命令（逐条运行）
 
+每条命令只有一个数据集任务，因此 GPU 示例只指定一张卡。要让多张卡同时生成不同数据集，请使用上方批量入口；不要为单类命令填写四张 GPU 并期待它们共同生成该数据集。
+
 ```powershell
 # cah_t: thickness ∈ [[0.08, 0.34]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.08 0.34 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.08 0.34 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.08 0.34 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # swb_a: sidewall_amplitude ∈ [[0.04, 0.3]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.3 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.3 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.3 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # run_e: depth ∈ [[0.55, 1.5]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.5 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.5 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split extrapolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1.5 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # teb_b: minor_axis_out ∈ [[0.12, 0.32]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.32 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.32 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.32 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # bad_a: bend_angle_deg ∈ [[25.0, 85.0]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 25 85 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 25 85 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 25 85 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # lad_a: amplitude ∈ [[0.04, 0.16]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.16 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.16 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.04 0.16 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # srt_r: outlet_radius ∈ [[0.55, 0.92]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 0.92 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 0.92 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 0.92 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # sad_c: area_ratio_out ∈ [[0.55, 1.35]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 1.35 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 1.35 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.55 1.35 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # tbp_a: twist_angle_deg ∈ [[0.0, 90.0]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 90 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 90 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split extrapolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 90 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 ```
 
@@ -128,64 +144,64 @@ python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split 
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.06 0.15 --parameter-range 0.25 0.35 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.06 0.15 --parameter-range 0.25 0.35 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family cah_t --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.06 0.15 --parameter-range 0.25 0.35 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # swb_a: sidewall_amplitude ∈ [[0.03, 0.1], [0.2, 0.3]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.03 0.1 --parameter-range 0.2 0.3 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.03 0.1 --parameter-range 0.2 0.3 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family swb_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.03 0.1 --parameter-range 0.2 0.3 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # run_e: depth ∈ [[0.55, 1.0], [1.3, 1.5]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1 --parameter-range 1.3 1.5 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1 --parameter-range 1.3 1.5 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family run_e --split interpolation --version 2 --size 500 --grid-shape 41x41x11 --parameter-range 0.55 1 --parameter-range 1.3 1.5 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # teb_b: minor_axis_out ∈ [[0.12, 0.18], [0.27, 0.32]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family teb_b --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.12 0.18 --parameter-range 0.27 0.32 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # bad_a: bend_angle_deg ∈ [[20.0, 45.0], [65.0, 90.0]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 20 45 --parameter-range 65 90 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 20 45 --parameter-range 65 90 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family bad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 20 45 --parameter-range 65 90 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # lad_a: amplitude ∈ [[0.02, 0.08], [0.12, 0.18]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.02 0.08 --parameter-range 0.12 0.18 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.02 0.08 --parameter-range 0.12 0.18 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family lad_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.02 0.08 --parameter-range 0.12 0.18 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # srt_r: outlet_radius ∈ [[0.58, 0.68], [0.8, 0.9]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.58 0.68 --parameter-range 0.8 0.9 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.58 0.68 --parameter-range 0.8 0.9 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family srt_r --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.58 0.68 --parameter-range 0.8 0.9 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # sad_c: area_ratio_out ∈ [[0.6, 0.82], [1.08, 1.3]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.6 0.82 --parameter-range 1.08 1.3 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.6 0.82 --parameter-range 1.08 1.3 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family sad_c --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0.6 0.82 --parameter-range 1.08 1.3 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 # tbp_a: twist_angle_deg ∈ [[0.0, 30.0], [60.0, 90.0]]
 # CPU（默认后端）
 python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 30 --parameter-range 60 90 --solver-backend cpu --workers 4 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
 
-# 多 GPU（按服务器实际情况修改 GPU 编号）
-python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 30 --parameter-range 60 90 --solver-backend cuda --gpus 0 1 2 3 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D
+# 单 GPU（完整生成当前数据集；可将 0 改为指定 GPU 编号）
+python src/data/generation/make_dataset_parametric_3d.py --family tbp_a --split interpolation --version 2 --size 500 --grid-shape 21x21x11 --parameter-range 0 30 --parameter-range 60 90 --solver-backend cuda --gpus 0 --winslow-max-iter 1000 --winslow-tolerance 1e-6 --timing-samples 3 --output-root data/raw/3D --queue-log-root outputs/gpu_queue/generation
 
 ```
 
@@ -219,8 +235,8 @@ run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及
 
 默认仍使用原 CPU 求解器，`--workers 4` 表示四个 CPU 工作进程。
 显式指定 `--solver-backend cuda` 才启用 GPU；不指定 `--gpus` 时使用当前可见的 GPU 0。
-GPU 模式下每张卡一个独立进程、同时求解一个几何样本；完成后领取下一样本。
-九类数据集依次生成，每个数据集内部样本动态并行。`--workers` 不控制 GPU 并发数。
+GPU 模式下每张卡一个独立进程，一次领取一个完整数据集；该数据集的端面构造、全部样本生成、合法性检测、保存及示例图完成后，才领取下一个数据集。
+四张 GPU 最多同时生成四个数据集，每个数据集内部样本依次求解。`--workers` 仅控制 CPU 模式，不控制 GPU 并发数。只指定一个数据集时只使用第一张指定 GPU，其余 GPU 不参与该数据集的样本计算。
 
 完整 CPU / GPU 命令已在上方“批量生成”“九类默认外推命令”“九类默认内插命令”逐组列出。
 
@@ -229,13 +245,33 @@ GPU 模式下每张卡一个独立进程、同时求解一个几何样本；完�
 | `--solver-backend` | `cpu` | `cpu` 保留原 SciPy 求解；`cuda` 使用 cuDSS GPU 稀疏直接求解。 |
 | `--gpus` | CUDA 模式下为 `0` | 空格分隔的 GPU 编号；按 `CUDA_VISIBLE_DEVICES` 后的可见编号解释。必须搭配 `--solver-backend cuda`。 |
 | `--workers` | `4` | 仅控制 CPU 模式的样本并行数。 |
+| `--queue-log-root` | `outputs/gpu_queue/generation` | GPU 日志根目录；按 `3D/数据集名/generation.log` 分开保存。 |
 
 GPU 使用 float64，保留端面9点、体网格19点的原 Winslow 离散格式和混合导数项。
 上下端面各自求解，仍使用相同的 Coons＋三次样条位移参数面，侧面几何、数据格式和训练读取方式不变。
 CPU/GPU 共用 NumPy/SciPy 的矩阵与右端项组装、TFI 初值、边界固定、外层迭代和停止条件；GPU 只将稀疏线性求解替换为 cuDSS 一般非对称直接分解。端面保留原 CPU 的边界消元，体网格保留原 CPU 的边界单位行。三个坐标共享一次分解，同时核验原始系统每个右端项的相对残差（内部上限 1e-9），失败时明确报错。原 GPU 的两个 `--linear-*` 迭代参数已删除。
 CPU/GPU 的舍入误差可能不同，不承诺逐位相等；GPU 后端和求解诊断会保存到元数据。
 GPU 不自动判断整张卡是否空闲，用户应指定允许使用的卡。Ctrl+C 会终止本次生成队列的全部子进程。
-各 GPU 不直接写最终数据文件；父进程按原样本编号统一保存，避免并行冲突。
+每个 GPU 工作进程仅写自己的数据集目录，不同数据集分别保存，不共享样本输出文件。
 边界面非法仍中断；体网格首尾参数的非法单元按原规则在保存完整数据集后警告。
 已有完整数据集仍按原规则跳过；切换后端不会自动覆盖它，需要重新生成时显式使用 `--force`。
-GPU 可选依赖：在项目根目录运行 `python -m pip install -r requirements-gpu-generation.txt`（CUDA 12，固定 cuDSS 0.4 ABI），并使用兼容的 NVIDIA 驱动及 CUDA PyTorch。CPU 不需要该依赖。未安装或加载失败时会明确报错，不静默回退。GPU 加速幅度取决于规模、稀疏分解、CPU 组装和传输成本，不保证小网格更快。
+cuDSS 已纳入总依赖：在项目根目录运行 `python -m pip install -r requirements.txt`（CUDA 12，固定 cuDSS 0.4 ABI），并使用兼容的 NVIDIA 驱动及 CUDA PyTorch。CPU 运行时不调用该库。未安装或加载失败时会明确报错，不静默回退。GPU 加速幅度取决于规模、稀疏分解、CPU 组装和传输成本，不保证小网格更快。
+
+## GPU 日志与进度
+
+CPU 进度继续显示在终端。GPU 数据集生成日志默认在 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`，实时写入并刷新；可用 `--queue-log-root` 修改根目录。批量任务完成状态保存在日志根目录的 `queue_summary.json`。
+
+GPU 日志只输出 `--timing-samples` 指定的前几个样本耗时（默认 3），总体完成数量每跨过 10% 输出一次；样本数不能整除 10 时输出实际进度。后续样本不逐个打印开始/完成或耗时。终端保留任务开始、完成、跳过和异常提示，不显示每个样本进度。异常堆栈保存到相应数据集日志。
+
+```text
+Sample 1/500: 12.345678 s
+Sample 2/500: 12.456789 s
+Sample 3/500: 12.567890 s
+Progress: 50/500 (10%)
+Progress: 100/500 (20%)
+...
+Progress: 500/500 (100%)
+Dataset saved: .../data/raw/3D/swb_a_ext_2_500_21_21_11
+```
+
+以上耗时仅为格式示例。进度 100% 表示样本求解完成；任务须完成后续质量审计、写盘和示例图后才释放 GPU。完整数据集已存在则直接跳过，保留原生成日志；显式 `--force` 重新生成时覆盖该数据集旧日志。Ctrl+C 终止整个队列及当前数据集任务，不启动后续数据集。

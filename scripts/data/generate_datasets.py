@@ -25,6 +25,7 @@ def main(argv=None):
     parser.add_argument("--version", type=int, help="Omitted: use each family's registered revision")
     parser.add_argument('--solver-backend', choices=('cpu','cuda'), default='cpu', help='3-D PDE generation backend; CPU by default')
     parser.add_argument('--gpus', type=int, nargs='+', help='CUDA-visible indices; requires --solver-backend cuda')
+    parser.add_argument('--queue-log-root', type=Path, help='GPU logs root; default outputs/gpu_queue/generation')
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--winslow-max-iter", type=int, default=1000)
     parser.add_argument("--winslow-tolerance", type=float, default=1e-6)
@@ -62,6 +63,16 @@ def main(argv=None):
                 jobs.append((dimension, generator, family, split, version, shape, target))
     if args.dry_run:
         return jobs
+    if args.solver_backend == 'cuda':
+        three.generate_selected_datasets(
+            selected=[(family, split, version, *shape)
+                      for _, _, family, split, version, shape, _ in jobs],
+            size=args.size, output_root=args.output_root/'3D',
+            solver_backend='cuda', gpus=args.gpus, queue_log_root=args.queue_log_root,
+            workers=args.workers, winslow_max_iter=args.winslow_max_iter,
+            winslow_tolerance=args.winslow_tolerance, timing_samples=args.timing_samples,
+            overwrite=args.force)
+        return jobs
     for dimension, generator, family, split, version, shape, target in jobs:
         if target.exists() and (dimension == 2 or not args.force):
             required = ("dataset.npy", "boundary_geometry.npy") if dimension == 2 else ("metadata.json", "geometry.json", "boundary_samples.npy", "pde_mesh.npy")
@@ -79,6 +90,7 @@ def main(argv=None):
         else:
             generator.generate_family_dataset(family, split, nz=shape[2], output_root=target.parent, overwrite=args.force,
                 solver_backend=args.solver_backend,gpus=args.gpus,
+                queue_log_root=args.queue_log_root,
                 **common)
     return jobs
 

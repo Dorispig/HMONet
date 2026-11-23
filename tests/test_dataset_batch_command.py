@@ -32,12 +32,12 @@ def test_short_names_select_only_requested_family():
 
 
 def test_gpu_options_forwarded_without_starting_training(tmp_path):
-    with patch.object(three,'generate_family_dataset') as generate:
+    with patch.object(three,'generate_selected_datasets') as generate:
         main(['--dimension','3','--families','swb_a','--solver-backend','cuda',
               '--gpus','1','3','--output-root',str(tmp_path)])
     kwargs=generate.call_args.kwargs
     assert kwargs['solver_backend']=='cuda' and kwargs['gpus']==[1,3]
-    assert kwargs['version']==2
+    assert kwargs['selected']==[('sidewall_deformed_block','ext',2,21,21,11)]
 
 
 def test_cpu_remains_default(tmp_path):

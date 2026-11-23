@@ -6,7 +6,7 @@ import torch
 from src.numerics.traditional.cudss_solver import CudssSolver, load_cudss, check_residual, LinearSolveError
 from src.numerics.traditional.winslow_vectorized_2d import solve_winslow_2d_vectorized
 from src.data.geometry.boundary_generator_2d import four_convex_semicircle_boundary
-from src.data.generation.gpu_samples import validate_gpu_options
+from src.data.generation.gpu_datasets import validate_gpu_options
 
 
 def direct_solver(device):
@@ -70,51 +70,73 @@ def test_backend_validation():
         validate_gpu_options('cuda',[0,0])
 
 
-def test_queue_reassigns_free_gpu_and_keeps_indices(monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from src.data.generation import gpu_samples
-    import time
-    # Simulate two devices without requiring two physical GPUs in CI.
-    def pool(**kwargs):
-        return ThreadPoolExecutor(max_workers=1)
-    monkeypatch.setattr(gpu_samples,'ProcessPoolExecutor',pool)
-    def work(payload,options):
-        time.sleep(.12 if payload==0 else .01)
-        return payload,options['device']
-    output=list(gpu_samples.gpu_sample_map(work,list(range(4)),[0,1]))
-    assert sorted(i for i,_ in output)==list(range(4))
-    result=dict(output)
-    assert result[0]==(0,'cuda:0')
-    assert result[1]==(1,'cuda:1')
-    assert result[2]==(2,'cuda:1') and result[3]==(3,'cuda:1')
+def test_queue_tasks_are_whole_datasets(monkeypatch, tmp_path):
+    from src.data.generation import gpu_datasets
+    captured={}
+    monkeypatch.setattr(gpu_datasets,'validate_gpu_options',lambda *args: [2,3])
+    def run(tasks,gpus,**kwargs):
+        captured.update(tasks=tasks,gpus=gpus,options=kwargs)
+    monkeypatch.setattr(gpu_datasets,'run_gpu_queue',run)
+    jobs=[('sidewall_deformed_block','extrapolation',2,21,21,11),
+          ('sidewall_deformed_block','interpolation',2,21,21,11)]
+    outputs=gpu_datasets.run_registered_gpu_datasets(jobs,size=500,gpus=[2,3],output_root=tmp_path,queue_log_root=tmp_path/'logs')
+    assert len(captured['tasks'])==2 and len(outputs)==2
+    assert captured['gpus']==[2,3]
+    for task in captured['tasks']:
+        command=task.command
+        assert command[command.index('--size')+1]=='500'
+        assert command[command.index('--gpus')+1]=='0'
+        assert task.environment['HMONET_DATASET_GPU_WORKER']=='1'
+        assert task.environment['PYTHONIOENCODING']=='utf-8'
+        assert task.log_relative_path.parts==('3D',task.name,'generation.log')
+        assert task.clear_log_directory
 
 
-def test_queue_failure_cancels_following_tasks(monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-    from src.data.generation import gpu_samples
-    monkeypatch.setattr(gpu_samples,'ProcessPoolExecutor',lambda **kwargs: ThreadPoolExecutor(max_workers=1))
-    seen=[]
-    def work(payload,options):
-        seen.append(payload)
-        raise ValueError('bad boundary')
-    with pytest.raises(RuntimeError,match='GPU 0, sample 0: bad boundary'):
-        list(gpu_samples.gpu_sample_map(work,[0,1,2],[0]))
-    assert seen==[0]
+def test_generation_log_failure_and_skip_preserve_history(tmp_path, capsys):
+    from src.data.generation.generation_logging import log_gpu_generation
+    @log_gpu_generation
+    def fake(name,output_root,solver_backend='cuda',overwrite=False,
+             queue_log_root=None,gpus=None,grid_shape=(3,3,3),timing_samples=3,fail=False):
+        if (output_root/name).exists() and not overwrite:
+            print('[skip] existing')
+            return
+        print('Progress: 1/1 (100%)')
+        if fail: raise ValueError('deliberate failure')
+    kwargs=dict(name='example',output_root=tmp_path,queue_log_root=tmp_path/'logs')
+    fake(**kwargs)
+    log=tmp_path/'logs/3D/example/generation.log'
+    original=log.read_text()
+    assert 'Progress:' in original and 'COMPLETED' in original
+    assert 'Progress:' not in capsys.readouterr().out
+    (tmp_path/'example').mkdir()
+    fake(**kwargs)
+    assert log.read_text()==original
+    with pytest.raises(ValueError,match='deliberate failure'):
+        fake(**kwargs,overwrite=True,fail=True)
+    assert 'Traceback' in log.read_text() and 'FAILED/INTERRUPTED' in log.read_text()
+    assert 'COMPLETED' not in log.read_text()
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(),reason='CUDA unavailable')
-def test_spawned_gpu_dataset_is_readable_and_ordered(tmp_path):
+def test_single_gpu_dataset_logs_and_is_readable(tmp_path, capsys):
     direct_solver('cuda:0')
     import json
     from src.data.generation.make_dataset_parametric_3d import generate_dataset
     from src.data.dataset import ParametricDataset3D
-    path=generate_dataset('gpu_boxes','box',[dict(xmax=1.),dict(xmax=2.)],
+    path=generate_dataset('gpu_boxes','box',[dict(xmax=float(i+1)) for i in range(20)],
                           grid_shape=(5,5,5),output_root=tmp_path,
-                          solver_backend='cuda',gpus=[0],timing_samples=0)
+                          solver_backend='cuda',gpus=[0],timing_samples=3,queue_log_root=tmp_path/'logs')
     data=ParametricDataset3D(path)
-    assert len(data)==2
+    assert len(data)==20
     assert np.max(data.mesh_points[0,:,0])==1.
     assert np.max(data.mesh_points[1,:,0])==2.
     metadata=json.loads((path/'metadata.json').read_text())
     assert metadata['solver_backend']=='cuda'
     assert metadata['gpu_worker_count']==1
+
+    logfile=tmp_path/'logs/3D/gpu_boxes/generation.log'
+    content=logfile.read_text(encoding='utf-8')
+    assert content.count('Sample ')==3
+    assert content.count('Progress:')==10
+    assert 'Progress: 20/20 (100%)' in content
+    assert 'Progress:' not in capsys.readouterr().out

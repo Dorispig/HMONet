@@ -1,7 +1,7 @@
 """Optional float64 sparse direct backend for CPU-assembled Winslow systems.
 
-The small ctypes binding targets the cuDSS 0.4 C ABI (see the optional pinned
-requirements). PyTorch owns device buffers; cuDSS owns only its LU workspace.
+The small ctypes binding targets the cuDSS 0.4 C ABI (see the version pin in
+requirements.txt). PyTorch owns device buffers; cuDSS owns only its LU workspace.
 No discretization, row scaling, boundary elimination or nonlinear stopping
 criterion is implemented here. General nonsymmetric matrices are supported.
 """
@@ -29,11 +29,11 @@ def load_cudss():
         package = distribution('nvidia-cudss-cu12')
     except PackageNotFoundError as error:
         raise RuntimeError('CUDA dataset generation requires cuDSS: '
-                           'python -m pip install -r requirements-gpu-generation.txt; '
+                           'python -m pip install -r requirements.txt; '
                            'CPU generation remains available.') from error
     if not package.version.startswith('0.4.0.2'):
         raise RuntimeError(f'Untested cuDSS ABI {package.version}; install '
-                           'requirements-gpu-generation.txt (cuDSS 0.4).')
+                           'requirements.txt (cuDSS 0.4).')
     root = Path(package.locate_file('nvidia/cu12'))
     handles = []
     if os.name == 'nt':
@@ -52,7 +52,7 @@ def load_cudss():
         lib = loader(str(filename))
     except OSError as error:
         raise RuntimeError(f'Cannot load cuDSS at {filename}. Install the CUDA 12 '
-                           'dependencies from requirements-gpu-generation.txt. '
+                           'dependencies from requirements.txt. '
                            f'Loader error: {error}') from error
     lib._directory_handles = handles
     P, I, L, S = ct.c_void_p, ct.c_int, ct.c_int64, ct.c_size_t

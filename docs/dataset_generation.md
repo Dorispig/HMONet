@@ -239,6 +239,8 @@ projections = boundary.project_torch(xi, eta)  # [B, N, 4, 2]
 
 run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及体网格通过；评估参数1.52、1.55的PDE体网格分别存在16、20个翻转单元，1.55的两个端面各有2个内凹四边形。数据集生成会拦截非法端面；评估会正常记录网格质量，不能把求解收敛或评估结束当作网格合法。61×21×11的通过记录保留在核验报告中。
 
-三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用数据集级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
 
-三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。首次使用安装 `python -m pip install -r requirements-gpu-generation.txt`；CPU 仍为默认，不需要此依赖。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+
+GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。

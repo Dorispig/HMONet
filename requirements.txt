@@ -8,3 +8,6 @@ scikit-learn==1.7.2
 matplotlib==3.10.6
 scipy==1.15.3
 tqdm==4.67.3
+# CUDA 12 sparse direct solver for GPU dataset generation (cuDSS 0.4 C ABI).
+# CPU remains the default generation backend.
+nvidia-cudss-cu12==0.4.0.2

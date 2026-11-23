@@ -74,6 +74,16 @@ tensorboard --logdir outputs/training --port 6006
 数据生成见[参数化数据集](dataset_generation.md)，评估产物见[评估体系](evaluation_system.md)。
 
 
-三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用数据集级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。
 
-三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。首次使用安装 `python -m pip install -r requirements-gpu-generation.txt`；CPU 仍为默认，不需要此依赖。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
+
+GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。
+
+### 三维数据集 GPU 队列
+
+```bash
+python scripts/data/generate_datasets.py --dimension 3 --families all --split ext --size 500 --version 2 --solver-backend cuda --gpus 0 1 2 3 --timing-samples 3 --queue-log-root outputs/gpu_queue/generation
+```
+
+一张 GPU 处理一个完整数据集，四张 GPU 最多同时处理四个；数据集内部样本依次生成。单类生成只需 `--gpus 0`。完整的参数范围及 CPU/单 GPU/多 GPU 示例统一见[三维生成命令](../data/3D/generation_commands.md)。
