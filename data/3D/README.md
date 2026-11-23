@@ -16,3 +16,5 @@
 | [srt_r](boundaries/srt_r.md) | `square_to_round_transition` | `outlet_radius` | 21×21×11 |
 | [sad_c](boundaries/sad_c.md) | `variable_area_s_duct` | `area_ratio_out` | 21×21×11 |
 | [tbp_a](boundaries/tbp_a.md) | `twisted_blade_passage` | `twist_angle_deg` | 21×21×11 |
+
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。

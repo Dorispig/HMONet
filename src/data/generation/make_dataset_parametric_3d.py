@@ -175,6 +175,10 @@ DEFAULT_GENERATION_OPTIONS = {
     "winslow_tolerance": 1e-6,
     "timing_samples": 3,
     "workers": 4,
+    "solver_backend": "cpu",
+    "gpus": None,
+    "linear_tolerance": 1e-12,
+    "linear_max_iter": 4000,
 }
 
 
@@ -349,7 +353,13 @@ def _validated_boundary_samples(geometry, shape, sample_index):
     return boundary_grid.reshape(-1, 3)[boundary_indices(shape)]
 
 
-def _solve_dataset_sample_3d(payload):
+def _solve_dataset_sample_3d(payload, solver_options=None):
+    from src.numerics.traditional.winslow_torch import generation_solver_context
+    with generation_solver_context(solver_options):
+        return _solve_dataset_sample_3d_impl(payload, solver_options or {})
+
+
+def _solve_dataset_sample_3d_impl(payload, solver_options):
     """Solve one picklable 3-D sample while preserving its input identity."""
     (
         sample_index,
@@ -376,6 +386,7 @@ def _solve_dataset_sample_3d(payload):
             max_iter=winslow_max_iter,
             tolerance=winslow_tolerance,
             return_info=True,
+            **solver_options,
         )
     except FloatingPointError as error:
         # A numerical breakdown yields no PDE mesh. Keep the diagnostic
@@ -424,6 +435,10 @@ def generate_dataset(
     workers=1,
     generation_metadata=None,
     overwrite=False,
+    solver_backend="cpu",
+    gpus=None,
+    linear_tolerance=1e-12,
+    linear_max_iter=4000,
 ):
     """Generate matching parameter surfaces, boundary samples, and PDE meshes."""
     if isinstance(workers, bool) or int(workers) != workers or int(workers) < 1:
@@ -439,17 +454,22 @@ def generate_dataset(
             validate_existing_dataset(out)
         print(f"[skip] Dataset already exists: {out}", flush=True)
         return out
-    geoms = []
-    boundary_samples = []
-    meshes = []
-    diagnostics = []
+    from src.data.generation.gpu_samples import validate_gpu_options, gpu_sample_map
+    gpu_ids = validate_gpu_options(solver_backend, gpus)
+    if not 0 < linear_tolerance < 1 or linear_max_iter < 1:
+        raise ValueError('Require linear_tolerance in (0,1) and linear_max_iter >=1')
     parameters = list(parameters)
     if not parameters:
         raise ValueError("parameters must contain at least one sample")
+    geoms = [None] * len(parameters)
+    boundary_samples = [None] * len(parameters)
+    meshes = [None] * len(parameters)
+    diagnostics = [None] * len(parameters)
     if timing_samples < 0:
         raise ValueError("timing_samples must be non-negative")
-    # Fail early on bad parameter extremes before starting costly volume solves.
-    for index in endpoint_indices(len(parameters)):
+    # CPU preflight preserves the existing endpoint check. GPU workers build
+    # and validate their own faces before any volume solve (no CPU cap rebuild).
+    for index in (endpoint_indices(len(parameters)) if solver_backend == 'cpu' else []):
         geometry = generate_boundary(boundary_type, **parameters[index])
         _validated_boundary_samples(geometry, (nx, ny, nz), index)
     payloads = [
@@ -466,19 +486,19 @@ def generate_dataset(
         for sample_index, params in enumerate(parameters)
     ]
     progress_interval = max(1, len(parameters) // 10)
-    def collect(results):
-        for sample_index, result in enumerate(results):
+    def collect(results, indexed=False):
+        for completed, item in enumerate(results, start=1):
+            sample_index, result = item if indexed else (completed-1,item)
             geometry, exact, mesh, info, elapsed = result
-            geoms.append(geometry)
-            boundary_samples.append(exact)
-            meshes.append(mesh)
-            diagnostics.append(info)
+            geoms[sample_index] = geometry
+            boundary_samples[sample_index] = exact
+            meshes[sample_index] = mesh
+            diagnostics[sample_index] = info
             if sample_index < timing_samples:
                 print(
                     f"Sample {sample_index + 1}/{len(parameters)}: {elapsed:.6f} s",
                     flush=True,
                 )
-            completed = sample_index + 1
             if completed % progress_interval == 0 or completed == len(parameters):
                 print(
                     f"Progress: {completed}/{len(parameters)} "
@@ -486,7 +506,12 @@ def generate_dataset(
                     flush=True,
                 )
 
-    if workers > 1:
+    if solver_backend == 'cuda':
+        from contextlib import closing
+        with closing(gpu_sample_map(_solve_dataset_sample_3d,payloads,gpu_ids,
+                                    linear_tolerance=linear_tolerance,linear_max_iter=linear_max_iter)) as results:
+            collect(results, indexed=True)
+    elif workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             collect(pool.map(_solve_dataset_sample_3d, payloads, chunksize=1))
     else:
@@ -545,6 +570,11 @@ def generate_dataset(
         "pde_max_iter": int(winslow_max_iter),
         "pde_tolerance": float(winslow_tolerance),
         "workers": workers,
+        "solver_backend": solver_backend,
+        "gpus": gpu_ids,
+        "gpu_worker_count": len(gpu_ids),
+        "linear_tolerance": linear_tolerance if solver_backend == 'cuda' else None,
+        "linear_max_iter": linear_max_iter if solver_backend == 'cuda' else None,
         "quality_check_scope": scope,
         "illegal_samples": audit["illegal_samples"],
         "extreme_grid_legality_checks": extreme_legality_checks,
@@ -589,6 +619,10 @@ def generate_family_dataset(
     workers=1,
     overwrite=False,
     parameter_ranges=None,
+    solver_backend="cpu",
+    gpus=None,
+    linear_tolerance=1e-12,
+    linear_max_iter=4000,
 ):
     """Generate one registered dataset family and split."""
     if family not in DATASET_FAMILIES:
@@ -624,7 +658,10 @@ def generate_family_dataset(
     print(f"Parameter: {parameter_name}", flush=True)
     print(f"Training ranges: {requested_ranges}", flush=True)
     print(f"Size: {size}; grid: {nx}x{ny}x{nz}", flush=True)
-    print(f"PDE workers: {workers}", flush=True)
+    if solver_backend == 'cuda':
+        print(f"PDE backend: CUDA float64; GPUs: {gpus if gpus is not None else [0]}; one sample per GPU", flush=True)
+    else:
+        print(f"PDE backend: CPU; workers: {workers}", flush=True)
     return generate_dataset(
         name,
         DATASET_GENERATORS[specification["function"]],
@@ -655,6 +692,10 @@ def generate_family_dataset(
             ),
         },
         overwrite=overwrite,
+        solver_backend=solver_backend,
+        gpus=gpus,
+        linear_tolerance=linear_tolerance,
+        linear_max_iter=linear_max_iter,
     )
 
 
@@ -787,6 +828,10 @@ if __name__ == "__main__":
     parser.add_argument("--family")
     parser.add_argument("--split", choices=tuple(SPLIT_ALIASES))
     parser.add_argument("--version", type=int, default=None)
+    parser.add_argument('--solver-backend', choices=('cpu','cuda'), default=DEFAULT_GENERATION_OPTIONS['solver_backend'])
+    parser.add_argument('--gpus', type=int, nargs='+', default=DEFAULT_GENERATION_OPTIONS['gpus'], help='CUDA-visible indices; requires --solver-backend cuda')
+    parser.add_argument('--linear-tolerance', type=float, default=DEFAULT_GENERATION_OPTIONS['linear_tolerance'])
+    parser.add_argument('--linear-max-iter', type=int, default=DEFAULT_GENERATION_OPTIONS['linear_max_iter'])
     parser.add_argument("--size", type=int, default=DEFAULT_GENERATION_OPTIONS["size"])
     parser.add_argument("--nx", type=int)
     parser.add_argument("--ny", type=int)
@@ -853,6 +898,10 @@ if __name__ == "__main__":
         workers=arguments.workers,
         overwrite=arguments.force,
         parameter_ranges=arguments.parameter_ranges,
+        solver_backend=arguments.solver_backend,
+        gpus=arguments.gpus,
+        linear_tolerance=arguments.linear_tolerance,
+        linear_max_iter=arguments.linear_max_iter,
     )
     if arguments.family is not None:
         family = resolve_family(arguments.family)

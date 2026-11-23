@@ -238,3 +238,5 @@ projections = boundary.project_torch(xi, eta)  # [B, N, 4, 2]
 两端面独立保存；旧曲面序列化只用于历史读取。每族公式和多参数可视化统一收录在[十八类边界](../outputs/boundaries/README.md)，二维与三维的最新范围及完整命令分别见[data/raw/2D/README.md](../data/raw/2D/README.md)和[data/raw/3D/README.md](../data/raw/3D/README.md)。
 
 run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及体网格通过；评估参数1.52、1.55的PDE体网格分别存在16、20个翻转单元，1.55的两个端面各有2个内凹四边形。数据集生成会拦截非法端面；评估会正常记录网格质量，不能把求解收敛或评估结束当作网格合法。61×21×11的通过记录保留在核验报告中。
+
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。

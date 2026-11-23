@@ -20,7 +20,15 @@ def solve_winslow_3d(
     tolerance=1e-6,
     parameter_grid=None,
     return_info=False,
+    solver_backend="cpu",
+    device="cuda:0",
+    linear_tolerance=1e-12,
+    linear_max_iter=4000,
 ):
+    if solver_backend not in ("cpu", "cuda"):
+        raise ValueError("solver_backend must be cpu or cuda")
+    if solver_backend == "cuda" and parameter_grid is not None:
+        raise ValueError("GPU Winslow currently supports uniform computational grids only")
     counts = {
         "x_min": (ny, nz),
         "x_max": (ny, nz),
@@ -57,6 +65,14 @@ def solve_winslow_3d(
         max_iter=max_iter,
         tol=tolerance,
     )
+    if solver_backend == "cuda":
+        from .winslow_torch import solve_uniform_grid
+        result, info = solve_uniform_grid(
+            solver._initial_grid(), device=device, max_iter=max_iter,
+            tolerance=tolerance, linear_tolerance=linear_tolerance,
+            linear_max_iter=linear_max_iter,
+        )
+        return (result, info) if return_info else result
     result = solver.solve()
     if return_info:
         difference = float(solver.last_relative_difference)

@@ -73,3 +73,5 @@ tensorboard --logdir outputs/training --port 6006
 
 数据生成见[参数化数据集](dataset_generation.md)，评估产物见[评估体系](evaluation_system.md)。
 
+
+三维数据生成默认使用CPU，也可通过 `--solver-backend cuda --gpus 0 1` 启用样本级多GPU生成；完整参数和示例见[三维生成说明](../data/3D/generation_commands.md)。训练GPU参数与数据生成GPU参数分别设置。

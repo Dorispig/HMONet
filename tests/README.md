@@ -100,3 +100,5 @@ python -m pytest --collect-only -q
   the required regression check before publishing or merging major changes.
 - CUDA-specific assertions must check device availability and retain a CPU
   path whenever the tested operation supports CPU execution.
+
+GPU数据生成回归：`python -m pytest tests/test_gpu_dataset_generation.py -q`。包含CPU参考数值对照、真实CUDA数值对照和双设备队列模拟；没有CUDA时跳过真实GPU测试。双设备模拟不等于真实多卡硬件验证。
