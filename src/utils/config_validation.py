@@ -391,7 +391,9 @@ def validate_evaluate_config(config: dict, *, dimension: int | None = None) -> N
         raise ValueError("evaluation dimension must be 2 or 3")
     evaluation = config["evaluation"]
     if dimension == 3:
-        middle_section_names(evaluation.get("middle_sections", "all"))
+        middle_section_names(evaluation.get("middle_sections", "z_mid"))
+        if type(evaluation.get("volume_evaluation", True)) is not bool:
+            raise ValueError("volume_evaluation must be true or false")
     methods = evaluation.get("methods", [])
     if not isinstance(methods, list) or not methods or set(methods) - {
         "hmonet",

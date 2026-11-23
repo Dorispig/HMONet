@@ -1,4 +1,4 @@
-"""Run the Q1 steady-heat downstream benchmark on evaluated 2-D meshes."""
+"""Run the Q1 manufactured Poisson benchmark on evaluated 2-D meshes."""
 
 from __future__ import annotations
 
@@ -16,11 +16,13 @@ if str(ROOT) not in sys.path:
 from src.evaluation.artifacts import write_json
 from src.evaluation.configuration import create_geometry
 from src.evaluation.downstream import (
-    prepare_reference,
     solve_downstream_case,
     summarize_rows,
 )
 from src.evaluation.mesh_provider import canonical_method
+from src.numerics.downstream.manufactured_solutions import (
+    create_manufactured_solution,
+)
 from src.utils.paths import resolve_project_path
 
 
@@ -49,6 +51,11 @@ def build_parser():
     parser.add_argument("--evaluation-root")
     parser.add_argument("--output-root")
     parser.add_argument("--solver", choices=["direct", "cg"])
+    parser.add_argument(
+        "--solutions",
+        nargs="+",
+        help="Manufactured fields (sine_product and/or exponential_sine)",
+    )
     parser.add_argument("--plots", action=argparse.BooleanOptionalAction, default=None)
     return parser
 
@@ -82,8 +89,6 @@ def main(argv=None):
     if args.solver:
         solver_options["solver"] = args.solver
     save_plots = config.get("save_plots", True) if args.plots is None else args.plots
-    reference_shape = tuple(map(int, config.get("reference", {}).get("grid_shape", [401, 401])))
-
     all_rows = []
     manifest = {
         "config": str(config_path),
@@ -93,7 +98,8 @@ def main(argv=None):
         "datasets": names,
         "methods": methods,
         "protocols": protocols,
-        "reference_shape": reference_shape,
+        "reference": "manufactured_exact_solution",
+        "manufactured_solutions": args.solutions,
     }
     for name in names:
         if name not in evaluation_config.get("cases", {}):
@@ -107,42 +113,44 @@ def main(argv=None):
         if not values or not shapes:
             raise ValueError(f"No values/grid_shapes configured for {name}")
         problem = {**deepcopy(config["problem"]), **deepcopy(override.get("problem", {}))}
+        solution_names = args.solutions or problem.get("manufactured_solutions") or [
+            problem.get("manufactured_solution", "sine_product")
+        ]
+        manufactured_solutions = [
+            create_manufactured_solution(
+                solution_name,
+                conductivity=float(problem.get("conductivity", 1.0)),
+            )
+            for solution_name in solution_names
+        ]
         zoom_bounds = override.get("zoom_bounds")
         for value in values:
             geometry, _ = create_geometry(2, case, value)
-            reference = prepare_reference(
-                dataset=name,
-                value=value,
-                geometry=geometry,
-                reference_shape=reference_shape,
-                evaluation_root=evaluation_root,
-                output_root=output_root,
-                problem=problem,
-                solver_options=solver_options,
-            )
-            for shape in shapes:
-                print(
-                    f"downstream dataset={name} value={value:g} grid={'x'.join(map(str, shape))}",
-                    flush=True,
-                )
-                all_rows.extend(
-                    solve_downstream_case(
-                        dataset=name,
-                        value=value,
-                        shape=shape,
-                        geometry=geometry,
-                        methods=methods,
-                        protocols=protocols,
-                        evaluation_root=evaluation_root,
-                        output_root=output_root,
-                        problem=problem,
-                        solver_options=solver_options,
-                        reference_shape=reference_shape,
-                        reference_solution=reference,
-                        save_plots=save_plots,
-                        zoom_bounds=zoom_bounds,
+            for manufactured in manufactured_solutions:
+                for shape in shapes:
+                    print(
+                        f"downstream dataset={name} value={value:g} "
+                        f"solution={manufactured.name} "
+                        f"grid={'x'.join(map(str, shape))}",
+                        flush=True,
                     )
-                )
+                    all_rows.extend(
+                        solve_downstream_case(
+                            dataset=name,
+                            value=value,
+                            shape=shape,
+                            geometry=geometry,
+                            methods=methods,
+                            protocols=protocols,
+                            evaluation_root=evaluation_root,
+                            output_root=output_root,
+                            problem=problem,
+                            solver_options=solver_options,
+                            manufactured_solution=manufactured,
+                            save_plots=save_plots,
+                            zoom_bounds=zoom_bounds,
+                        )
+                    )
     summarize_rows(all_rows, output_root / "aggregate")
     write_json(output_root / "aggregate" / "run_manifest.json", manifest)
     print(f"downstream_results={output_root}", flush=True)

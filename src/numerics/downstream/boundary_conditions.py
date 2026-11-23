@@ -68,3 +68,17 @@ def build_dirichlet_boundary(shape, edge_values, *, corner_policy="max"):
         else:
             result.append(float(reducers[corner_policy](values)))
     return DirichletBoundary(indices, np.asarray(result), edges)
+
+
+def build_exact_dirichlet_boundary(points, shape, exact_solution):
+    """Evaluate one exact physical-space field on every boundary node."""
+    points = np.asarray(points, dtype=float)
+    expected = (int(np.prod(shape)), 2)
+    if points.shape != expected:
+        raise ValueError(f"Expected boundary mesh coordinates {expected}, got {points.shape}")
+    edges = logical_edge_indices(shape)
+    indices = np.unique(np.concatenate(list(edges.values())))
+    values = np.asarray(exact_solution(points[indices]), dtype=float)
+    if values.shape != (len(indices),) or not np.isfinite(values).all():
+        raise ValueError("The manufactured boundary returned invalid nodal values")
+    return DirichletBoundary(indices, values, edges)

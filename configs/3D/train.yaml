@@ -1,12 +1,12 @@
 ﻿# 三维训练配置。公共参数的默认值、排列顺序和注释与二维 train.yaml 保持一致。
 
 datasets:  # 当前正式三维训练数据集（生成后可直接使用）
-  extrapolation: data/raw/3D/swb_a_ext_1_500_11_21_11
+  extrapolation: data/raw/3D/swb_a_ext_1_500_21_21_11
   # 内插数据集生成后通过命令行 --dataset 显式指定。
 
 grid:  # 三维训练网格尺寸
-  nx: 11  # xi径向节点数：内圆到外部操场形边界
-  ny: 21  # eta周向节点数：内圆和外边界使用相同采样数
+  nx: 21  # xi方向节点数（是否对应径向取决于边界类型）
+  ny: 21  # eta方向节点数（是否对应周向取决于边界类型）
   nz: 11  # zeta方向节点数
 
 model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi、all快捷别名
@@ -81,7 +81,7 @@ training:  # 公共训练设置
   num_epochs: 100000  # 最大训练轮数
   # MeshONet 默认按固定网格 MSE 训练；HMONet、QG-HMONet 和 PI-MeshONet
   # 各自从对应的 *_training 段读取自监督训练与选模设置。
-  best_model_metric: dataset_mse  # HMONet和MeshONet的最佳模型选择指标
+  best_model_metric: dataset_mse  # 公共回退值；HMONet由hmonet_training覆盖为training_loss
   tensorboard_enabled: true  # 是否启用TensorBoard
   batch_size: 64  # 批大小
   seed: 20261030  # 与二维正式配置一致的随机种子
@@ -164,8 +164,9 @@ hmonet_training: &hard_operator_training
   random_loss_fd_stencil_inside: true
   random_loss_fd_boundary_scheme: central
 
-  # 正式默认：仅优化归一化PDE残差。Jacobian/SVD屏障保留为可选消融项，
-  # 其权重为零时不参与反向传播；对应阈值保留，便于后续显式启用时复现。
+  # 正式默认：仅优化归一化PDE残差。Jacobian/SVD屏障由各自权重独立启用：
+  # 单项非零时只计算该项；两项均非零时共享映射Jacobian并联合计算。
+  # 对应阈值保留，便于后续显式启用时复现。
   # L = L_PDE,norm。
   random_mse_loss_weight: 0.0
   physics_pde_loss_weight: 1.0

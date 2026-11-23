@@ -21,7 +21,9 @@ from src.losses.physics import (
     elliptic_grid_boundary_aware_terms,
     elliptic_grid_pde_residual,
     jacobian_positive_loss as physics_jacobian_positive_loss,
+    normalized_jacobian_barrier_from_jacobian,
     normalized_mapping_barriers_from_jacobian,
+    normalized_singular_value_barrier_from_jacobian,
     elliptic_grid_scale_invariant_pde_loss,
     stencil_queries as physics_stencil_queries,
     winslow_energy_and_jacobian_barrier,
@@ -661,30 +663,44 @@ def _random_loss_combo(
         if normalized_jacobian_weight > 0 or singular_value_weight > 0:
             extents = boundary.amax(dim=-2) - boundary.amin(dim=-2)
             characteristic_length = extents.prod(dim=-1).clamp_min(1e-12).sqrt()
-            if derivative_backend == "autograd":
+            barrier_jacobian = (
+                autograd_jacobian
+                if derivative_backend == "autograd"
+                else mapping_first
+            )
+            if normalized_jacobian_weight > 0 and singular_value_weight > 0:
                 normalized_jacobian, singular_value = (
                     normalized_mapping_barriers_from_jacobian(
-                        autograd_jacobian,
+                        barrier_jacobian,
                         characteristic_length,
                         jacobian_minimum=normalized_jacobian_minimum,
                         singular_value_minimum=singular_value_minimum,
                         reduction=barrier_reduction,
                     )
                 )
-            else:
-                normalized_jacobian, singular_value = (
-                    normalized_mapping_barriers_from_jacobian(
-                        mapping_first,
-                        characteristic_length,
-                        jacobian_minimum=normalized_jacobian_minimum,
-                        singular_value_minimum=singular_value_minimum,
-                        reduction=barrier_reduction,
-                    )
+                loss = (
+                    loss
+                    + float(normalized_jacobian_weight) * normalized_jacobian
+                    + float(singular_value_weight) * singular_value
                 )
-            if normalized_jacobian_weight > 0:
+                components["normalized_jacobian"] = normalized_jacobian
+                components["singular_value"] = singular_value
+            elif normalized_jacobian_weight > 0:
+                normalized_jacobian = normalized_jacobian_barrier_from_jacobian(
+                    barrier_jacobian,
+                    characteristic_length,
+                    jacobian_minimum=normalized_jacobian_minimum,
+                    reduction=barrier_reduction,
+                )
                 loss = loss + float(normalized_jacobian_weight) * normalized_jacobian
                 components["normalized_jacobian"] = normalized_jacobian
-            if singular_value_weight > 0:
+            elif singular_value_weight > 0:
+                singular_value = normalized_singular_value_barrier_from_jacobian(
+                    barrier_jacobian,
+                    characteristic_length,
+                    singular_value_minimum=singular_value_minimum,
+                    reduction=barrier_reduction,
+                )
                 loss = loss + float(singular_value_weight) * singular_value
                 components["singular_value"] = singular_value
         if winslow_weight > 0 or winslow_barrier_weight > 0:

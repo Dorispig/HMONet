@@ -58,7 +58,7 @@ def test_comparison_cli_handles_multiple_datasets(tmp_path, capsys):
     assert main([*args, "missing", "complete"]) == 1
     assert (tmp_path / "3D" / "complete" / "comparison" / "mse_comparison.png").is_file()
     output = capsys.readouterr().out
-    assert "missing completed MSE history for HMONet, MeshONet, PI-MeshONet" in output
+    assert "missing completed MSE history for MeshONet, PI-MeshONet, HMONet" in output
     assert "complete | created" in output
     assert main([*args, "complete"]) == 0
     assert "complete | reused" in capsys.readouterr().out

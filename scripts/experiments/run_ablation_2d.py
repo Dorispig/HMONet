@@ -1519,6 +1519,7 @@ def evaluate_one(args, dataset: Path, summary: dict, evaluation_root: Path):
         projection,
         "--output-root",
         str(evaluation_root),
+        "--compact-outputs",
         "--quality-metrics",
         str(settings["quality_metrics"]),
         "--force",

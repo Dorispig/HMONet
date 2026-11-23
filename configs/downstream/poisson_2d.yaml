@@ -1,5 +1,5 @@
-# Downstream Q1 steady-heat benchmark. It consumes the standard evaluator's
-# generated_meshes.npz archives and never retrains a network.
+# Downstream Q1 manufactured-solution benchmark. It consumes the standard
+# evaluator's generated_meshes.npz archives and never retrains a network.
 
 evaluation_config: configs/2D/evaluate.yaml
 evaluation_root: outputs/results
@@ -14,18 +14,11 @@ protocols: [raw, exact_boundary_control]
 save_plots: true
 
 problem:
-  equation: steady_heat
+  equation: manufactured_poisson
   conductivity: 1.0
-  source: 0.0
-  hot_edges: [top]
-  cold_edges: [bottom, right, left]
-  hot_value: 1.0
-  cold_value: 0.0
-  corner_policy: max
-
-reference:
-  method: pde
-  grid_shape: [401, 401]
+  # Smooth isotropic field and a directional high-gradient field. Each supplies
+  # its own exact source, gradient, and complete Dirichlet trace.
+  manufactured_solutions: [sine_product, exponential_sine]
 
 solver:
   solver: direct

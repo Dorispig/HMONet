@@ -33,6 +33,26 @@ def implementation_version():
     )
 
 
+def analysis_inputs_match(saved, requested):
+    """Permit analysis of an existing mesh after analysis/plotting code changes.
+
+    ``analysis-only`` explicitly means that the saved coordinates, rather than
+    the current generator implementation, are the scientific input.  All
+    generation-defining fields (geometry, shape, checkpoint digest, mapping,
+    solver settings and inference settings) must still match exactly; only the
+    broad implementation hash is ignored.
+    """
+    if not isinstance(saved, dict) or not isinstance(requested, dict):
+        return False
+    saved = {key: value for key, value in saved.items() if key != "implementation"}
+    requested = {
+        key: value for key, value in requested.items() if key != "implementation"
+    }
+    # Compare through the same JSON-normalizing digest used by cache identities
+    # so tuple/list differences introduced by JSON round-tripping do not matter.
+    return digest(saved) == digest(requested)
+
+
 def tfi(geometry, shape, queries=None):
     queries = logical_grid(shape) if queries is None else queries
     if len(shape) == 2:
@@ -89,6 +109,7 @@ def generate(
     version,
     models,
     defer=False,
+    published_directory=None,
 ):
     """Reuse only the matching method's mesh; an unavailable method is never TFI."""
     directory = ensure_output_directory(directory, context="Evaluation generation cache")
@@ -138,14 +159,23 @@ def generate(
     pending_key = (str(cache_path.resolve()), signature)
     generated_in_batch = pending_key in models.get("batched_generation", set())
     metadata = read_json(directory / "generation_metadata.json", {})
+    cache_file_valid = (
+        cache_path.is_file()
+        and metadata.get("file_sha256") == file_digest(cache_path)
+    )
     reusable = (
         (
             (options["reuse_generated_results"] and not options["force_regenerate"])
             or generated_in_batch
         )
-        and metadata.get("signature") == signature
-        and cache_path.is_file()
-        and metadata.get("file_sha256") == file_digest(cache_path)
+        and cache_file_valid
+        and (
+            metadata.get("signature") == signature
+            or (
+                options["analysis_only"]
+                and analysis_inputs_match(metadata.get("inputs"), signature_data)
+            )
+        )
     )
     if reusable:
         if defer:
@@ -163,9 +193,37 @@ def generate(
             dict(metadata["timing"], cache_hit=not generated_in_batch),
             digest({"input": signature, "mesh": array_digest(points)}),
         )
+    if (
+        published_directory is not None
+        and options["reuse_generated_results"]
+        and not options["force_regenerate"]
+    ):
+        published_mesh = published_directory / "mesh.npy"
+        published = read_json(published_directory / "generation_metadata.json", {})
+        published_file_valid = (
+            published_mesh.is_file()
+            and published.get("file_sha256") == file_digest(published_mesh)
+        )
+        if published_file_valid and (
+            published.get("signature") == signature
+            or (
+                options["analysis_only"]
+                and analysis_inputs_match(published.get("inputs"), signature_data)
+            )
+        ):
+            if defer:
+                return None
+            points = np.load(published_mesh)
+            print(f"  reuse saved mesh {method}", flush=True)
+            return (
+                points,
+                dict(published["timing"], cache_hit=True),
+                digest({"input": signature, "mesh": array_digest(points)}),
+            )
     if options["analysis_only"]:
         raise RuntimeError(
-            f"analysis-only requires a matching generation cache for {method}: {directory}"
+            "analysis-only requires a saved mesh/cache with matching geometry, "
+            f"shape and generation inputs for {method}: {directory}"
         )
     print(f"  generate {method}", flush=True)
     started = time.perf_counter()

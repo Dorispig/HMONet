@@ -70,7 +70,7 @@ DATASET_GENERATORS = {
     "variable_width_s_channel": variable_width_s_channel_boundary,
     "rounded_u_notch": rounded_u_notch_boundary,
     "gear_spline": gear_spline_boundary,
-    "four_convex_semicircle": BOUNDARY_GENERATORS["four_convex_semicircle"],
+    "four_convex_arcs": BOUNDARY_GENERATORS["four_convex_arcs"],
     "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
     "rectangle": BOUNDARY_GENERATORS["rectangle"],
     "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,
@@ -152,7 +152,7 @@ DATASET_FAMILIES = {
         "extrapolation": [[0.55, 1.5]],
     },
     "gear_spline": {
-        "output_name": "gsp",
+        "output_name": "gsp_a",
         "function": "gear_spline",
         "parameter": "amplitude",
         "description": "四条三次 B 样条波纹边界，端部波幅平滑减弱；固定6周期。",
@@ -162,10 +162,27 @@ DATASET_FAMILIES = {
             "teeth": 6,
             "controls_per_wave": 16,
         },
-        "grid_shape": [81, 81],
+        "grid_shape": [41, 41],
         "equal_interval_counts": True,
         "interpolation": [[0.02, 0.1], [0.15, 0.2]],
         "extrapolation": [[0.02, 0.18]],
+    },
+    "four_convex_arcs": {
+        "output_name": "fca_a",
+        "function": "four_convex_arcs",
+        "parameter": "arc_angle_deg",
+        "description": (
+            "四条具有相同弦长和圆心角的外凸圆弧；"
+            "变化参数为每条圆弧的圆心角。"
+        ),
+        "fixed_parameters": {"chord": 1.0},
+        "grid_shape": [41, 41],
+        "equal_interval_counts": True,
+        # The requested extrapolation range includes nonconvex corner cells
+        # at 120 degrees. Save all samples; report endpoint quality warnings
+        # after generation instead of truncating the dataset.
+        "interpolation": [[30.0, 50.0], [70.0, 90.0]],
+        "extrapolation": [[30.0, 120.0]],
     },
     "rect_top_semiellipse": {
         "output_name": "rse",
@@ -179,12 +196,12 @@ DATASET_FAMILIES = {
         "extrapolation": [[0.0, 0.4]],
     },
     "symmetric_convex_tri": {
-        "output_name": "tri",
+        "output_name": "tri_p",
         "function": "symmetric_convex_tri",
         "parameter": "protrusion_distance",
         "description": "单位矩形的上下边界为对称三角折线，变化参数为凸起高度。",
         "fixed_parameters": {"width": 1.0, "side_length": 1.0},
-        "grid_shape": [21, 20],
+        "grid_shape": [41, 41],
         "equal_interval_counts": True,
         "interpolation": [[0.05, 0.2], [0.3, 0.5]],
         "extrapolation": [[0.05, 0.4]],
@@ -209,8 +226,8 @@ SPLIT_ALIASES = {
     "interpolation": "interpolation",
 }
 
-# 正式六类二维外推边界；每项格式为 (family, split, version)。
-# 不带命令行参数运行时批量生成当前的六个 v1/500 外推数据集；已存在的
+# 正式九类二维外推边界；每项格式为 (family, split, version, nx, ny)。
+# 不带命令行参数运行时批量生成当前的九个 v1/500 外推数据集；已存在的
 # 数据集会打印 [skip] 提示。内插集使用 --family/--split 显式生成。
 SELECTED_DATASETS = [
     ("circle_airfoil_t", "extrapolation", 1, 41, 41),
@@ -219,6 +236,9 @@ SELECTED_DATASETS = [
     ("rounded_u_notch_compact", "extrapolation", 1, 41, 41),
     ("smooth_constricted_channel", "extrapolation", 1, 41, 41),
     ("variable_width_s_channel", "extrapolation", 1, 41, 41),
+    ("symmetric_convex_tri", "extrapolation", 1, 41, 41),
+    ("gear_spline", "extrapolation", 1, 41, 41),
+    ("four_convex_arcs", "extrapolation", 1, 41, 41),
 ]
 
 # Common settings for every selected dataset. CLI values override these settings.
@@ -240,7 +260,7 @@ BOUNDARY_DESCRIPTIONS = {
         "另有两条直线连接翼型尾缘与圆的右端点；共四条参数曲线。"
     ),
     "eccentric_semiannulus": "内外两条上半圆与左右水平连接线构成的半环形边界。",
-    "four_convex_semicircle": "四条具有相同弦长和圆心角的向外凸圆弧。",
+    "four_convex_arcs": "四条具有相同弦长和圆心角的向外凸圆弧。",
     "gear_spline": "四条三次 B 样条波纹边界，端部波幅平滑减弱；周期数由 teeth 参数指定。",
     "rect_top_semiellipse": "左、下、右为直线段，上边界为向外凸的半椭圆。",
     "rectangle": "上下左右均为直线段的矩形边界。",
@@ -949,6 +969,11 @@ def generate_eccentric_semiannulus_dataset(split, **options):
 def generate_gear_spline_dataset(split, **options):
     """Generate index-aligned gear_spline curve and PDE records."""
     return generate_dataset("gear_spline", split, **options)
+
+
+def generate_four_convex_arcs_dataset(split, **options):
+    """Generate the four equal convex-arc boundary family."""
+    return generate_dataset("four_convex_arcs", split, **options)
 
 
 def generate_rect_top_semiellipse_dataset(split, **options):

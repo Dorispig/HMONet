@@ -138,6 +138,13 @@ class ParametricDataset(Dataset):
             indices = GenerateQuadMeshBoundaryIndex(ny, nx)
             if not np.array_equal(self.mesh_points[:, indices], self.boundary_points):
                 raise ValueError("Stored mesh boundaries do not match boundary_points")
+        else:
+            from src.data.mesh.sampling import boundary_indices
+            indices = boundary_indices(self.grid_shape)
+            scale = max(1.0, float(np.abs(self.boundary_points).max()))
+            if not np.allclose(self.mesh_points[:, indices], self.boundary_points,
+                               rtol=0, atol=2e-6 * scale):
+                raise ValueError("Stored 3-D PDE mesh boundaries do not match boundary_samples.npy")
         if self.load_boundary:
             self.boundary = self._read_boundaries(metadata)
 
@@ -204,10 +211,23 @@ class ParametricDataset3D(ParametricDataset):
         for index, record in enumerate(records):
             if record["sample_id"] != index:
                 raise ValueError(f"sample_id mismatch at index {index}")
-        return [
-            BoundarySurfaceSet3D.from_dict(record["boundary"])
-            for record in records
-        ]
+        boundaries = [BoundarySurfaceSet3D.from_dict(record["boundary"]) for record in records]
+        from src.data.mesh.sampling import sample_faces, boundary_indices
+        indices = boundary_indices(self.grid_shape)
+        for index, boundary in enumerate(boundaries):
+            _, sampled = sample_faces(boundary, self.grid_shape)
+            expected = sampled.reshape(-1, 3)[indices]
+            scale = max(1.0, float(np.abs(expected).max()))
+            error = float(np.max(np.abs(expected - self.boundary_points[index])))
+            if error > 2e-6 * scale:
+                raise ValueError(
+                    f"Dataset boundary mismatch: {self.root.name}, sample {index}, "
+                    f"max error={error:.8g}. Serialized exact surfaces do not match "
+                    "boundary_samples.npy. Regenerate this dataset with its current "
+                      "geometry revision; the dataset-name version is independent. Do not mix old labels "
+                    "and new boundary formulas. Existing files were not changed."
+                )
+        return boundaries
 
 
 def uniformly_spaced_subset(dataset, sample_count):

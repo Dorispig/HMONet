@@ -136,8 +136,10 @@ def rounded_u_groove_extrusion_boundary(
 def rounded_u_notch_extrusion_boundary(
     width=3.0, height=2.0, notch_width=0.9, depth=1.0,
     radius=0.25, length=2.5, z_min=0.0,
+    cap_nx=201, cap_ny=201,
+    cap_max_iter=1000, cap_tolerance=1e-10,
 ):
-    """Extrude the exact 2-D ``rounded_u_notch`` (``run``) along ``z``."""
+    """Exact run contour with dense planar PDE caps; body uses the 3-D solver."""
     margin = 0.5 * (width - notch_width)
     if min(width, height, notch_width, depth, radius, length) <= 0:
         raise ValueError("rounded-U-notch dimensions must be positive")
@@ -149,16 +151,20 @@ def rounded_u_notch_extrusion_boundary(
         "width": float(width), "height": float(height), "notch_width": float(notch_width),
         "depth": float(depth), "radius": float(radius), "length": float(length), "z_min": float(z_min),
     }
-    return _mapped_boundary("rounded_u_notch_extrusion", parameters, {
-        "family": "rounded_u_notch_extrusion", "topology": "exact_rounded_u_notch_extrusion", **parameters,
-    })
+    return _mapped_boundary('rounded_u_notch_extrusion', parameters, dict(
+        family='rounded_u_notch_extrusion', topology='exact_rounded_u_notch_extrusion', **parameters))
 
 
 def tapered_elliptic_bore_block_boundary(
     inner_major_axis=0.32, inner_minor_axis_in=0.18, minor_axis_out=0.24,
     outer_half_width=1.5, outer_half_height=1.0, length=2.5, z_min=0.0,
 ):
-    """Rectangular casing containing a z-tapered elliptical through-bore."""
+    """Rectangular casing containing a z-tapered elliptical through-bore.
+
+    The outer casing is parameterized by four ordinary straight sides whose
+    corners occur at logical quarter points.  No polar ray/rectangle
+    intersection is used.
+    """
     if min(inner_major_axis, inner_minor_axis_in, minor_axis_out, outer_half_width, outer_half_height, length) <= 0:
         raise ValueError("elliptic-bore dimensions must be positive")
     if inner_major_axis >= outer_half_width or max(inner_minor_axis_in, minor_axis_out) >= outer_half_height:
@@ -172,7 +178,10 @@ def tapered_elliptic_bore_block_boundary(
         "length": float(length), "z_min": float(z_min),
     }
     return _mapped_boundary("tapered_elliptic_bore_block", parameters, {
-        "family": "tapered_elliptic_bore_block", "topology": "rectangular_o_grid", **parameters,
+        "family": "tapered_elliptic_bore_block",
+        "topology": "rectangular_o_grid",
+        "outer_parameterization": "four_straight_sides",
+        **parameters,
     })
 
 
@@ -254,6 +263,112 @@ def lobed_annular_duct_boundary(
     })
 
 
+def square_to_round_transition_boundary(
+    inlet_half_width=1.0, inlet_half_height=0.75, outlet_radius=0.75,
+    length=3.0, z_min=0.0,
+):
+    """Duct transitioning smoothly from a rectangular to a circular section."""
+    if min(inlet_half_width, inlet_half_height, outlet_radius, length) <= 0:
+        raise ValueError("square-to-round dimensions must be positive")
+    parameters = {
+        "inlet_half_width": float(inlet_half_width),
+        "inlet_half_height": float(inlet_half_height),
+        "outlet_radius": float(outlet_radius),
+        "length": float(length),
+        "z_min": float(z_min),
+    }
+    return _mapped_boundary("square_to_round_transition", parameters, {
+        "family": "square_to_round_transition",
+        "topology": "analytic_h_grid",
+        "cross_section_map": "elliptic_square_to_disk",
+        **parameters,
+    })
+
+
+def variable_area_s_duct_boundary(
+    inlet_half_width=0.55, inlet_half_height=0.40, area_ratio_out=1.0,
+    centerline_offset=0.25, length=3.2, z_min=0.0,
+):
+    """Variable-area inlet swept along a smooth planar S-shaped centreline."""
+    if min(inlet_half_width, inlet_half_height, area_ratio_out, length) <= 0:
+        raise ValueError("S-duct dimensions and area_ratio_out must be positive")
+    if centerline_offset < 0 or centerline_offset >= 0.35 * length:
+        raise ValueError("centerline_offset must lie in [0, 0.35*length)")
+    if not 0.35 <= area_ratio_out <= 1.8:
+        raise ValueError("area_ratio_out must remain in [0.35, 1.8]")
+    parameters = {
+        "inlet_half_width": float(inlet_half_width),
+        "inlet_half_height": float(inlet_half_height),
+        "area_ratio_out": float(area_ratio_out),
+        "centerline_offset": float(centerline_offset),
+        "length": float(length),
+        "z_min": float(z_min),
+    }
+    return _mapped_boundary("variable_area_s_duct", parameters, {
+        "family": "variable_area_s_duct",
+        "topology": "swept_analytic_h_grid",
+        **parameters,
+    })
+
+
+def twisted_blade_passage_boundary(
+    chord=2.0, pitch=1.0, height=1.5, camber_amplitude=0.22,
+    blade_thickness=0.12, twist_angle_deg=18.0, z_min=0.0,
+):
+    """One blade-to-blade flow passage with spanwise stagger variation.
+
+    ``y_min`` and ``y_max`` are the two adjacent blade surfaces.  The map is
+    not a solid blade embedded in a box: it is the single fluid passage
+    between a periodic blade pair requested for the dataset family.
+    """
+    if min(chord, pitch, height) <= 0 or blade_thickness < 0:
+        raise ValueError("blade-passage dimensions must be positive")
+    if 2.0 * blade_thickness >= pitch:
+        raise ValueError("blade_thickness must leave a strictly positive passage gap")
+    if abs(twist_angle_deg) >= 120:
+        raise ValueError("|twist_angle_deg| must remain below 120 degrees")
+    parameters = {
+        "chord": float(chord), "pitch": float(pitch), "height": float(height),
+        "camber_amplitude": float(camber_amplitude),
+        "blade_thickness": float(blade_thickness),
+        "twist_angle_deg": float(twist_angle_deg), "z_min": float(z_min),
+    }
+    return _mapped_boundary("twisted_blade_passage", parameters, {
+        "family": "twisted_blade_passage",
+        "topology": "single_blade_to_blade_passage",
+        **parameters,
+    })
+
+
+def localized_dimple_block_boundary(
+    length_x=2.0, width_y=1.5, height_z=1.0, dimple_depth=0.20, z_min=0.0,
+):
+    """Block with one analytic C2 dimple on the upper boundary face.
+
+    The full mapping is
+    ``(Lx*xi, Ly*eta, z_min + zeta*(H-d*b(xi)*b(eta)))`` with
+    ``b(s)=64*s^3*(1-s)^3``.  For ``0 <= d < H`` its determinant is
+    ``Lx*Ly*(H-d*b(xi)*b(eta)) > 0``, proving a one-to-one map from the unit
+    cube.  The bump and its first two derivatives vanish at all four edges.
+    """
+    if min(length_x, width_y, height_z) <= 0:
+        raise ValueError("dimple-block dimensions must be positive")
+    if not 0.0 <= dimple_depth < height_z:
+        raise ValueError("dimple_depth must satisfy 0 <= depth < height_z")
+    parameters = {
+        "length_x": float(length_x), "width_y": float(width_y),
+        "height_z": float(height_z), "dimple_depth": float(dimple_depth),
+        "z_min": float(z_min),
+    }
+    return _mapped_boundary("localized_dimple_block", parameters, {
+        "family": "localized_dimple_block",
+        "topology": "analytic_graph_h_grid",
+        "dataset_family_enabled": False,
+        "surface_parameterization": "exact_C2_graph",
+        **parameters,
+    })
+
+
 def box_boundary(xmin=-1, xmax=1, ymin=-1, ymax=1, zmin=-1, zmax=1):
     """Axis-aligned six-face verification box."""
     if not (xmin < xmax and ymin < ymax and zmin < zmax):
@@ -269,6 +384,31 @@ def box_boundary(xmin=-1, xmax=1, ymin=-1, ymax=1, zmin=-1, zmax=1):
     )
 
 
+def _with_pde_caps(function, family):
+    """Upgrade current public generators while keeping historical deserialization."""
+    from functools import wraps
+    @wraps(function)
+    def generate(*args, cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-10, **kwargs):
+        from .pde_surface_3d import pde_cap_boundary
+        boundary=function(*args,**kwargs)
+        return pde_cap_boundary(boundary,cap_nx,cap_ny,cap_max_iter,cap_tolerance)
+    return generate
+
+
+# Only these nine families acquire the current default cap representation.
+# Old analytic classes/functions remain available to read archived geometry.
+from .pde_surface_3d import CURRENT_CAP_FAMILIES
+_CURRENT_FUNCTION_NAMES = (
+    'cylindrical_domain_with_airfoil_hole', 'sidewall_deformed_block_boundary',
+    'rounded_u_notch_extrusion_boundary', 'tapered_elliptic_bore_block_boundary',
+    'bent_annular_duct_boundary', 'lobed_annular_duct_boundary',
+    'square_to_round_transition_boundary', 'variable_area_s_duct_boundary',
+    'twisted_blade_passage_boundary',
+)
+for _family, _function_name in zip(CURRENT_CAP_FAMILIES,_CURRENT_FUNCTION_NAMES):
+    globals()[_function_name]=_with_pde_caps(globals()[_function_name],_family)
+
+
 BOUNDARY_GENERATORS = {
     "cylindrical_domain_with_airfoil_hole": cylindrical_domain_with_airfoil_hole,
     "stadium_cylinder_with_circular_hole": stadium_cylinder_with_circular_hole,
@@ -280,6 +420,10 @@ BOUNDARY_GENERATORS = {
     "twisted_elliptic_annulus": twisted_elliptic_annulus_boundary,
     "bent_annular_duct": bent_annular_duct_boundary,
     "lobed_annular_duct": lobed_annular_duct_boundary,
+    "square_to_round_transition": square_to_round_transition_boundary,
+    "variable_area_s_duct": variable_area_s_duct_boundary,
+    "twisted_blade_passage": twisted_blade_passage_boundary,
+    "localized_dimple_block": localized_dimple_block_boundary,
     "box": box_boundary,
 }
 

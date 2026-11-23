@@ -1,9 +1,8 @@
-"""End-to-end downstream heat-equation evaluation on generated meshes."""
+"""End-to-end manufactured Poisson evaluation on generated meshes."""
 
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,27 +15,14 @@ from src.evaluation.mesh_provider import (
     load_evaluated_meshes,
     replace_with_exact_boundary,
 )
-from src.numerics.downstream.boundary_conditions import build_dirichlet_boundary
+from src.numerics.downstream.boundary_conditions import build_exact_dirichlet_boundary
 from src.numerics.downstream.field_comparison import (
-    boundary_heat_flux,
-    compare_to_reference,
+    compare_to_exact_solution,
 )
 from src.numerics.downstream.poisson_2d import solve_poisson_2d
-from src.numerics.downstream.reference_solution import (
-    load_reference,
-    reference_identity,
-    save_reference,
-)
 
 
 LEARNED_METHODS = {"MeshONet", "PI-MeshONet", "HMONet"}
-
-
-def _edge_values(problem):
-    values = {edge: float(problem["cold_value"]) for edge in problem["cold_edges"]}
-    values.update({edge: float(problem["hot_value"]) for edge in problem["hot_edges"]})
-    return values
-
 
 def _write_csv(path, rows):
     rows = list(rows)
@@ -103,7 +89,7 @@ def _plot_errors(path, meshes, errors, title, zoom_bounds=None):
         axis.set_xlabel("x")
         axis.set_ylabel("y")
     if image is not None:
-        figure.colorbar(image, ax=axes.ravel().tolist(), shrink=0.8, label="|u-u_ref|")
+        figure.colorbar(image, ax=axes.ravel().tolist(), shrink=0.8, label="|u-u_exact|")
     figure.suptitle(title)
     figure.subplots_adjust(left=0.05, right=0.94, bottom=0.12, top=0.83, wspace=0.28)
     path = Path(path)
@@ -124,17 +110,13 @@ def solve_downstream_case(
     output_root,
     problem,
     solver_options,
-    reference_shape,
-    reference_solution,
+    manufactured_solution,
     save_plots=True,
     zoom_bounds=None,
 ):
     """Solve all method/protocol pairs for one value and grid shape."""
     meshes, timings, archive = load_evaluated_meshes(
         evaluation_root, dataset, shape, value, methods
-    )
-    boundary = build_dirichlet_boundary(
-        shape, _edge_values(problem), corner_policy=problem.get("corner_policy", "max")
     )
     rows = []
     for protocol in protocols:
@@ -143,6 +125,7 @@ def solve_downstream_case(
             / dataset
             / f"{float(value):g}"
             / "x".join(map(str, shape))
+            / manufactured_solution.name
             / protocol
         )
         directory.mkdir(parents=True, exist_ok=True)
@@ -151,6 +134,9 @@ def solve_downstream_case(
             points = raw_points
             if protocol == "exact_boundary_control" and method in LEARNED_METHODS:
                 points = replace_with_exact_boundary(raw_points, geometry, shape)
+            boundary = build_exact_dirichlet_boundary(
+                points, shape, manufactured_solution.value
+            )
             base = {
                 "dataset": dataset,
                 "parameter_value": float(value),
@@ -159,6 +145,7 @@ def solve_downstream_case(
                 "method": method,
                 "mesh_archive": str(archive),
                 "generation_seconds": generation_seconds(timings, method),
+                "manufactured_solution": manufactured_solution.name,
                 **boundary_geometry_error(points, geometry, shape),
             }
             try:
@@ -167,24 +154,21 @@ def solve_downstream_case(
                     shape,
                     boundary,
                     conductivity=float(problem["conductivity"]),
-                    source=float(problem["source"]),
+                    source=manufactured_solution.source,
                     **solver_options,
                 )
-                comparison = compare_to_reference(
-                    points, shape, result.solution, reference_solution, reference_shape
+                comparison = compare_to_exact_solution(
+                    points,
+                    shape,
+                    result.solution,
+                    manufactured_solution.value,
+                    manufactured_solution.gradient,
                 )
                 row = {
                     **base,
                     "status": "success",
                     **result.metrics(),
                     **{key: value for key, value in comparison.items() if np.isscalar(value)},
-                    "hot_boundary_heat_flux": boundary_heat_flux(
-                        points,
-                        shape,
-                        result.solution,
-                        edge=problem["hot_edges"][0],
-                        conductivity=float(problem["conductivity"]),
-                    ),
                 }
                 solved_meshes[method] = (points, shape)
                 solutions[method] = result.solution
@@ -194,6 +178,7 @@ def solve_downstream_case(
                     directory / "fields" / f"{method.lower().replace('-', '_')}.npz",
                     points=points,
                     solution=result.solution,
+                    exact=comparison["reference_on_candidate_grid"],
                     reference=comparison["reference_on_candidate_grid"],
                     error=comparison["nodal_error"],
                 )
@@ -213,60 +198,17 @@ def solve_downstream_case(
                 directory / "figures" / "error_comparison.png",
                 solved_meshes,
                 errors,
-                "Absolute error against the PDE-mesh reference",
+                "Absolute error against the manufactured exact solution",
             )
             if zoom_bounds:
                 _plot_errors(
                     directory / "figures" / "high_curvature_zoom.png",
                     solved_meshes,
                     errors,
-                    "High-curvature-region error",
+                    "High-curvature-region error against the exact solution",
                     zoom_bounds,
                 )
     return rows
-
-
-def prepare_reference(
-    *,
-    dataset,
-    value,
-    geometry,
-    reference_shape,
-    evaluation_root,
-    output_root,
-    problem,
-    solver_options,
-):
-    """Load or solve the high-resolution PDE-mesh reference field."""
-    meshes, _, archive = load_evaluated_meshes(
-        evaluation_root, dataset, reference_shape, value, ["PDE_Winslow"]
-    )
-    mesh = meshes["PDE_Winslow"]
-    identity = reference_identity(mesh, reference_shape, problem)
-    path = Path(output_root) / dataset / f"{float(value):g}" / "reference" / "solution.npz"
-    cached = load_reference(path, identity)
-    if cached is not None:
-        return cached
-    boundary = build_dirichlet_boundary(
-        reference_shape,
-        _edge_values(problem),
-        corner_policy=problem.get("corner_policy", "max"),
-    )
-    result = solve_poisson_2d(
-        mesh,
-        reference_shape,
-        boundary,
-        conductivity=float(problem["conductivity"]),
-        source=float(problem["source"]),
-        **solver_options,
-    )
-    save_reference(
-        path,
-        identity,
-        result.solution,
-        {"mesh_archive": str(archive), "solver_metrics": result.metrics()},
-    )
-    return result.solution
 
 
 def summarize_rows(rows, output_root):
@@ -275,6 +217,36 @@ def summarize_rows(rows, output_root):
 
     output_root = Path(output_root)
     frame = pd.DataFrame(rows)
+    if not frame.empty:
+        frame["nominal_h"] = frame["grid_shape"].map(
+            lambda value: 1.0
+            / max(int(part) - 1 for part in str(value).lower().split("x"))
+        )
+        frame["l2_convergence_order"] = np.nan
+        frame["h1_convergence_order"] = np.nan
+        group_columns = [
+            "dataset",
+            "parameter_value",
+            "manufactured_solution",
+            "protocol",
+            "method",
+        ]
+        for _, indices in frame.groupby(group_columns, dropna=False).groups.items():
+            ordered = frame.loc[list(indices)].sort_values("nominal_h", ascending=False)
+            previous = None
+            for index, row in ordered.iterrows():
+                if previous is not None and row["status"] == previous["status"] == "success":
+                    denominator = np.log(previous["nominal_h"] / row["nominal_h"])
+                    if denominator > 0:
+                        for error_name, order_name in (
+                            ("relative_l2_error", "l2_convergence_order"),
+                            ("relative_h1_seminorm_error", "h1_convergence_order"),
+                        ):
+                            coarse = float(previous[error_name])
+                            fine = float(row[error_name])
+                            if coarse > 0 and fine > 0:
+                                frame.loc[index, order_name] = np.log(coarse / fine) / denominator
+                previous = row
     output_root.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_root / "metrics_by_case.csv", index=False, encoding="utf-8-sig")
     numeric = [
@@ -284,17 +256,26 @@ def summarize_rows(rows, output_root):
     ]
     successful = frame[frame["status"] == "success"]
     if not successful.empty:
-        grouped = successful.groupby(["protocol", "method"])[numeric].agg(["mean", "std"])
+        grouped = successful.groupby(
+            ["manufactured_solution", "protocol", "method"]
+        )[numeric].agg(["mean", "std"])
         grouped.to_csv(output_root / "mean_std_by_method.csv", encoding="utf-8-sig")
-        identity = ["dataset", "parameter_value", "grid_shape", "protocol"]
+        identity = [
+            "dataset",
+            "parameter_value",
+            "grid_shape",
+            "manufactured_solution",
+            "protocol",
+        ]
         paper_metrics = [
             name
             for name in (
                 "relative_l2_error",
                 "relative_h1_seminorm_error",
+                "l2_convergence_order",
+                "h1_convergence_order",
                 "nodal_maximum_absolute_error",
                 "boundary_max_error",
-                "hot_boundary_heat_flux",
                 "minimum_element_jacobian",
                 "assembly_seconds",
                 "solve_seconds",
@@ -311,7 +292,7 @@ def summarize_rows(rows, output_root):
         paper.to_csv(output_root / "paper_table.csv", encoding="utf-8-sig")
     success = (
         frame.assign(solve_success=frame["status"].eq("success").astype(int))
-        .groupby(["protocol", "method"])["solve_success"]
+        .groupby(["manufactured_solution", "protocol", "method"])["solve_success"]
         .agg(["sum", "count", "mean"])
         .reset_index()
     )

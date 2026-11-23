@@ -34,6 +34,29 @@ import pytest
 
 
 class TestConfigArchive:
+    def test_changed_surface_contract_prevents_old_training_reuse(self, tmp_path):
+        from src.engine.state import model_specific_training_config, _matches_saved_settings
+
+        dataset = tmp_path / "dataset"
+        dataset.mkdir()
+        config = {"model": {"name": "hmonet"}, "training": {}}
+        old = model_specific_training_config(config, "hmonet", dataset, "extrapolation")
+        metadata = {
+            "boundary_type": "sidewall_deformed_block",
+            "geometry_revision": 3,
+            "cap_parameterization": "planar_winslow_coons_cubic_v1",
+            "side_parameterization": "original_surface_chart_tfi",
+        }
+        (dataset / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        current = model_specific_training_config(config, "hmonet", dataset, "extrapolation")
+        assert current["dataset_geometry"] == metadata
+        assert not _matches_saved_settings(current, old)
+        assert _matches_saved_settings(current, current)
+        metadata["geometry_revision"] = 4
+        (dataset / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        revised = model_specific_training_config(config, "hmonet", dataset, "extrapolation")
+        assert not _matches_saved_settings(revised, current)
+
     def test_resolved_dataset_and_collision(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -61,7 +84,7 @@ class TestConfigArchive:
                     assert (run) == (expected)
                     directory = config_archive_directory(args, config, "hmonet", run)
                     assert (directory) == (
-                        root / "configs/2D/sample/HMONet/rational_affine" / run
+                        root / "configs/2D/sample/HMONet/RAP" / run
                     )
                     path = save_training_snapshot(
                         directory, config, root / "data/sample", "interpolation"
@@ -141,8 +164,9 @@ class TestTrainingRunDirectory:
                             assert (args.run_id) == (expected)
                             assert (Path(args.training_output_dir)) == (state.output)
                             if name == "hmonet":
-                                assert (state.output.parent.name) == (mapping)
-                                assert (state.checkpoint.parent.name) == (mapping)
+                                from src.models.mapping_modes import mapping_mode_path_name
+                                assert state.output.parent.name == mapping_mode_path_name(mapping)
+                                assert state.checkpoint.parent.name == mapping_mode_path_name(mapping)
                             event = next(
                                 (state.output / "tensorboard").glob("events.out*")
                             )

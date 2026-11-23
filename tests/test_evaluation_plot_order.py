@@ -133,7 +133,7 @@ class TestEvaluationPlotOrder:
         ) as saved:
             plot_volumes(self.root, meshes, fields, (3, 3, 3), self.options)
             assert (saved.call_count) == (2)
-            save_sections(self.root, meshes, (3, 3, 3), self.options)
+            save_sections(self.root, meshes, (3, 3, 3), {**self.options, "middle_sections": "all"})
             assert (saved.call_count) > (2)
         for section in ("x_mid", "y_mid", "z_mid"):
             metadata = json.loads(

@@ -1,8 +1,10 @@
 import torch
 
 from src.losses.physics import (
+    normalized_jacobian_barrier_from_jacobian,
     normalized_mapping_barriers,
     normalized_mapping_barriers_from_jacobian,
+    normalized_singular_value_barrier_from_jacobian,
     scale_invariant_pde_loss,
     stencil_queries,
 )
@@ -78,3 +80,49 @@ class TestScaleInvariantMeshRegularization:
         )
         assert (float(jacobian)) == pytest.approx(0.5, abs=10**-12)
         assert (float(singular)) == pytest.approx(0.5, abs=10**-12)
+
+    def test_jacobian_barrier_does_not_compute_singular_values(self, monkeypatch):
+        first = torch.eye(3, dtype=torch.float64).reshape(1, 1, 3, 3)
+
+        def unexpected_svd(*_args, **_kwargs):
+            raise AssertionError("Jacobian-only loss must not compute an SVD")
+
+        monkeypatch.setattr(torch.linalg, "svdvals", unexpected_svd)
+        loss = normalized_jacobian_barrier_from_jacobian(
+            first,
+            torch.tensor([1.0], dtype=torch.float64),
+            reduction="all",
+        )
+        assert float(loss) == 0.0
+
+    def test_singular_value_barrier_does_not_compute_determinant(self, monkeypatch):
+        first = torch.eye(3, dtype=torch.float64).reshape(1, 1, 3, 3)
+
+        def unexpected_determinant(*_args, **_kwargs):
+            raise AssertionError("SVD-only loss must not compute a determinant")
+
+        monkeypatch.setattr(torch.linalg, "det", unexpected_determinant)
+        loss = normalized_singular_value_barrier_from_jacobian(
+            first,
+            torch.tensor([1.0], dtype=torch.float64),
+            reduction="all",
+        )
+        assert float(loss) == 0.0
+
+    def test_joint_barriers_match_independent_computations(self):
+        first = torch.tensor(
+            [[[[0.01, 0.0, 0.0], [0.0, 0.03, 0.0], [0.0, 0.0, 0.04]]]],
+            dtype=torch.float64,
+        )
+        scale = torch.tensor([1.0], dtype=torch.float64)
+        joint_jacobian, joint_singular = normalized_mapping_barriers_from_jacobian(
+            first, scale, reduction="all"
+        )
+        independent_jacobian = normalized_jacobian_barrier_from_jacobian(
+            first, scale, reduction="all"
+        )
+        independent_singular = normalized_singular_value_barrier_from_jacobian(
+            first, scale, reduction="all"
+        )
+        torch.testing.assert_close(joint_jacobian, independent_jacobian)
+        torch.testing.assert_close(joint_singular, independent_singular)

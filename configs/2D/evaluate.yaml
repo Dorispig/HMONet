@@ -28,6 +28,22 @@ cases:
     train_grid: [41, 41]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters: {outer_radius: 0.5, inner_radius: 0.1}
+  fca_a_ext_1_500_41_41:
+    boundary_type: four_convex_arcs
+    split: extrapolation
+    parameter: arc_angle_deg
+    values: [125.0, 130.0]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {chord: 1.0}
+  gsp_a_ext_1_500_41_41:
+    boundary_type: gear_spline
+    split: extrapolation
+    parameter: amplitude
+    values: [0.19, 0.20]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {width: 2.0, height: 1.6, teeth: 6, controls_per_wave: 16}
   rse_ext_1_500_41_41:
     boundary_type: rect_top_semiellipse
     split: extrapolation
@@ -52,6 +68,14 @@ cases:
     train_grid: [41, 41]
     grid_shapes: [[101, 101], [201, 201], [401, 401]]
     fixed_parameters: {length: 3.0, height: 1.0}
+  tri_p_ext_1_500_41_41:
+    boundary_type: symmetric_convex_tri
+    split: extrapolation
+    parameter: protrusion_distance
+    values: [0.42, 0.48]
+    train_grid: [41, 41]
+    grid_shapes: [[101, 101], [201, 201], [401, 401]]
+    fixed_parameters: {width: 1.0, side_length: 1.0}
   vsc_ext_1_500_41_41:
     boundary_type: variable_width_s_channel
     split: extrapolation
@@ -62,7 +86,7 @@ cases:
     fixed_parameters: {length: 4.0, height: 0.8, bend: 2.0}
 
 evaluation:
-  default_cases: [air_t_ext_1_500_41_41, esa_ext_1_500_41_41, rse_ext_1_500_41_41, run_ext_1_500_41_41, scc_ext_1_500_41_41, vsc_ext_1_500_41_41]
+  default_cases: [air_t_ext_1_500_41_41, esa_ext_1_500_41_41, fca_a_ext_1_500_41_41, gsp_a_ext_1_500_41_41, rse_ext_1_500_41_41, run_ext_1_500_41_41, scc_ext_1_500_41_41, tri_p_ext_1_500_41_41, vsc_ext_1_500_41_41]
   methods: [tfi, pde, meshonet, pimeshonet, hmonet, qghmonet]
   # CCAP = Corner-Corrected Affine Projection（角点校正仿射投影）。
   # 另可选 RAP = rational_affine，CR = coons_residual。
@@ -93,8 +117,11 @@ evaluation:
   quality_metrics: both
   quality_plot_metrics: []
   save_plots: true
+  # true: retain the ordinary comparison and add a second figure with the
+  # continuous exact parameter boundary; false: retain only the ordinary figure.
+  exact_boundary_overlay: true
   save_png: true
-  compact_outputs: true
+  compact_outputs: false
   save_pdf: false
   save_distribution_plots: false
   output_root: outputs/results

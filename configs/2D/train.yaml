@@ -112,7 +112,7 @@ training:  # 公共训练设置
   # MeshONet 默认按固定网格 MSE 训练；HMONet、QG-HMONet 和 PI-MeshONet
   # 各自从对应的 *_training 段读取自监督训练与选模设置。
   # 可选：dataset_mse、training_loss。
-  best_model_metric: dataset_mse  # HMONet和MeshONet的最佳模型选择指标
+  best_model_metric: dataset_mse  # 公共回退值；HMONet由hmonet_training覆盖为training_loss
 
   # [收敛条件1] 固定网格 MSE：监测固定网格误差，可选作为停止条件。
   calculate_dataset_mse: true  # 是否计算固定网格MSE
@@ -201,6 +201,7 @@ hmonet_training: &hard_operator_training  # HMONet纯自监督训练参数
   random_mse_loss_weight: 0.0
   physics_pde_loss_weight: 1.0
   physics_scale_invariant_pde_enabled: true
+  # Jacobian/SVD屏障独立控制；仅单项启用时不会计算另一项，均启用时共享Jacobian。
   physics_normalized_jacobian_loss_weight: 0.0
   physics_normalized_jacobian_minimum: 0.02
   physics_singular_value_loss_weight: 0.0

@@ -1,10 +1,12 @@
-"""Regression tests for the current six 3-D dataset families."""
+"""Regression tests for the current nine 3-D dataset families."""
 
 import json
 import tempfile
 from pathlib import Path
 
 import numpy as np
+import pytest
+import yaml
 
 from src.data.dataset import ParametricDataset3D, read_sample_parameters
 from src.data.generation.make_dataset_parametric_3d import (
@@ -23,16 +25,32 @@ class TestCurrent3DDatasetGeneration:
             "cylindrical_domain_with_airfoil_hole", "sidewall_deformed_block",
             "rounded_u_notch_extrusion", "tapered_elliptic_bore_block",
             "bent_annular_duct", "lobed_annular_duct",
+            "square_to_round_transition", "variable_area_s_duct",
+            "twisted_blade_passage",
         ]
-        assert [item[1] for item in SELECTED_DATASETS] == ["extrapolation"] * 6
-        assert [item[3:] for item in SELECTED_DATASETS] == [
-            (11, 21, 11), (11, 21, 11), (41, 41, 11),
-            (11, 21, 11), (11, 21, 11), (11, 21, 11),
-        ]
+        assert [item[1] for item in SELECTED_DATASETS] == ["extrapolation"] * 9
+        assert [item[2] for item in SELECTED_DATASETS] == [1] * 9
+        expected = [(41, 41, 11) if item[0] == "rounded_u_notch_extrusion" else (21, 21, 11)
+                    for item in SELECTED_DATASETS]
+        assert [item[3:] for item in SELECTED_DATASETS] == expected
+        assert all(tuple(DATASET_FAMILIES[item[0]]["grid_shape"]) == shape
+                   for item, shape in zip(SELECTED_DATASETS, expected))
         assert (
-            build_dataset_name("rounded_u_notch_extrusion", "extrapolation", 1, 500, 41, 41, 11)
-            == "run_e_ext_1_500_41_41_11"
+            build_dataset_name("rounded_u_notch_extrusion", "extrapolation", 1, 500, 11, 21, 11)
+            == "run_e_ext_1_500_11_21_11"
         )
+
+    def test_default_evaluation_cases_match_generation_shapes_and_ranges(self):
+        path = Path(__file__).resolve().parents[1] / "configs/3D/evaluate.yaml"
+        config = yaml.safe_load(path.read_text(encoding="utf-8"))
+        expected = []
+        for family, split, version, nx, ny, nz in SELECTED_DATASETS:
+            name = build_dataset_name(family, split, version, 500, nx, ny, nz)
+            expected.append(name)
+            assert config["cases"][name]["grid_shape"] == [nx, ny, nz]
+            assert config["cases"][name]["grid_shapes"] == [[41, 41, 11], [81, 81, 11]]
+            assert config["cases"][name]["values"] == DATASET_FAMILIES[family]["evaluation_values"][split]
+        assert config["evaluation"]["default_cases"] == expected
 
     def test_interpolation_ranges_and_small_round_trip(self):
         specification = DATASET_FAMILIES["rounded_u_notch_extrusion"]
@@ -59,11 +77,11 @@ class TestCurrent3DDatasetGeneration:
             metadata = json.loads((Path(output) / "metadata.json").read_text(encoding="utf-8"))
             assert metadata["workers"] == 2
 
-    def test_existing_output_is_skipped_without_overwrite(self):
+    def test_incomplete_existing_output_is_preserved_and_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             existing = Path(temporary) / "existing"
             existing.mkdir()
-            assert (
+            with pytest.raises(FileExistsError, match="Incomplete"):
                 generate_dataset(
                     "existing",
                     "sidewall_deformed_block",
@@ -72,5 +90,4 @@ class TestCurrent3DDatasetGeneration:
                     output_root=temporary,
                     timing_samples=0,
                 )
-                == existing
-            )
+            assert existing.is_dir()

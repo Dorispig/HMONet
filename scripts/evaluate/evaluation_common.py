@@ -96,6 +96,8 @@ def _evaluation_root(output_root, dimension, name, shape, tag, output_layout="st
 def _write_evaluation_parameters_placeholder(root, *, dimension, name, shape, tag, options):
     """Create a real, readable evaluation artifact before batched inference."""
     root = ensure_output_directory(root, context="Evaluation staging root")
+    if (root / "results.json").is_file() and (root / "evaluation_parameters.json").is_file():
+        return root
     write_json(
         root / "evaluation_parameters.json",
         {
@@ -207,7 +209,7 @@ def evaluation_identity_from_record(record, options):
 def _reusable_compact_record(root, fingerprint, options, *, announce=True):
     """Return a matching top-level summary without requiring deleted caches."""
     if (
-        not options.get("compact_outputs", True)
+        not options.get("compact_outputs", False)
         or not options.get("reuse_generated_results", True)
         or not options.get("reuse_analysis_results", True)
         or options.get("force_regenerate")
@@ -232,30 +234,6 @@ def _reusable_compact_record(root, fingerprint, options, *, announce=True):
         suffix = " (legacy device-compatible)" if legacy_device_only_match else ""
         print(f"  reuse compact evaluation summary {root}{suffix}", flush=True)
     return record
-
-
-def _remove_legacy_compact_plots_before_full_reanalysis(root, options):
-    """Discard orphaned public plots left by an older compact evaluation.
-
-    A compact run intentionally moves images to ``root/plots`` and deletes its
-    mesh/quality data.  A later full-result run must rebuild those artifacts;
-    retaining the old public images would make the image publisher append
-    ``_2``, ``_3`` … suffixes and mix different evaluation identities.
-    """
-    root = Path(root)
-    public_plots = root / "plots"
-    if (
-        options.get("compact_outputs", True)
-        or not public_plots.is_dir()
-        or (root / ".cache").exists()
-    ):
-        return False
-    shutil.rmtree(public_plots)
-    print(
-        f"  removed legacy compact plots before rebuilding full artifacts: {root}",
-        flush=True,
-    )
-    return True
 
 
 def _resolve_checkpoints(name, case, mapping, options, dimension):
@@ -349,6 +327,15 @@ def method_directory(root, method, mapping, projection=None):
     if method == "HMONet_PDE_refined":
         path /= "pde_refined"
     return path
+
+
+def save_generation_with_mesh(dimension, options):
+    """Final 3-D outputs carry reuse information beside the published mesh."""
+    return (
+        dimension == 3
+        and options.get("output_layout", "standard") == "standard"
+        and not options.get("compact_outputs", False)
+    )
 
 
 def comparison_directory(root, mapping, options, names):
@@ -569,16 +556,18 @@ def evaluate_object(
     )
     if reused_record is not None:
         return reused_record
-    _remove_legacy_compact_plots_before_full_reanalysis(root, options)
+    keep_generation_with_mesh = save_generation_with_mesh(dimension, options)
     meshes, raw_meshes, timings, signatures, directories = {}, {}, {}, {}, {}
+    generation_sources = {}
     identical_raw_analyses = {}
     error_records = []
     for method in selected:
         cache = root / ".cache" / method_path_name(method)
+        method_mapping = selected_mapping(method, mapping, options)
+        network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
+        published = method_directory(root, method, method_mapping, "raw" if network else None)
         if method in ("HMONet", "QG-HMONet"):
-            cache /= mapping_mode_path_name(
-                selected_mapping(method, mapping, options)
-            )
+            cache /= mapping_mode_path_name(method_mapping)
         points, timing, source_signature = generate(
             cache,
             method,
@@ -590,8 +579,15 @@ def evaluate_object(
             args.train_config,
             version,
             models,
+            published_directory=(
+                published
+                if keep_generation_with_mesh or options["analysis_only"]
+                else None
+            ),
         )
-        if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"):
+        if keep_generation_with_mesh:
+            generation_sources[published] = (cache, source_signature)
+        if network:
             raw_meshes[method] = points.copy()
             raw_summary, _ = boundary_error(points, exact, ids)
             error_records.append(dict(method=method, stage="raw", **raw_summary))
@@ -691,14 +687,21 @@ def evaluate_object(
         )
         cache = root / ".cache/HMONet" / mapping_mode_path_name(mapping) / "refinement"
         meta = read_json(cache / "metadata.json", {})
+        directories[method] = method_directory(
+            root, method, mapping, options["hmonet_boundary_projection"]
+        )
+        saved_mesh = cache / "mesh.npy"
+        if keep_generation_with_mesh and not saved_mesh.is_file():
+            saved_mesh = directories[method] / "mesh.npy"
+            meta = read_json(directories[method] / "refinement_metadata.json", {})
         if (
             not options["force_regenerate"]
             and options["reuse_generated_results"]
             and meta.get("signature") == refine_sig
-            and (cache / "mesh.npy").is_file()
-            and meta.get("file_sha256") == file_digest(cache / "mesh.npy")
+            and saved_mesh.is_file()
+            and meta.get("file_sha256") == file_digest(saved_mesh)
         ):
-            meshes[method] = np.load(cache / "mesh.npy")
+            meshes[method] = np.load(saved_mesh)
             timings[method] = {**meta["timing"], "cache_hit": True}
         else:
             if options["analysis_only"]:
@@ -733,9 +736,6 @@ def evaluate_object(
             )
         signatures[method] = digest(
             {"input": refine_sig, "mesh": array_digest(meshes[method])}
-        )
-        directories[method] = method_directory(
-            root, method, mapping, options["hmonet_boundary_projection"]
         )
     metadata = {
         "case": name,
@@ -811,6 +811,7 @@ def evaluate_object(
                         "save_pdf",
                         "save_distribution_plots",
                         "quality_plot_metrics",
+                        "exact_boundary_overlay",
                     )
                 },
                 "quality": quality_settings(options, dimension),
@@ -824,7 +825,15 @@ def evaluate_object(
         if not analysis_reused:
             clear_managed_files(comparison)
             print(f"  compare {' / '.join(meshes)}", flush=True)
-            save_comparison(comparison, meshes, qualities, shape, metadata, options)
+            save_comparison(
+                comparison,
+                meshes,
+                qualities,
+                shape,
+                metadata,
+                options,
+                exact_boundary_geometry=geometry,
+            )
             save_point_errors(
                 comparison,
                 meshes,
@@ -894,6 +903,8 @@ def evaluate_object(
         {"evaluation_seconds": record["evaluation_seconds"], "methods": timings},
     )
     write_json(root / "results.json", record)
+    if not options.get("compact_outputs", False) and not options["generation_only"]:
+        write_json(comparison / "evaluation_result.json", record)
     write_json(root / "evaluation_summary.json", [record])
     write_json(root / "boundary_error_summary.json", error_records)
     write_csv(
@@ -922,8 +933,30 @@ def evaluate_object(
     write_json(
         root / "generation_metadata.json", {"signatures": signatures, **metadata}
     )
-    if options.get("compact_outputs", True) and not options["generation_only"]:
+    if options.get("compact_outputs", False) and not options["generation_only"]:
         compact_evaluation_directory(root)
+    elif keep_generation_with_mesh and not options["generation_only"]:
+        for published, (cache, signature) in generation_sources.items():
+            cached = read_json(cache / "generation_metadata.json", {})
+            mesh_file = published / "mesh.npy"
+            if cached and mesh_file.is_file() and digest({
+                "input": cached.get("signature"),
+                "mesh": array_digest(np.load(mesh_file)),
+            }) == signature:
+                write_json(
+                    published / "generation_metadata.json",
+                    {**cached, "file_sha256": file_digest(mesh_file)},
+                )
+        refined = directories.get("HMONet_PDE_refined")
+        if refined is not None:
+            write_json(
+                refined / "refinement_metadata.json",
+                {
+                    "signature": refine_sig,
+                    "timing": timings["HMONet_PDE_refined"],
+                    "file_sha256": file_digest(refined / "mesh.npy"),
+                },
+            )
     print(f"results={root}", flush=True)
     return record
 
@@ -957,7 +990,7 @@ def run_evaluation(dimension, args, config):
                 tag=tag,
                 options=options,
             )
-            if options.get("compact_outputs", True):
+            if options.get("compact_outputs", False):
                 try:
                     checkpoints, skipped, _ = _resolve_checkpoints(
                         name, case, mapping, options, dimension
@@ -1009,6 +1042,14 @@ def run_evaluation(dimension, args, config):
                         version,
                         models,
                         defer=True,
+                        published_directory=(
+                            method_directory(
+                                root, method, selected_mapping(method, mapping, options), "raw"
+                            )
+                            if save_generation_with_mesh(dimension, options)
+                            or options["analysis_only"]
+                            else None
+                        ),
                     )
                 except Exception as error:
                     # Preserve ordinary per-case error reporting/stop_on_error.
@@ -1027,6 +1068,7 @@ def run_evaluation(dimension, args, config):
     ):
         options = evaluation_options(config, case, args)
         mappings = mapping_combinations(options)
+        cache_to_clean = None
         for mapping, options in mappings:
             print(
                 f"[{dimension}D evaluation {index}] {name}, parameter={tag}, grid={'x'.join(map(str, shape))}, mapping={mapping}",
@@ -1048,6 +1090,11 @@ def run_evaluation(dimension, args, config):
                         models,
                     )
                 )
+                if save_generation_with_mesh(dimension, options) and not options["generation_only"]:
+                    cache_to_clean = _evaluation_root(
+                        options["output_root"], dimension, name, shape, tag,
+                        options.get("output_layout", "standard"),
+                    ) / ".cache"
             except Exception as error:
                 failures.append(
                     {
@@ -1061,6 +1108,8 @@ def run_evaluation(dimension, args, config):
                 print(f"ERROR: {type(error).__name__}: {error}", flush=True)
                 if config.get("stop_on_error", True):
                     raise
+        if cache_to_clean is not None and cache_to_clean.is_dir():
+            shutil.rmtree(cache_to_clean)
     if failures:
         raise RuntimeError(f"{len(failures)} evaluation task(s) failed: {failures}")
     if not records:

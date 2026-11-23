@@ -76,6 +76,8 @@ python scripts/evaluate/evaluate_2d.py ... --quality-plots all
 | `--no-plots` | 保留数值结果但不生成新图片 |
 | `--quality-plots all` | 生成全部已启用的质量指标图和方法对比图 |
 | `--quality-plots <metric> ...` | 只生成指定质量指标图；不影响所有指标的数值汇总 |
+| `--exact-boundary-overlay` | 默认开启；在保留普通网格图的同时额外生成精确连续边界叠加图 |
+| `--no-exact-boundary-overlay` | 只生成普通网格图；不改变网格、指标或边界误差结果 |
 | `--save-distribution-plots` | 显式生成分布图 |
 | `--no-compact-outputs` | 保留网格和逐单元中间数据 |
 
@@ -107,9 +109,9 @@ boundary_error_summary.json
 boundary_error_data.csv
 ```
 
-比较组默认包含方法并排网格图、`results.json`/质量摘要、非法单元统计、边界误差和论文计时表；共享色标质量图仅在 `--quality-plots` 时生成。三维还可包含边界面与中间截面数值结果。
+比较组默认包含方法并排网格图、`results.json`/质量摘要、非法单元统计、边界误差和论文计时表；共享色标质量图仅在 `--quality-plots` 时生成。三维默认启用体网格和 `z_mid`；`--no-volume-evaluation` 跳过体网格质量及体图，`--middle-sections x_mid y_mid z_mid`、`all` 或 `none` 独立控制三个截面。网格坐标仍保存供复用；区域选择纳入分析指纹。默认还在同目录额外生成红色精确连续边界叠加图，普通图不被覆盖。二维在全部方法面板上叠加；三维只在所选截面上叠加，不在体网格图上叠加。精确边界叠加开关只改变图片输出，现有边界误差表继续使用离散预测边界与精确边界计算。
 
-默认紧凑模式在汇总和图片完成后删除生成网格数组、逐单元 CSV/NPZ 和分析缓存，只长期保留汇总及启用的图片。需要下游求解、`analysis-only` 或自定义二次分析时，应使用 `--generation-only --no-compact-outputs` 保留网格；只有紧凑 `results.json` 时不能恢复原网格。每个已启动的评估参数目录会在批量推理开始前立即创建，并写出真实的 `evaluation_parameters.json`；因此三维批量推理尚未完成时也可从该文件确认所提交的网格、参数、方法与评估配置。详细阶段进度由终端和队列日志输出。
+正式评估默认使用完整输出模式，长期保存各方法的 `mesh.npy`、拓扑、逐单元数值、联合 `comparison_mesh_data.npz` 和汇总；消融实验可按其配置采用紧凑输出。每个已启动的评估参数目录会在批量推理开始前立即创建，并写出真实的 `evaluation_parameters.json`；因此三维批量推理尚未完成时也可从该文件确认所提交的网格、参数、方法与评估配置。详细阶段进度由终端和队列日志输出。
 
 消融实验目录约定：
 

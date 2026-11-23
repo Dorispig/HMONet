@@ -13,11 +13,22 @@ from src.evaluation.configuration import create_geometry
 
 
 class TestDatasetFamily:
+    def test_default_selection_contains_nine_41_by_41_families(self):
+        assert [item[0] for item in gen.SELECTED_DATASETS] == [
+            "circle_airfoil_t", "eccentric_semiannulus", "rect_top_semiellipse",
+            "rounded_u_notch_compact", "smooth_constricted_channel",
+            "variable_width_s_channel", "symmetric_convex_tri", "gear_spline",
+            "four_convex_arcs",
+        ]
+        assert all(item[1:] == ("extrapolation", 1, 41, 41) for item in gen.SELECTED_DATASETS)
+
     def test_family_defaults_and_endpoints(self):
         for family, prefix, grid in [
             ("rect_top_semiellipse", "rse", [41, 41]),
             ("eccentric_semiannulus", "esa", [41, 41]),
-            ("symmetric_convex_tri", "tri", [21, 20]),
+            ("symmetric_convex_tri", "tri_p", [41, 41]),
+            ("gear_spline", "gsp_a", [41, 41]),
+            ("four_convex_arcs", "fca_a", [41, 41]),
         ]:
             spec = gen.DATASET_FAMILIES[family]
             assert (spec["grid_shape"]) == (grid)
@@ -44,7 +55,11 @@ class TestDatasetFamily:
                         value = g["parameters"][spec["parameter"]]
                         boundary, _ = create_geometry(
                             2,
-                            {"boundary_type": family, "parameter": spec["parameter"]},
+                            {
+                                "boundary_type": spec["function"],
+                                "parameter": spec["parameter"],
+                                "fixed_parameters": spec["fixed_parameters"],
+                            },
                             value,
                         )
                         expected = sample_boundary(boundary, grid)
@@ -67,11 +82,15 @@ class TestDatasetFamily:
         )
         assert (list(config["cases"])) == (sorted(config["cases"]))
         expected = {
+            "air_t_ext_1_500_21_21": [0.62, 0.65],
             "air_t_ext_1_500_41_41": [0.62, 0.65],
             "esa_ext_1_500_41_41": [0.72, 0.75],
+            "fca_a_ext_1_500_41_41": [125.0, 130.0],
+            "gsp_a_ext_1_500_41_41": [0.19, 0.20],
             "rse_ext_1_500_41_41": [0.42, 0.46, 0.50, 0.55, 0.60],
             "run_ext_1_500_41_41": [1.52, 1.55],
             "scc_ext_1_500_41_41": [0.42, 0.45, 0.47],
+            "tri_p_ext_1_500_41_41": [0.42, 0.48],
             "vsc_ext_1_500_41_41": [0.85, 0.90, 0.95],
         }
         assert set(config["cases"]) == set(expected)
@@ -105,11 +124,15 @@ class TestStressDataset:
         )["cases"]
         assert (list(cases)) == (sorted(cases))
         assert set(cases) == {
+            "air_t_ext_1_500_21_21",
             "air_t_ext_1_500_41_41",
             "esa_ext_1_500_41_41",
+            "fca_a_ext_1_500_41_41",
+            "gsp_a_ext_1_500_41_41",
             "rse_ext_1_500_41_41",
             "run_ext_1_500_41_41",
             "scc_ext_1_500_41_41",
+            "tri_p_ext_1_500_41_41",
             "vsc_ext_1_500_41_41",
         }
         for case in cases.values():

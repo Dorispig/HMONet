@@ -181,6 +181,59 @@ def elliptic_grid_scale_invariant_pde_loss(values, steps, epsilon=1e-18):
     return (residual.square().sum(-1) / denominator).mean()
 
 
+def _normalized_mapping_scale(first, characteristic_length):
+    """Return a detached per-geometry length with broadcast dimensions."""
+    scale = torch.as_tensor(
+        characteristic_length, device=first.device, dtype=first.dtype
+    ).detach().clamp_min(torch.finfo(first.dtype).eps)
+    while scale.ndim < first.ndim - 2:
+        scale = scale.unsqueeze(-1)
+    return scale
+
+
+def _normalized_barrier_violation(value, minimum, reduction):
+    if minimum <= 0:
+        raise ValueError("Normalized mapping minimum must be positive")
+    if reduction not in {"active", "all"}:
+        raise ValueError("barrier reduction must be active or all")
+    violation = torch.relu(1.0 - value / float(minimum)).square()
+    if reduction == "all":
+        return violation.mean()
+    active = (violation > 0).to(violation.dtype)
+    return violation.sum() / active.sum().clamp_min(1.0)
+
+
+def normalized_jacobian_barrier_from_jacobian(
+    first,
+    characteristic_length,
+    *,
+    jacobian_minimum=0.02,
+    reduction="active",
+):
+    """Penalize only normalized determinant/orientation violations."""
+    scale = _normalized_mapping_scale(first, characteristic_length)
+    dimension = first.shape[-1]
+    normalized_jacobian = torch.linalg.det(first) / scale.pow(dimension)
+    return _normalized_barrier_violation(
+        normalized_jacobian, jacobian_minimum, reduction
+    )
+
+
+def normalized_singular_value_barrier_from_jacobian(
+    first,
+    characteristic_length,
+    *,
+    singular_value_minimum=0.05,
+    reduction="active",
+):
+    """Penalize only normalized minimum-singular-value collapse."""
+    scale = _normalized_mapping_scale(first, characteristic_length)
+    normalized_singular = torch.linalg.svdvals(first)[..., -1] / scale
+    return _normalized_barrier_violation(
+        normalized_singular, singular_value_minimum, reduction
+    )
+
+
 def normalized_mapping_barriers_from_jacobian(
     first,
     characteristic_length,
@@ -189,39 +242,23 @@ def normalized_mapping_barriers_from_jacobian(
     singular_value_minimum=0.05,
     reduction="active",
 ):
-    """Penalize orientation loss and local collapse from a Jacobian tensor.
+    """Compute both normalized mapping barriers for compatibility callers.
 
-    ``first`` may be produced by finite differences or automatic
-    differentiation. ``characteristic_length`` is one detached physical scale
-    per geometry. ``reduction='active'`` averages only nonzero violations;
-    ``reduction='all'`` averages the pointwise penalty over every sampled
-    point. Both losses are exactly zero once every sampled point satisfies its
-    lower bound.
+    Training code that enables only one barrier should call the corresponding
+    single-barrier function so that determinant and SVD work remain independent.
     """
-    if jacobian_minimum <= 0 or singular_value_minimum <= 0:
-        raise ValueError("Normalized mapping minima must be positive")
-    if reduction not in {"active", "all"}:
-        raise ValueError("barrier reduction must be active or all")
+
+    scale = _normalized_mapping_scale(first, characteristic_length)
     dimension = first.shape[-1]
-    scale = torch.as_tensor(
-        characteristic_length, device=first.device, dtype=first.dtype
-    ).detach().clamp_min(torch.finfo(first.dtype).eps)
-    while scale.ndim < first.ndim - 2:
-        scale = scale.unsqueeze(-1)
-    determinant = torch.linalg.det(first)
-    normalized_jacobian = determinant / scale.pow(dimension)
+    normalized_jacobian = torch.linalg.det(first) / scale.pow(dimension)
     normalized_singular = torch.linalg.svdvals(first)[..., -1] / scale
-
-    def violation_mean(value, minimum):
-        violation = torch.relu(1.0 - value / float(minimum)).square()
-        if reduction == "all":
-            return violation.mean()
-        active = (violation > 0).to(violation.dtype)
-        return violation.sum() / active.sum().clamp_min(1.0)
-
     return (
-        violation_mean(normalized_jacobian, jacobian_minimum),
-        violation_mean(normalized_singular, singular_value_minimum),
+        _normalized_barrier_violation(
+            normalized_jacobian, jacobian_minimum, reduction
+        ),
+        _normalized_barrier_violation(
+            normalized_singular, singular_value_minimum, reduction
+        ),
     )
 
 

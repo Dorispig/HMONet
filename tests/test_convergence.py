@@ -106,7 +106,7 @@ class TestSimplifiedPlateau:
                 training = prepare_training_config(config, model, SimpleNamespace())[
                     "training"
                 ]
-                assert (training["num_epochs"]) == (50000)
+                assert (training["num_epochs"]) == (100000)
                 assert (training["convergence_start_epoch"]) == (3000)
                 assert (training["success_plateau_patience"]) == (1000)
                 assert (training["failure_plateau_metric_ratio"]) == (1.5)

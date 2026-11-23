@@ -92,6 +92,7 @@ def save_manifest(directory, signature):
     directory = Path(directory)
     owned_prefixes = (
         "mesh",
+        "middle_section_",
         "quality_",
         "comparison_",
         "pairwise_quality_",

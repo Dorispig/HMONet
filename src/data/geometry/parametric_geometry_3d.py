@@ -370,7 +370,46 @@ VOLUME_MAP_PARAMETER_ORDER = {
         "inner_radius", "outer_radius", "amplitude", "lobes",
         "phase_twist_deg", "length", "z_min",
     ),
+    "square_to_round_transition": (
+        "inlet_half_width", "inlet_half_height", "outlet_radius", "length", "z_min",
+    ),
+    "variable_area_s_duct": (
+        "inlet_half_width", "inlet_half_height", "area_ratio_out",
+        "centerline_offset", "length", "z_min",
+    ),
+    "twisted_blade_passage": (
+        "chord", "pitch", "height", "camber_amplitude",
+        "blade_thickness", "twist_angle_deg", "z_min",
+    ),
+    "localized_dimple_block": (
+        "length_x", "width_y", "height_z", "dimple_depth", "z_min",
+    ),
 }
+
+
+def _square_to_disk_numpy(u, v):
+    """Smooth square-to-disk map preserving all four logical quadrants."""
+    return (
+        u * np.sqrt(np.maximum(0.0, 1.0 - 0.5 * v * v)),
+        v * np.sqrt(np.maximum(0.0, 1.0 - 0.5 * u * u)),
+    )
+
+
+def _square_to_disk_torch(u, v):
+    """Differentiable counterpart of :func:`_square_to_disk_numpy`."""
+    return (
+        u * (1.0 - 0.5 * v * v).clamp_min(0.0).sqrt(),
+        v * (1.0 - 0.5 * u * u).clamp_min(0.0).sqrt(),
+    )
+
+
+def _dimple_bump_numpy(q):
+    """Unit-height C2 bump with zero value/slope/curvature at both ends."""
+    return 64.0 * q ** 3 * (1.0 - q) ** 3
+
+
+def _dimple_bump_torch(q):
+    return 64.0 * q.pow(3) * (1.0 - q).pow(3)
 
 
 def _rounded_u_notch_top_numpy(q, width, height, notch_width, depth, radius):
@@ -453,7 +492,9 @@ def _rounded_u_notch_top_torch(q, width, height, notch_width, depth, radius):
     x, y = torch.zeros_like(q), torch.zeros_like(q)
     for index, (start, end, length) in enumerate(zip(starts, ends, lengths)):
         is_last = index == len(lengths) - 1
-        mask = (q >= start) & ((q <= end) if is_last else (q < end))
+        # In float32 the cumulative last endpoint can round below 1.0.
+        # q is already clamped; include the final endpoint unconditionally.
+        mask = (q >= start) if is_last else ((q >= start) & (q < end))
         t = ((q - start) * total / length).clamp(0, 1)
         if index == 0:
             px, py = t * (a - r), height.expand_as(q)
@@ -481,6 +522,74 @@ def _rounded_u_notch_top_torch(q, width, height, notch_width, depth, radius):
     return torch.stack((x, y), dim=-1)
 
 
+def _rectangle_perimeter_numpy(q, half_width, half_height):
+    """Traverse an axis-aligned rectangle by four straight sides.
+
+    ``q=0,1/4,1/2,3/4,1`` are respectively the lower-right, upper-right,
+    upper-left, lower-left and repeated lower-right corners.  Unlike the old
+    polar-ray construction, this parameterization contains no ray/rectangle
+    intersection and aligns every corner with a logical quarter point.
+    """
+    q = np.clip(np.asarray(q, dtype=float), 0.0, 1.0)
+    scaled = 4.0 * q
+    segment = np.minimum(np.floor(scaled).astype(np.int64), 3)
+    local = scaled - segment
+    x = np.select(
+        (segment == 0, segment == 1, segment == 2, segment == 3),
+        (
+            np.full_like(q, half_width),
+            half_width * (1.0 - 2.0 * local),
+            np.full_like(q, -half_width),
+            half_width * (-1.0 + 2.0 * local),
+        ),
+    )
+    y = np.select(
+        (segment == 0, segment == 1, segment == 2, segment == 3),
+        (
+            half_height * (-1.0 + 2.0 * local),
+            np.full_like(q, half_height),
+            half_height * (1.0 - 2.0 * local),
+            np.full_like(q, -half_height),
+        ),
+    )
+    return np.stack((x, y), axis=-1)
+
+
+def _rectangle_perimeter_torch(q, half_width, half_height):
+    """Differentiable batched counterpart of ``_rectangle_perimeter_numpy``."""
+    q = q.clamp(0, 1)
+    scaled = 4.0 * q
+    segment = scaled.floor().clamp(max=3).to(torch.long)
+    local = scaled - segment.to(scaled.dtype)
+    x = torch.where(
+        segment == 0,
+        half_width.expand_as(q),
+        torch.where(
+            segment == 1,
+            half_width * (1.0 - 2.0 * local),
+            torch.where(
+                segment == 2,
+                -half_width.expand_as(q),
+                half_width * (-1.0 + 2.0 * local),
+            ),
+        ),
+    )
+    y = torch.where(
+        segment == 0,
+        half_height * (-1.0 + 2.0 * local),
+        torch.where(
+            segment == 1,
+            half_height.expand_as(q),
+            torch.where(
+                segment == 2,
+                half_height * (1.0 - 2.0 * local),
+                -half_height.expand_as(q),
+            ),
+        ),
+    )
+    return torch.stack((x, y), dim=-1)
+
+
 def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
     """Evaluate one injective reference-volume map with NumPy arrays."""
     xi, eta, zeta = np.broadcast_arrays(
@@ -490,7 +599,7 @@ def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
     theta = 2.0 * np.pi * eta
     p = parameters
     if mapping == "sidewall_deformed_block":
-        # The opposing x-sidewalls are concave half-elliptic cylinders
+        # The opposing x-sidewalls are sinusoidal concave extrusions
         # extruded along z.  Hence the contraction varies across eta but is
         # invariant along z; the two eta-end faces remain planar rectangles.
         contraction = p["sidewall_amplitude"] * np.sin(np.pi * eta)
@@ -505,11 +614,13 @@ def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
     if mapping == "rounded_u_groove_extrusion":
         left = 0.5 * (p["width"] - p["groove_width"])
         right = 0.5 * (p["width"] + p["groove_width"])
-        smoothing = p["corner_smoothing"]
+        smoothing = max(p["corner_smoothing"], 1e-5 * p["width"])
         groove = 0.5 * (
-            np.tanh((xi - left) / smoothing) - np.tanh((xi - right) / smoothing)
+            np.tanh((p["width"] * xi - left) / smoothing)
+            - np.tanh((p["width"] * xi - right) / smoothing)
         )
-        top_y = p["height"] - p["groove_depth"] * groove
+        centre = np.tanh(0.5 * p["groove_width"] / smoothing)
+        top_y = p["height"] - p["groove_depth"] * groove / centre
         return np.stack(
             (p["width"] * xi, eta * top_y, p["z_min"] + p["length"] * zeta), -1
         )
@@ -528,17 +639,33 @@ def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
         )
     if mapping == "tapered_elliptic_bore_block":
         minor = (1.0 - zeta) * p["inner_minor_axis_in"] + zeta * p["minor_axis_out"]
-        inner = 1.0 / np.sqrt(
-            (np.cos(theta) / p["inner_major_axis"]) ** 2
-            + (np.sin(theta) / minor) ** 2
+        outer = _rectangle_perimeter_numpy(
+            eta, p["outer_half_width"], p["outer_half_height"]
         )
-        outer = 1.0 / np.maximum(
-            np.abs(np.cos(theta)) / p["outer_half_width"],
-            np.abs(np.sin(theta)) / p["outer_half_height"],
+        normalized_outer = np.stack(
+            (
+                outer[..., 0] / p["outer_half_width"],
+                outer[..., 1] / p["outer_half_height"],
+            ),
+            axis=-1,
         )
-        radius = (1.0 - xi) * inner + xi * outer
+        direction = normalized_outer / np.linalg.norm(
+            normalized_outer, axis=-1, keepdims=True
+        )
+        inner = np.stack(
+            (
+                p["inner_major_axis"] * direction[..., 0],
+                minor * direction[..., 1],
+            ),
+            axis=-1,
+        )
+        cross_section = (1.0 - xi[..., None]) * inner + xi[..., None] * outer
         return np.stack(
-            (radius * np.cos(theta), radius * np.sin(theta), p["z_min"] + p["length"] * zeta),
+            (
+                cross_section[..., 0],
+                cross_section[..., 1],
+                p["z_min"] + p["length"] * zeta,
+            ),
             -1,
         )
     if mapping == "annular_nozzle_diffuser":
@@ -564,6 +691,60 @@ def _evaluate_volume_map_numpy(mapping, xi, eta, zeta, parameters):
         outer = p["outer_radius"] * (1.0 + p["amplitude"] * np.cos(p["lobes"] * theta + phase))
         radius = (1.0 - xi) * p["inner_radius"] + xi * outer
         return np.stack((radius * np.cos(theta), radius * np.sin(theta), p["z_min"] + p["length"] * zeta), -1)
+    if mapping == "square_to_round_transition":
+        u, v = 2.0 * xi - 1.0, 2.0 * eta - 1.0
+        disk_x, disk_y = _square_to_disk_numpy(u, v)
+        blend = zeta * zeta * (3.0 - 2.0 * zeta)
+        square_x = p["inlet_half_width"] * u
+        square_y = p["inlet_half_height"] * v
+        circle_x = p["outlet_radius"] * disk_x
+        circle_y = p["outlet_radius"] * disk_y
+        return np.stack(
+            (
+                (1.0 - blend) * square_x + blend * circle_x,
+                (1.0 - blend) * square_y + blend * circle_y,
+                p["z_min"] + p["length"] * zeta,
+            ),
+            -1,
+        )
+    if mapping == "variable_area_s_duct":
+        u, v = 2.0 * xi - 1.0, 2.0 * eta - 1.0
+        disk_x, disk_y = _square_to_disk_numpy(u, v)
+        phase = 2.0 * np.pi * zeta
+        center_x = p["centerline_offset"] * np.sin(phase)
+        tangent_x = 2.0 * np.pi * p["centerline_offset"] * np.cos(phase)
+        tangent_z = np.full_like(tangent_x, p["length"])
+        tangent_norm = np.sqrt(tangent_x * tangent_x + tangent_z * tangent_z)
+        normal_x, normal_z = tangent_z / tangent_norm, -tangent_x / tangent_norm
+        scale = np.sqrt((1.0 - zeta) + zeta * p["area_ratio_out"])
+        local_x = p["inlet_half_width"] * scale * disk_x
+        local_y = p["inlet_half_height"] * scale * disk_y
+        return np.stack(
+            (
+                center_x + local_x * normal_x,
+                local_y,
+                p["z_min"] + p["length"] * zeta + local_x * normal_z,
+            ),
+            -1,
+        )
+    if mapping == "twisted_blade_passage":
+        x = p["chord"] * xi
+        gamma = np.deg2rad(p["twist_angle_deg"]) * (zeta - 0.5)
+        camber = p["camber_amplitude"] * np.sin(np.pi * xi)
+        twist_shift = (x - 0.5 * p["chord"]) * np.tan(gamma)
+        thickness = p["blade_thickness"] * np.sin(np.pi * xi)
+        lower = camber + twist_shift - 0.5 * p["pitch"] + thickness
+        upper = camber + twist_shift + 0.5 * p["pitch"] - thickness
+        return np.stack(
+            (x, (1.0 - eta) * lower + eta * upper, p["z_min"] + p["height"] * zeta),
+            -1,
+        )
+    if mapping == "localized_dimple_block":
+        top = p["height_z"] - p["dimple_depth"] * _dimple_bump_numpy(xi) * _dimple_bump_numpy(eta)
+        return np.stack(
+            (p["length_x"] * xi, p["width_y"] * eta, p["z_min"] + zeta * top),
+            -1,
+        )
     raise ValueError(f"unknown volume map: {mapping}")
 
 
@@ -639,11 +820,13 @@ class MappedVolumeFace3D(ParametricSurface3D):
         if mapping == "rounded_u_groove_extrusion":
             left = 0.5 * (values["width"] - values["groove_width"])
             right = 0.5 * (values["width"] + values["groove_width"])
+            smoothing = torch.maximum(values["corner_smoothing"], 1e-5 * values["width"])
             groove = 0.5 * (
-                ((xi - left) / values["corner_smoothing"]).tanh()
-                - ((xi - right) / values["corner_smoothing"]).tanh()
+                ((values["width"] * xi - left) / smoothing).tanh()
+                - ((values["width"] * xi - right) / smoothing).tanh()
             )
-            top_y = values["height"] - values["groove_depth"] * groove
+            centre = (0.5 * values["groove_width"] / smoothing).tanh()
+            top_y = values["height"] - values["groove_depth"] * groove / centre
             return torch.stack(
                 (values["width"] * xi, eta * top_y, values["z_min"] + values["length"] * zeta), -1
             )
@@ -666,14 +849,33 @@ class MappedVolumeFace3D(ParametricSurface3D):
             )
         if mapping == "tapered_elliptic_bore_block":
             minor = (1.0 - zeta) * values["inner_minor_axis_in"] + zeta * values["minor_axis_out"]
-            inner = 1.0 / ((theta.cos() / values["inner_major_axis"]).square() + (theta.sin() / minor).square()).sqrt()
-            outer = 1.0 / torch.maximum(
-                theta.cos().abs() / values["outer_half_width"],
-                theta.sin().abs() / values["outer_half_height"],
+            outer = _rectangle_perimeter_torch(
+                eta, values["outer_half_width"], values["outer_half_height"]
             )
-            radius = (1.0 - xi) * inner + xi * outer
+            normalized_outer = torch.stack(
+                (
+                    outer[..., 0] / values["outer_half_width"],
+                    outer[..., 1] / values["outer_half_height"],
+                ),
+                dim=-1,
+            )
+            direction = normalized_outer / torch.linalg.vector_norm(
+                normalized_outer, dim=-1, keepdim=True
+            )
+            inner = torch.stack(
+                (
+                    values["inner_major_axis"] * direction[..., 0],
+                    minor * direction[..., 1],
+                ),
+                dim=-1,
+            )
+            cross_section = (1.0 - xi[..., None]) * inner + xi[..., None] * outer
             return torch.stack(
-                (radius * theta.cos(), radius * theta.sin(), values["z_min"] + values["length"] * zeta),
+                (
+                    cross_section[..., 0],
+                    cross_section[..., 1],
+                    values["z_min"] + values["length"] * zeta,
+                ),
                 -1,
             )
         if mapping == "annular_nozzle_diffuser":
@@ -697,11 +899,68 @@ class MappedVolumeFace3D(ParametricSurface3D):
             outer = values["outer_radius"] * (1 + values["amplitude"] * (values["lobes"] * theta + phase).cos())
             radius = (1 - xi) * values["inner_radius"] + xi * outer
             return torch.stack((radius * theta.cos(), radius * theta.sin(), values["z_min"] + values["length"] * zeta), -1)
+        if mapping == "square_to_round_transition":
+            logical_u, logical_v = 2.0 * xi - 1.0, 2.0 * eta - 1.0
+            disk_x, disk_y = _square_to_disk_torch(logical_u, logical_v)
+            blend = zeta.square() * (3.0 - 2.0 * zeta)
+            square_x = values["inlet_half_width"] * logical_u
+            square_y = values["inlet_half_height"] * logical_v
+            circle_x = values["outlet_radius"] * disk_x
+            circle_y = values["outlet_radius"] * disk_y
+            return torch.stack(
+                (
+                    (1.0 - blend) * square_x + blend * circle_x,
+                    (1.0 - blend) * square_y + blend * circle_y,
+                    values["z_min"] + values["length"] * zeta,
+                ),
+                -1,
+            )
+        if mapping == "variable_area_s_duct":
+            logical_u, logical_v = 2.0 * xi - 1.0, 2.0 * eta - 1.0
+            disk_x, disk_y = _square_to_disk_torch(logical_u, logical_v)
+            phase = 2.0 * torch.pi * zeta
+            center_x = values["centerline_offset"] * phase.sin()
+            tangent_x = 2.0 * torch.pi * values["centerline_offset"] * phase.cos()
+            tangent_z = values["length"].expand_as(tangent_x)
+            tangent_norm = (tangent_x.square() + tangent_z.square()).sqrt()
+            normal_x, normal_z = tangent_z / tangent_norm, -tangent_x / tangent_norm
+            scale = ((1.0 - zeta) + zeta * values["area_ratio_out"]).sqrt()
+            local_x = values["inlet_half_width"] * scale * disk_x
+            local_y = values["inlet_half_height"] * scale * disk_y
+            return torch.stack(
+                (
+                    center_x + local_x * normal_x,
+                    local_y,
+                    values["z_min"] + values["length"] * zeta + local_x * normal_z,
+                ),
+                -1,
+            )
+        if mapping == "twisted_blade_passage":
+            x = values["chord"] * xi
+            gamma = values["twist_angle_deg"] * (torch.pi / 180.0) * (zeta - 0.5)
+            camber = values["camber_amplitude"] * (torch.pi * xi).sin()
+            twist_shift = (x - 0.5 * values["chord"]) * gamma.tan()
+            thickness = values["blade_thickness"] * (torch.pi * xi).sin()
+            lower = camber + twist_shift - 0.5 * values["pitch"] + thickness
+            upper = camber + twist_shift + 0.5 * values["pitch"] - thickness
+            return torch.stack(
+                (x, (1.0 - eta) * lower + eta * upper, values["z_min"] + values["height"] * zeta),
+                -1,
+            )
+        if mapping == "localized_dimple_block":
+            top = values["height_z"] - values["dimple_depth"] * _dimple_bump_torch(xi) * _dimple_bump_torch(eta)
+            return torch.stack(
+                (values["length_x"] * xi, values["width_y"] * eta, values["z_min"] + zeta * top),
+                -1,
+            )
         raise ValueError(f"unknown volume map: {mapping}")
 
     def to_dict(self):
         return {
             "type": "mapped_volume_face_3d",
+            "implementation_revision": 2 if self.mapping in {
+                "rounded_u_groove_extrusion", "tapered_elliptic_bore_block"
+            } else 1,
             "mapping": self.mapping,
             "fixed_axis": self.fixed_axis,
             "fixed_value": self.fixed_value,
@@ -741,16 +1000,40 @@ class BoundarySurfaceSet3D:
         )
 
     def to_dict(self):
-        return {
+        from .pde_cap_3d import RunPdeFace3D
+        maps, ids, surfaces = {}, {}, {}
+        for name in self.names:
+            surface = getattr(self, name)
+            if isinstance(surface, RunPdeFace3D):
+                key = ids.get(id(surface.cap))
+                if key is None:
+                    key = str(len(maps))
+                    ids[id(surface.cap)] = key
+                    maps[key] = surface.cap.to_dict()
+                surfaces[name] = dict(type="run_pde_face_3d", cap_ref=key,
+                                      fixed_axis=surface.fixed_axis, fixed_value=surface.fixed_value,
+                                      length=surface.length, z_min=surface.z_min)
+            else:
+                surfaces[name] = surface.to_dict()
+        result = {
             "type": "boundary_surface_set_3d",
             "metadata": self.metadata,
-            "surfaces": {n: getattr(self, n).to_dict() for n in self.names},
+            "surfaces": surfaces,
             "edge_curves": self.edge_curves,
         }
+        if maps:
+            result["pde_cap_maps"] = maps
+        return result
 
     @classmethod
     def from_dict(cls, d):
-        surfaces = {n: surface_from_dict(d["surfaces"][n]) for n in cls.names}
+        from .pde_cap_3d import RunPdeCapMap, RunPdeFace3D
+        caps = {key: RunPdeCapMap.from_dict(value) for key, value in d.get("pde_cap_maps", {}).items()}
+        surfaces = {}
+        for name in cls.names:
+            record = d["surfaces"][name]
+            surfaces[name] = (RunPdeFace3D.from_dict(record, caps[record["cap_ref"]])
+                              if "cap_ref" in record else surface_from_dict(record))
         return cls(
             **surfaces, edge_curves=d.get("edge_curves", {}), metadata=d.get("metadata")
         )
@@ -758,6 +1041,12 @@ class BoundarySurfaceSet3D:
 
 def surface_from_dict(data):
     typ = data["type"]
+    if typ == "planar_pde_cap_3d":
+        from .pde_surface_3d import PdeCapSurface3D
+        return PdeCapSurface3D.from_dict(data)
+    if typ == "run_pde_face_3d":
+        from .pde_cap_3d import RunPdeFace3D
+        return RunPdeFace3D.from_dict(data)
     if typ not in SURFACE_REGISTRY:
         raise ValueError(f"unknown surface type: {typ}")
     klass = SURFACE_REGISTRY[typ]

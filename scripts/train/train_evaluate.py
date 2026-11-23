@@ -105,6 +105,11 @@ def validate_formal_evaluation_request(dimension, tokens, cases, case_names):
     )
     from src.utils.quality_selection import middle_section_names
 
+    if dimension != 3 and any(
+        _option_present(tokens, flag)
+        for flag in ("--volume-evaluation", "--no-volume-evaluation")
+    ):
+        raise ValueError("--[no-]volume-evaluation is only available for 3-D evaluation")
     if _option_present(tokens, "--middle-sections"):
         if dimension != 3:
             raise ValueError("--middle-sections is only available for 3-D evaluation")
@@ -1440,6 +1445,15 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--analysis-only",
+        action="store_true",
+        help=(
+            "Evaluation-only reuse of already generated meshes. No training, "
+            "network inference or PDE solve is performed; requires "
+            "--evaluate-only and matching saved mesh/cache artifacts."
+        ),
+    )
+    parser.add_argument(
         "--evaluate-methods",
         help="Comma-separated evaluation subset, e.g. tfi,pde,meshonet,hmonet; defaults to selected models plus TFI/PDE",
     )
@@ -1472,7 +1486,21 @@ def main(argv=None):
         "--middle-sections",
         nargs="+",
         metavar="SECTION",
-        help="3-D only: evaluate x_mid, y_mid, z_mid, all (default), or none.",
+        help="3-D only: evaluate x_mid, y_mid, z_mid (default), all, or none.",
+    )
+    parser.add_argument(
+        "--volume-evaluation", action=argparse.BooleanOptionalAction, default=None,
+        help="3-D volume quality/figures; independent of --middle-sections (default: enabled).",
+    )
+    parser.add_argument(
+        "--exact-boundary-overlay",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Add a second mesh-comparison figure with the continuous exact "
+            "boundary (default: enabled by evaluation configuration). Use "
+            "--no-exact-boundary-overlay to keep only the ordinary figure."
+        ),
     )
     parser.add_argument(
         "--gpus",
@@ -1505,6 +1533,14 @@ def main(argv=None):
 
     train_extra = shlex.split(args.train_args, posix=True)
     evaluate_extra = shlex.split(args.evaluate_args, posix=True)
+    if args.analysis_only:
+        if not args.evaluate_only:
+            parser.error("--analysis-only requires --evaluate-only")
+        if _option_present(evaluate_extra, "--analysis-only"):
+            parser.error(
+                "Use --analysis-only directly or inside --evaluate-args, not both"
+            )
+        evaluate_extra.append("--analysis-only")
     if args.force_train:
         if args.evaluate_only:
             parser.error("--force-train cannot be combined with --evaluate-only")
@@ -1553,11 +1589,31 @@ def main(argv=None):
     _append_simple_option(
         parser, evaluate_extra, "--middle-sections", args.middle_sections, source="--middle-sections"
     )
+    boundary_flags = {"--exact-boundary-overlay", "--no-exact-boundary-overlay"}
+    if args.volume_evaluation is not None:
+        if args.dimension != 3:
+            parser.error("--[no-]volume-evaluation is only available for dimension 3")
+        if any(t.split("=", 1)[0] in {"--volume-evaluation", "--no-volume-evaluation"} for t in evaluate_extra):
+            parser.error("Specify volume evaluation directly or in --evaluate-args, not both")
+        evaluate_extra.append("--volume-evaluation" if args.volume_evaluation else "--no-volume-evaluation")
+    if args.exact_boundary_overlay is not None:
+        if any(token.split("=", 1)[0] in boundary_flags for token in evaluate_extra):
+            parser.error(
+                "Use --[no-]exact-boundary-overlay either directly or inside "
+                "--evaluate-args, not both"
+            )
+        evaluate_extra.append(
+            "--exact-boundary-overlay"
+            if args.exact_boundary_overlay
+            else "--no-exact-boundary-overlay"
+        )
     if _option_present(evaluate_extra, "--grids") and _option_present(
         evaluate_extra, "--grid-shapes"
     ):
         parser.error("--grids and --grid-shapes are mutually exclusive")
     if args.force:
+        if args.analysis_only:
+            parser.error("--force cannot be combined with --analysis-only")
         if _option_present(evaluate_extra, "--force"):
             parser.error("Use --force either directly or inside --evaluate-args, not both")
         evaluate_extra.append("--force")

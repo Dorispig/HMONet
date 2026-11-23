@@ -20,6 +20,7 @@ from .quality_output import (
     save_quad_quality,
     save_hex_quality,
     save_quality_comparison,
+    plot_exact_boundary_curves,
     summarize_fields,
     quality_plot_style,
     save_figure_formats,
@@ -55,6 +56,47 @@ def save_figure(fig, path, options):
         dpi=180,
     )
     plt.close(fig)
+
+
+def exact_boundary_curves_2d(boundary, count=1001):
+    """Densely sample the four exact parameter curves for a visual overlay."""
+    return tuple(
+        np.asarray(getattr(boundary, name).sample(int(count)), dtype=float)
+        for name in boundary.names
+    )
+
+
+def exact_middle_section_curves(boundary, section_name, count=1001):
+    """Return the four exact volume-boundary curves enclosing one mid-section."""
+    t = np.linspace(0.0, 1.0, int(count))
+    mid = np.full_like(t, 0.5)
+    if section_name == "x_mid":
+        queries = (
+            (boundary.y_min, mid, t),
+            (boundary.y_max, mid, t),
+            (boundary.z_min, mid, t),
+            (boundary.z_max, mid, t),
+        )
+    elif section_name == "y_mid":
+        queries = (
+            (boundary.x_min, mid, t),
+            (boundary.x_max, mid, t),
+            (boundary.z_min, t, mid),
+            (boundary.z_max, t, mid),
+        )
+    elif section_name == "z_mid":
+        queries = (
+            (boundary.x_min, t, mid),
+            (boundary.x_max, t, mid),
+            (boundary.y_min, t, mid),
+            (boundary.y_max, t, mid),
+        )
+    else:
+        raise ValueError(f"Unknown middle section: {section_name}")
+    return tuple(
+        np.asarray(surface.evaluate(first, second), dtype=float)
+        for surface, first, second in queries
+    )
 
 
 def load_quality(directory, points, shape, options=None):
@@ -168,7 +210,7 @@ def save_method(directory, method, points, shape, options):
         save_quality_table(
             quality_dir / "quality_summary.csv", {method: quality["summary"]}
         )
-    if plot_enabled(options):
+    if plot_enabled(options) and (len(shape) == 2 or options.get("volume_evaluation", True)):
         if len(shape) == 2:
             from src.utils.visualize import plot_quad_meshXY
 
@@ -185,9 +227,9 @@ def save_method(directory, method, points, shape, options):
     return quality
 
 
-def save_sections(directory, meshes, shape, options):
+def save_sections(directory, meshes, shape, options, exact_boundary_geometry=None):
     """Intrinsic 3-D section metrics, drawn with the same axes as local views."""
-    section_names = middle_section_names(options.get("middle_sections", "all"))
+    section_names = middle_section_names(options.get("middle_sections", "z_mid"))
     if not section_names:
         return
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
@@ -292,6 +334,12 @@ def save_sections(directory, meshes, shape, options):
                 write_json(target / "quality_summary.json", summaries)
         if not plot_enabled(options):
             continue
+        exact_curves = (
+            exact_middle_section_curves(exact_boundary_geometry, section_name)
+            if options.get("exact_boundary_overlay", True)
+            and exact_boundary_geometry is not None
+            else None
+        )
         names = list(meshes)
         plot_metrics = selected_quality_plot_metrics(options, 3, surface=True)
         for metric in [None, *plot_metrics]:
@@ -339,13 +387,44 @@ def save_sections(directory, meshes, shape, options):
                     pad=0.03,
                 )
             fig.suptitle(section_name)
-            save_figure(
-                fig,
-                target / (
-                    f"quality_{metric}" if metric else "middle_section_mesh_overview"
-                ),
-                options,
-            )
+            output_name = f"quality_{metric}" if metric else "middle_section_mesh_overview"
+            if metric is None and exact_curves:
+                save_figure_formats(
+                    fig,
+                    target / output_name,
+                    save_png=options["save_png"],
+                    save_pdf=options["save_pdf"],
+                    dpi=180,
+                )
+                for ax in panels[0]:
+                    plot_exact_boundary_curves(ax, exact_curves, axes)
+                exact_points = np.concatenate(
+                    [curve[:, list(axes)] for curve in exact_curves], axis=0
+                )
+                overlay_points = np.concatenate([points, exact_points], axis=0)
+                overlay_low, overlay_high = (
+                    overlay_points.min(axis=0),
+                    overlay_points.max(axis=0),
+                )
+                overlay_padding = max(
+                    float((overlay_high - overlay_low).max()), 1e-8
+                ) * 0.04
+                for ax in panels[0]:
+                    ax.set_xlim(
+                        overlay_low[0] - overlay_padding,
+                        overlay_high[0] + overlay_padding,
+                    )
+                    ax.set_ylim(
+                        overlay_low[1] - overlay_padding,
+                        overlay_high[1] + overlay_padding,
+                    )
+                save_figure(
+                    fig,
+                    target / "middle_section_mesh_with_exact_boundary",
+                    options,
+                )
+            else:
+                save_figure(fig, target / output_name, options)
     if selected:
         write_json(directory / "surface_quality_summary.json", all_summaries)
         if intersection_rows:
@@ -423,7 +502,9 @@ def plot_volumes(directory, meshes, fields, shape, options):
         )
 
 
-def save_comparison(directory, meshes, qualities, shape, metadata, options):
+def save_comparison(
+    directory, meshes, qualities, shape, metadata, options, exact_boundary_geometry=None
+):
     """Compare available methods in the fixed TFI/PDE/MeshONet/HMONet order."""
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
     qualities = {name: qualities[name] for name in meshes}
@@ -440,8 +521,14 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
         )
         write_json(directory / "metadata.json", metadata)
         if len(shape) == 3:
-            save_sections(directory, meshes, shape, options)
-            if plot_enabled(options):
+            save_sections(
+                directory,
+                meshes,
+                shape,
+                options,
+                exact_boundary_geometry=exact_boundary_geometry,
+            )
+            if plot_enabled(options) and options.get("volume_evaluation", True):
                 plot_volumes(directory, meshes, {m: {} for m in meshes}, shape, options)
         elif plot_enabled(options):
             from src.utils.visualize import plot_quad_meshXY
@@ -453,7 +540,20 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
                 plot_quad_meshXY(qualities[method]["mesh"], ax=ax, show_node_id=False)
                 ax.set_title(method_label(method))
             fig.tight_layout()
-            save_figure(fig, directory / "mesh_comparison_overview", options)
+            if options.get("exact_boundary_overlay", True) and exact_boundary_geometry is not None:
+                save_figure_formats(
+                    fig,
+                    directory / "mesh_comparison_overview",
+                    save_png=options["save_png"],
+                    save_pdf=options["save_pdf"],
+                    dpi=180,
+                )
+                curves = exact_boundary_curves_2d(exact_boundary_geometry)
+                for ax in axes[0]:
+                    plot_exact_boundary_curves(ax, curves)
+                save_figure(fig, directory / "mesh_comparison_with_exact_boundary", options)
+            else:
+                save_figure(fig, directory / "mesh_comparison_overview", options)
         return {m: {} for m in meshes}
     if len(shape) == 2:
         summary = save_quality_comparison(
@@ -467,6 +567,12 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
             save_pdf=options["save_pdf"],
             save_distribution_plots=options["save_distribution_plots"],
             plot_metrics=plot_metrics,
+            exact_boundary_curves=(
+                exact_boundary_curves_2d(exact_boundary_geometry)
+                if options.get("exact_boundary_overlay", True)
+                and exact_boundary_geometry is not None
+                else None
+            ),
         )
     else:
         summary = {m: q["summary"] for m, q in qualities.items()}
@@ -501,7 +607,13 @@ def save_comparison(directory, meshes, qualities, shape, metadata, options):
             for i in range(len(next(iter(q["fields"].values()))))
         ]
         write_csv(directory / "comparison_quality_data.csv", rows)
-        save_sections(directory, meshes, shape, options)
+        save_sections(
+            directory,
+            meshes,
+            shape,
+            options,
+            exact_boundary_geometry=exact_boundary_geometry,
+        )
         if plot_enabled(options):
             volume_plot_metrics = selected_quality_plot_metrics(options, 3)
             plot_volumes(

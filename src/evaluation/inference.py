@@ -162,6 +162,9 @@ def load_network(path, method, dimension, mapping, device, train_config=None):
     model = cls(*shape, **kwargs)
     model.load_state_dict(state_dict, strict=True)
     model.to(device).eval()
+    # Geometry is part of the learned operator: identical tensor sizes do not
+    # make an old analytic-cap checkpoint compatible with new PDE caps.
+    model.training_geometry_contract = config.get("dataset_geometry")
     model.boundary_sample_counts = config.get("boundary_encoder", {}).get(
         "sample_counts"
     )
@@ -238,6 +241,33 @@ def predict_batch(
         )
 
 
+def validate_training_geometry(model, geometry):
+    """Reject archived weights trained against a different prescribed surface."""
+    if not hasattr(model, "training_geometry_contract"):
+        return  # Fresh in-memory models have no checkpoint to validate.
+    from src.data.geometry.pde_surface_3d import CAP_SCHEME
+
+    geometries = geometry if isinstance(geometry, (list, tuple)) else [geometry]
+    expected = model.training_geometry_contract
+    for boundary in geometries:
+        metadata = getattr(boundary, "metadata", {})
+        if metadata.get("cap_parameterization") != CAP_SCHEME:
+            continue  # Preserve evaluation of historical geometries/2-D data.
+        actual = {
+            "boundary_type": metadata.get("family"),
+            "geometry_revision": metadata.get("geometry_revision"),
+            "cap_parameterization": metadata.get("cap_parameterization"),
+            "side_parameterization": metadata.get("side_parameterization"),
+        }
+        if expected is None or any(expected.get(key) != value for key, value in actual.items()):
+            raise ValueError(
+                "Checkpoint boundary parameterization does not match the requested "
+                "3-D PDE-cap geometry. Regenerate the dataset and retrain this model "
+                "with the current surfaces; renaming an old checkpoint is not sufficient. "
+                f"Checkpoint contract={expected}; requested={actual}"
+            )
+
+
 def _predict(
     model, method, geometry, input_shape, queries, device, options, batched, runtime
 ):
@@ -246,6 +276,7 @@ def _predict(
     Both networks use the same warmup and measurement protocol. Projection
     points are evaluated inside each HMONet forward, with no external cache.
     """
+    validate_training_geometry(model, geometry)
     batch_size = len(geometry) if batched else 1
     kernel_before = kernel_status()
     boundary_values = (

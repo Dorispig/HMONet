@@ -12,6 +12,8 @@ import numpy as np
 import torch
 
 from src.data.backend.curve_kernels import eligible as fused_eligible, evaluate_fused
+from src.data.geometry.pde_cap_3d import RunPdeFace3D
+from src.data.geometry.pde_surface_3d import PdeCapSurface3D
 
 from src.data.geometry.parametric_curve_2d import (
     CircleArc,
@@ -51,6 +53,10 @@ def _group_key(obj):
         return kind, len(obj.surfaces), obj.axis
     if kind is MappedVolumeFace3D:
         return kind, obj.mapping, obj.fixed_axis, obj.fixed_value
+    if kind is RunPdeFace3D:
+        return kind, obj.fixed_axis, obj.fixed_value
+    if kind is PdeCapSurface3D:
+        return kind, _group_key(obj.source)
     return kind
 
 
@@ -497,6 +503,10 @@ def _evaluate_surface_group(surfaces, u, v, prepared=None):
         return torch.cat((xy, z[..., None]), -1)
     if kind is MappedVolumeFace3D:
         return MappedVolumeFace3D.evaluate_batch_torch(surfaces, u, v)
+    if kind is RunPdeFace3D:
+        return RunPdeFace3D.evaluate_batch_torch(surfaces, u, v)
+    if kind is PdeCapSurface3D:
+        return PdeCapSurface3D.evaluate_batch_torch(surfaces, u, v)
     if kind is PiecewiseSurface3D:
         q = u if surfaces[0].axis == "u" else v
         knots = (

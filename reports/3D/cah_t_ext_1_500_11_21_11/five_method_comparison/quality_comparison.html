@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>三维网格质量对比</title>
+<style>
+body{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;line-height:1.55;margin:24px;color:#222}
+table{border-collapse:collapse;display:block;max-width:100%;overflow-x:auto;white-space:nowrap;margin:16px 0}
+th,td{border:1px solid #aaa;padding:5px 8px;text-align:right}th:first-child,td:first-child{text-align:left}
+img{max-width:100%;height:auto}code{background:#f3f3f3;padding:1px 4px}
+</style></head><body><h1>cah_t_ext_1_500_11_21_11：三维与 z_mid 网格质量对比</h1>
+<ul>
+<li>数据集：<code>cah_t_ext_1_500_11_21_11</code></li>
+<li>对比方法：TFI、PDE、MeshONet（原始/direct/IDW）、PI-MeshONet（原始/direct/IDW）和 HMONet（CCAP/原始）。</li>
+<li>direct 仅将边界点替换为精确 TFI 边界，内部点不变；IDW 将边界位移按反距离权重传播到内部点，并精确对齐边界。</li>
+<li>质量单元格格式为 <code>平均值 / 最差值</code>；平均值和最差值分别独立加粗最佳结果。</li>
+<li>推理时间格式为 <code>网络推理（或传统方法生成）时间 + 边界后处理时间 = 总时间</code>。三个网络在同一进程、同一 GPU 上依次交错测试，预热 10 次、测试 50 次；边界后处理在同一 CPU 进程中交错测试，预热 3 次、测试 10 次；两者均去掉一个最高值和一个最低值后取平均。</li>
+<li>三维体网格和 z_mid 截面指标分别基于三维六面体单元和物理截面四边形计算。</li>
+</ul>
+<h2>五方法可视化对比</h2>
+<p>边界误差局部图中，红线表示精确边界，红色叉号表示精确目标点，蓝点表示同一逻辑节点的方法输出，紫色虚线表示边界位移。</p>
+<p><img alt="z_mid 网格" src="figures/cah_z_mid_mesh_21x41x21_parameter_0.38.png" /></p>
+<p><img alt="z_mid 最大角质量" src="figures/cah_z_mid_max_angle_21x41x21_parameter_0.38.png" /></p>
+<p><img alt="z_mid 边界附近最差质量局部图" src="figures/cah_z_mid_boundary_worst_zoom_21x41x21_parameter_0.38.png" /></p>
+<p><img alt="z_mid PI-MeshONet 最大边界误差局部图" src="figures/cah_z_mid_pimeshonet_max_boundary_error_zoom_21x41x21_parameter_0.38.png" /></p>
+<h2>参数 0.06，网格规模 11x21x11</h2>
+<h3>三维体网格</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.146572 + 0 = 0.146572</td>
+<td style="text-align: right;">1.48664 + 0 = 1.48664</td>
+<td style="text-align: right;"><strong>0.00202905 + 0 = 0.00202905</strong></td>
+<td style="text-align: right;">0.00202905 + 4.05255e-05 = 0.00206958</td>
+<td style="text-align: right;">0.00202905 + 0.0904148 = 0.0924439</td>
+<td style="text-align: right;">0.00299330 + 0 = 0.00299330</td>
+<td style="text-align: right;">0.00299330 + 4.01223e-05 = 0.00303342</td>
+<td style="text-align: right;">0.00299330 + 0.0899215 = 0.0929148</td>
+<td style="text-align: right;">0.00796828 + 0 = 0.00796828</td>
+</tr>
+<tr>
+<td>最小 scaled Jacobian</td>
+<td style="text-align: right;">0.911468 / 0.00700953</td>
+<td style="text-align: right;">0.896764 / 0.00700953</td>
+<td style="text-align: right;">0.896111 / 0.0287209</td>
+<td style="text-align: right;">0.896144 / 0.00700953</td>
+<td style="text-align: right;">0.895860 / 0.00700953</td>
+<td style="text-align: right;"><strong>0.924977</strong> / <strong>0.473522</strong></td>
+<td style="text-align: right;">0.900336 / -0.999629</td>
+<td style="text-align: right;">0.902603 / -0.998329</td>
+<td style="text-align: right;">0.898366 / -0.0190961</td>
+</tr>
+<tr>
+<td>中心 Jacobian</td>
+<td style="text-align: right;">0.00864154 / <strong>0.00117707</strong></td>
+<td style="text-align: right;">0.00864154 / 0.000624853</td>
+<td style="text-align: right;">0.00862728 / 0.000547732</td>
+<td style="text-align: right;">0.00864153 / 0.000602325</td>
+<td style="text-align: right;">0.00864153 / 0.000579053</td>
+<td style="text-align: right;">0.00850907 / 0.000619625</td>
+<td style="text-align: right;">0.00864154 / 0.000446453</td>
+<td style="text-align: right;"><strong>0.00864154</strong> / 0.000594534</td>
+<td style="text-align: right;">0.00864153 / 0.000761570</td>
+</tr>
+<tr>
+<td>中心条件数</td>
+<td style="text-align: right;">2.68461 / <strong>7.52389</strong></td>
+<td style="text-align: right;">2.66571 / 9.60360</td>
+<td style="text-align: right;">2.69940 / 11.5852</td>
+<td style="text-align: right;">2.67988 / 10.5199</td>
+<td style="text-align: right;">2.68312 / 11.0104</td>
+<td style="text-align: right;">2.66821 / 7.60974</td>
+<td style="text-align: right;">2.62600 / 11.7802</td>
+<td style="text-align: right;"><strong>2.61993</strong> / 9.43568</td>
+<td style="text-align: right;">2.62931 / 7.98198</td>
+</tr>
+<tr>
+<td>边长宽比</td>
+<td style="text-align: right;"><strong>2.68949</strong> / <strong>4.69303</strong></td>
+<td style="text-align: right;">2.89875 / 22.0970</td>
+<td style="text-align: right;">2.81620 / 12.3506</td>
+<td style="text-align: right;">2.80831 / 13.3549</td>
+<td style="text-align: right;">2.80749 / 12.7083</td>
+<td style="text-align: right;">2.80642 / 8.19810</td>
+<td style="text-align: right;">2.86781 / 33.8759</td>
+<td style="text-align: right;">3.31368 / 86.3497</td>
+<td style="text-align: right;">2.81666 / 16.0240</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;">109.285 / 179.598</td>
+<td style="text-align: right;">111.555 / 179.598</td>
+<td style="text-align: right;">111.491 / 178.341</td>
+<td style="text-align: right;">111.424 / 179.598</td>
+<td style="text-align: right;">111.454 / 179.598</td>
+<td style="text-align: right;"><strong>109.077</strong> / <strong>151.728</strong></td>
+<td style="text-align: right;">109.343 / 179.598</td>
+<td style="text-align: right;">109.901 / 179.598</td>
+<td style="text-align: right;">111.399 / 179.598</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>74.0016</strong> / 24.6613</td>
+<td style="text-align: right;">71.9252 / 24.6613</td>
+<td style="text-align: right;">71.8565 / 23.4511</td>
+<td style="text-align: right;">72.0045 / 23.0390</td>
+<td style="text-align: right;">71.9730 / 22.9747</td>
+<td style="text-align: right;">73.5368 / <strong>38.8981</strong></td>
+<td style="text-align: right;">73.2701 / 2.16424</td>
+<td style="text-align: right;">73.2667 / 14.2005</td>
+<td style="text-align: right;">72.1891 / 24.6613</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;">0.218937 / 0.995538</td>
+<td style="text-align: right;">0.241570 / 0.995538</td>
+<td style="text-align: right;">0.241060 / 0.981568</td>
+<td style="text-align: right;">0.240256 / 0.995538</td>
+<td style="text-align: right;">0.240608 / 0.995538</td>
+<td style="text-align: right;"><strong>0.213603</strong> / <strong>0.685863</strong></td>
+<td style="text-align: right;">0.220993 / 0.995538</td>
+<td style="text-align: right;">0.224161 / 0.995538</td>
+<td style="text-align: right;">0.239564 / 0.995538</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.680988</strong> / 2.45670e-05</td>
+<td style="text-align: right;">0.646115 / 2.45670e-05</td>
+<td style="text-align: right;">0.647211 / 0.000419107</td>
+<td style="text-align: right;">0.648982 / 2.45670e-05</td>
+<td style="text-align: right;">0.648548 / 2.45670e-05</td>
+<td style="text-align: right;">0.677205 / <strong>0.119294</strong></td>
+<td style="text-align: right;">0.674543 / 2.45670e-05</td>
+<td style="text-align: right;">0.669445 / 2.45670e-05</td>
+<td style="text-align: right;">0.648761 / 2.45669e-05</td>
+</tr>
+<tr>
+<td>单元体积</td>
+<td style="text-align: right;">0.00864154 / <strong>0.00117707</strong></td>
+<td style="text-align: right;">0.00864154 / 0.000624853</td>
+<td style="text-align: right;">0.00862728 / 0.000547732</td>
+<td style="text-align: right;">0.00864153 / 0.000602325</td>
+<td style="text-align: right;">0.00864153 / 0.000579053</td>
+<td style="text-align: right;">0.00850907 / 0.000619625</td>
+<td style="text-align: right;">0.00864154 / 0.000446453</td>
+<td style="text-align: right;"><strong>0.00864154</strong> / 0.000594534</td>
+<td style="text-align: right;">0.00864153 / 0.000761570</td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0100000 / 20.0000</td>
+<td style="text-align: right;">0.00650000 / 13.0000</td>
+<td style="text-align: right;">0.00100000 / 2.00000</td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>z_mid 截面</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.146572 + 0 = 0.146572</td>
+<td style="text-align: right;">1.48664 + 0 = 1.48664</td>
+<td style="text-align: right;"><strong>0.00202905 + 0 = 0.00202905</strong></td>
+<td style="text-align: right;">0.00202905 + 4.05255e-05 = 0.00206958</td>
+<td style="text-align: right;">0.00202905 + 0.0904148 = 0.0924439</td>
+<td style="text-align: right;">0.00299330 + 0 = 0.00299330</td>
+<td style="text-align: right;">0.00299330 + 4.01223e-05 = 0.00303342</td>
+<td style="text-align: right;">0.00299330 + 0.0899215 = 0.0929148</td>
+<td style="text-align: right;">0.00796828 + 0 = 0.00796828</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;">109.285 / 179.598</td>
+<td style="text-align: right;">110.519 / 179.598</td>
+<td style="text-align: right;">110.348 / 174.853</td>
+<td style="text-align: right;">110.312 / 179.598</td>
+<td style="text-align: right;">110.328 / 179.598</td>
+<td style="text-align: right;"><strong>108.506</strong> / <strong>151.728</strong></td>
+<td style="text-align: right;">110.422 / 351.444</td>
+<td style="text-align: right;">109.616 / 295.436</td>
+<td style="text-align: right;">110.451 / 179.598</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;">74.0016 / 24.6613</td>
+<td style="text-align: right;">73.1219 / 25.0672</td>
+<td style="text-align: right;">73.1393 / 24.7081</td>
+<td style="text-align: right;">73.2943 / 23.1531</td>
+<td style="text-align: right;">73.2740 / 23.0275</td>
+<td style="text-align: right;">74.3298 / <strong>38.8981</strong></td>
+<td style="text-align: right;"><strong>74.8374</strong> / 33.0506</td>
+<td style="text-align: right;">74.7129 / 30.7797</td>
+<td style="text-align: right;">73.3067 / 26.1300</td>
+</tr>
+<tr>
+<td>Jacobian</td>
+<td style="text-align: right;"><strong>0.0306300</strong> / 7.03624e-05</td>
+<td style="text-align: right;">0.0300757 / 7.03624e-05</td>
+<td style="text-align: right;">0.0300263 / 0.000366035</td>
+<td style="text-align: right;">0.0300736 / 7.03599e-05</td>
+<td style="text-align: right;">0.0300739 / 7.03612e-05</td>
+<td style="text-align: right;">0.0299354 / <strong>0.00169663</strong></td>
+<td style="text-align: right;">0.0302208 / -0.00242060</td>
+<td style="text-align: right;">0.0302040 / -0.000289581</td>
+<td style="text-align: right;">0.0300404 / 5.10595e-05</td>
+</tr>
+<tr>
+<td>Scaled Jacobian</td>
+<td style="text-align: right;">0.911468 / 0.00700953</td>
+<td style="text-align: right;">0.907394 / 0.00700953</td>
+<td style="text-align: right;">0.906961 / 0.0896971</td>
+<td style="text-align: right;">0.906749 / 0.00700928</td>
+<td style="text-align: right;">0.906490 / 0.00700941</td>
+<td style="text-align: right;"><strong>0.930461</strong> / <strong>0.473626</strong></td>
+<td style="text-align: right;">0.912322 / -0.964273</td>
+<td style="text-align: right;">0.914697 / -0.972123</td>
+<td style="text-align: right;">0.909072 / 0.00700959</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;">0.218937 / 0.995538</td>
+<td style="text-align: right;">0.230378 / 0.995538</td>
+<td style="text-align: right;">0.228755 / 0.942813</td>
+<td style="text-align: right;">0.228149 / 0.995538</td>
+<td style="text-align: right;">0.228363 / 0.995538</td>
+<td style="text-align: right;"><strong>0.207334</strong> / <strong>0.685863</strong></td>
+<td style="text-align: right;">0.228551 / 2.90493</td>
+<td style="text-align: right;">0.219535 / 2.28262</td>
+<td style="text-align: right;">0.229021 / 0.995538</td>
+</tr>
+<tr>
+<td>长宽比</td>
+<td style="text-align: right;">2.43491 / 4.69303</td>
+<td style="text-align: right;">2.17803 / 9.13570</td>
+<td style="text-align: right;">2.14692 / 4.74525</td>
+<td style="text-align: right;">2.14550 / 5.35310</td>
+<td style="text-align: right;"><strong>2.14375</strong> / 5.02975</td>
+<td style="text-align: right;">2.18234 / <strong>4.35161</strong></td>
+<td style="text-align: right;">2.18260 / 4.69303</td>
+<td style="text-align: right;">2.49433 / 35.6667</td>
+<td style="text-align: right;">2.15726 / 6.55576</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;">0.680988 / 2.45670e-05</td>
+<td style="text-align: right;">0.662540 / 2.45670e-05</td>
+<td style="text-align: right;">0.665180 / 0.00403187</td>
+<td style="text-align: right;">0.666963 / 2.45670e-05</td>
+<td style="text-align: right;">0.666776 / 2.45670e-05</td>
+<td style="text-align: right;">0.687701 / <strong>0.119294</strong></td>
+<td style="text-align: right;"><strong>0.691602</strong> / 2.45670e-05</td>
+<td style="text-align: right;">0.688418 / 2.45670e-05</td>
+<td style="text-align: right;">0.663961 / 2.45675e-05</td>
+</tr>
+<tr>
+<td>凹顶点数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0200000 / 4.00000</td>
+<td style="text-align: right;">0.0100000 / 2.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>自相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0100000 / 2.00000</td>
+<td style="text-align: right;">0.00500000 / 1.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0100000 / 2.00000</td>
+<td style="text-align: right;">0.00500000 / 1.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0100000 / 2.00000</td>
+<td style="text-align: right;">0.00500000 / 1.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>参数 0.38，网格规模 11x21x11</h2>
+<h3>三维体网格</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.00968580 + 0 = 0.00968580</td>
+<td style="text-align: right;">1.25472 + 0 = 1.25472</td>
+<td style="text-align: right;"><strong>0.00228467 + 0 = 0.00228467</strong></td>
+<td style="text-align: right;">0.00228467 + 3.91468e-05 = 0.00232382</td>
+<td style="text-align: right;">0.00228467 + 0.0873132 = 0.0895979</td>
+<td style="text-align: right;">0.00323217 + 0 = 0.00323217</td>
+<td style="text-align: right;">0.00323217 + 4.26723e-05 = 0.00327484</td>
+<td style="text-align: right;">0.00323217 + 0.0862450 = 0.0894772</td>
+<td style="text-align: right;">0.00854069 + 0 = 0.00854069</td>
+</tr>
+<tr>
+<td>最小 scaled Jacobian</td>
+<td style="text-align: right;"><strong>0.935727</strong> / 0.340229</td>
+<td style="text-align: right;">0.915404 / 0.340229</td>
+<td style="text-align: right;">0.915187 / 0.297018</td>
+<td style="text-align: right;">0.911725 / 0.340229</td>
+<td style="text-align: right;">0.913100 / 0.340229</td>
+<td style="text-align: right;">0.926456 / <strong>0.487395</strong></td>
+<td style="text-align: right;">0.855486 / -0.999802</td>
+<td style="text-align: right;">0.877334 / -0.990342</td>
+<td style="text-align: right;">0.914895 / 0.340229</td>
+</tr>
+<tr>
+<td>中心 Jacobian</td>
+<td style="text-align: right;">0.00837717 / <strong>0.00201862</strong></td>
+<td style="text-align: right;">0.00837717 / 0.00134404</td>
+<td style="text-align: right;">0.00839628 / 0.00125783</td>
+<td style="text-align: right;">0.00837717 / 0.000971866</td>
+<td style="text-align: right;">0.00837717 / 0.00107628</td>
+<td style="text-align: right;"><strong>0.00846418</strong> / 0.000634725</td>
+<td style="text-align: right;">0.00837718 / -0.000825925</td>
+<td style="text-align: right;">0.00837718 / -7.25409e-05</td>
+<td style="text-align: right;">0.00837718 / 0.00135635</td>
+</tr>
+<tr>
+<td>中心条件数</td>
+<td style="text-align: right;">2.77364 / <strong>4.51671</strong></td>
+<td style="text-align: right;">2.75676 / 6.12232</td>
+<td style="text-align: right;">2.75565 / 6.51316</td>
+<td style="text-align: right;">2.79956 / 7.43611</td>
+<td style="text-align: right;">2.78838 / 6.86096</td>
+<td style="text-align: right;"><strong>2.68434</strong> / 7.61760</td>
+<td style="text-align: right;">5.31545 / 1113.08</td>
+<td style="text-align: right;">5.77291 / 2545.99</td>
+<td style="text-align: right;">2.76099 / 6.00608</td>
+</tr>
+<tr>
+<td>边长宽比</td>
+<td style="text-align: right;">2.84412 / <strong>4.69303</strong></td>
+<td style="text-align: right;">2.87327 / 7.08973</td>
+<td style="text-align: right;">2.87360 / 7.31379</td>
+<td style="text-align: right;">2.90172 / 7.62655</td>
+<td style="text-align: right;">2.89832 / 7.44874</td>
+<td style="text-align: right;"><strong>2.82178</strong> / 8.19858</td>
+<td style="text-align: right;">3.34483 / 34.1370</td>
+<td style="text-align: right;">3.59278 / 78.6469</td>
+<td style="text-align: right;">2.88707 / 7.58122</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;"><strong>107.573</strong> / 160.109</td>
+<td style="text-align: right;">110.091 / 160.109</td>
+<td style="text-align: right;">110.102 / 162.720</td>
+<td style="text-align: right;">110.427 / 160.109</td>
+<td style="text-align: right;">110.316 / 160.109</td>
+<td style="text-align: right;">108.903 / <strong>150.821</strong></td>
+<td style="text-align: right;">112.454 / 179.432</td>
+<td style="text-align: right;">111.980 / 179.385</td>
+<td style="text-align: right;">110.250 / 160.109</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>75.0309</strong> / 38.6938</td>
+<td style="text-align: right;">72.5374 / 34.1302</td>
+<td style="text-align: right;">72.4609 / 32.0307</td>
+<td style="text-align: right;">72.0770 / 32.5178</td>
+<td style="text-align: right;">72.2041 / 32.6555</td>
+<td style="text-align: right;">73.6228 / <strong>39.2496</strong></td>
+<td style="text-align: right;">69.3285 / 0.510144</td>
+<td style="text-align: right;">69.9446 / 0.287683</td>
+<td style="text-align: right;">72.4337 / 34.8630</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;"><strong>0.197200</strong> / 0.778991</td>
+<td style="text-align: right;">0.224214 / 0.778991</td>
+<td style="text-align: right;">0.224885 / 0.807997</td>
+<td style="text-align: right;">0.228449 / 0.778991</td>
+<td style="text-align: right;">0.227160 / 0.778991</td>
+<td style="text-align: right;">0.211497 / <strong>0.675785</strong></td>
+<td style="text-align: right;">0.254572 / 0.994332</td>
+<td style="text-align: right;">0.248629 / 0.996804</td>
+<td style="text-align: right;">0.225865 / 0.778991</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.703072</strong> / 0.0596572</td>
+<td style="text-align: right;">0.664195 / 0.0596572</td>
+<td style="text-align: right;">0.663054 / 0.0451367</td>
+<td style="text-align: right;">0.658904 / 0.0596572</td>
+<td style="text-align: right;">0.660218 / 0.0596572</td>
+<td style="text-align: right;">0.680032 / <strong>0.126902</strong></td>
+<td style="text-align: right;">0.636912 / 3.96376e-05</td>
+<td style="text-align: right;">0.641273 / 1.26053e-05</td>
+<td style="text-align: right;">0.661311 / 0.0596572</td>
+</tr>
+<tr>
+<td>单元体积</td>
+<td style="text-align: right;">0.00837717 / <strong>0.00201862</strong></td>
+<td style="text-align: right;">0.00837717 / 0.00134404</td>
+<td style="text-align: right;">0.00839628 / 0.00125783</td>
+<td style="text-align: right;">0.00837717 / 0.000971866</td>
+<td style="text-align: right;">0.00837717 / 0.00107628</td>
+<td style="text-align: right;"><strong>0.00846418</strong> / 0.000634725</td>
+<td style="text-align: right;">0.00839527 / 6.19820e-06</td>
+<td style="text-align: right;">0.00837737 / 2.93120e-06</td>
+<td style="text-align: right;">0.00837718 / 0.00135635</td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0395000 / 79.0000</td>
+<td style="text-align: right;">0.0230000 / 46.0000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>z_mid 截面</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.00968580 + 0 = 0.00968580</td>
+<td style="text-align: right;">1.25472 + 0 = 1.25472</td>
+<td style="text-align: right;"><strong>0.00228467 + 0 = 0.00228467</strong></td>
+<td style="text-align: right;">0.00228467 + 3.91468e-05 = 0.00232382</td>
+<td style="text-align: right;">0.00228467 + 0.0873132 = 0.0895979</td>
+<td style="text-align: right;">0.00323217 + 0 = 0.00323217</td>
+<td style="text-align: right;">0.00323217 + 4.26723e-05 = 0.00327484</td>
+<td style="text-align: right;">0.00323217 + 0.0862450 = 0.0894772</td>
+<td style="text-align: right;">0.00854069 + 0 = 0.00854069</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;"><strong>107.573</strong> / 160.109</td>
+<td style="text-align: right;">109.761 / 160.109</td>
+<td style="text-align: right;">109.659 / 160.018</td>
+<td style="text-align: right;">109.997 / 160.109</td>
+<td style="text-align: right;">109.914 / 160.109</td>
+<td style="text-align: right;">108.333 / <strong>150.821</strong></td>
+<td style="text-align: right;">112.574 / 353.687</td>
+<td style="text-align: right;">114.725 / 358.310</td>
+<td style="text-align: right;">109.952 / 160.109</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>75.0309</strong> / 38.6938</td>
+<td style="text-align: right;">72.9694 / 34.1302</td>
+<td style="text-align: right;">72.9943 / 32.9782</td>
+<td style="text-align: right;">72.6420 / 32.5178</td>
+<td style="text-align: right;">72.7349 / 32.7006</td>
+<td style="text-align: right;">74.4437 / <strong>39.2496</strong></td>
+<td style="text-align: right;">71.3472 / 2.28178</td>
+<td style="text-align: right;">71.2062 / 6.01533</td>
+<td style="text-align: right;">72.8535 / 34.8630</td>
+</tr>
+<tr>
+<td>Jacobian</td>
+<td style="text-align: right;"><strong>0.0300344</strong> / <strong>0.00370489</strong></td>
+<td style="text-align: right;">0.0295258 / 0.00256428</td>
+<td style="text-align: right;">0.0296102 / 0.00311340</td>
+<td style="text-align: right;">0.0295069 / 0.00178916</td>
+<td style="text-align: right;">0.0295130 / 0.00223511</td>
+<td style="text-align: right;">0.0298499 / 0.00175388</td>
+<td style="text-align: right;">0.0294906 / -0.00148003</td>
+<td style="text-align: right;">0.0293995 / -0.00172362</td>
+<td style="text-align: right;">0.0294591 / 0.00323663</td>
+</tr>
+<tr>
+<td>Scaled Jacobian</td>
+<td style="text-align: right;"><strong>0.935727</strong> / 0.340229</td>
+<td style="text-align: right;">0.921373 / 0.340229</td>
+<td style="text-align: right;">0.921461 / 0.341714</td>
+<td style="text-align: right;">0.917534 / 0.340228</td>
+<td style="text-align: right;">0.918829 / 0.340228</td>
+<td style="text-align: right;">0.932041 / <strong>0.487511</strong></td>
+<td style="text-align: right;">0.885504 / -0.213774</td>
+<td style="text-align: right;">0.884013 / -0.780615</td>
+<td style="text-align: right;">0.920619 / 0.340228</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;"><strong>0.197200</strong> / 0.778991</td>
+<td style="text-align: right;">0.220706 / 0.778991</td>
+<td style="text-align: right;">0.220238 / 0.777983</td>
+<td style="text-align: right;">0.223830 / 0.778991</td>
+<td style="text-align: right;">0.222882 / 0.778991</td>
+<td style="text-align: right;">0.205193 / <strong>0.675785</strong></td>
+<td style="text-align: right;">0.253955 / 2.92986</td>
+<td style="text-align: right;">0.278029 / 2.98123</td>
+<td style="text-align: right;">0.222594 / 0.778991</td>
+</tr>
+<tr>
+<td>长宽比</td>
+<td style="text-align: right;">2.63315 / 4.69303</td>
+<td style="text-align: right;">2.36222 / 5.10739</td>
+<td style="text-align: right;">2.33998 / 4.93008</td>
+<td style="text-align: right;">2.36218 / 5.48375</td>
+<td style="text-align: right;">2.36248 / 5.32994</td>
+<td style="text-align: right;"><strong>2.19467</strong> / <strong>4.32222</strong></td>
+<td style="text-align: right;">2.47449 / 10.2186</td>
+<td style="text-align: right;">2.90358 / 56.6034</td>
+<td style="text-align: right;">2.36392 / 5.41738</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.703072</strong> / 0.0596572</td>
+<td style="text-align: right;">0.669773 / 0.0596572</td>
+<td style="text-align: right;">0.670275 / 0.0601973</td>
+<td style="text-align: right;">0.666566 / 0.0596572</td>
+<td style="text-align: right;">0.667287 / 0.0596572</td>
+<td style="text-align: right;">0.690566 / <strong>0.126902</strong></td>
+<td style="text-align: right;">0.658551 / 0.000792895</td>
+<td style="text-align: right;">0.656851 / 0.000434820</td>
+<td style="text-align: right;">0.666701 / 0.0596572</td>
+</tr>
+<tr>
+<td>凹顶点数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0400000 / 8.00000</td>
+<td style="text-align: right;">0.0450000 / 9.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>自相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00500000 / 1.00000</td>
+<td style="text-align: right;">0.0200000 / 4.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00500000 / 1.00000</td>
+<td style="text-align: right;">0.0200000 / 4.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0350000 / 7.00000</td>
+<td style="text-align: right;">0.0250000 / 5.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>参数 0.06，网格规模 21x41x21</h2>
+<h3>三维体网格</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.0443772 + 0 = 0.0443772</td>
+<td style="text-align: right;">101.118 + 0 = 101.118</td>
+<td style="text-align: right;"><strong>0.00217051 + 0 = 0.00217051</strong></td>
+<td style="text-align: right;">0.00217051 + 0.000150669 = 0.00232118</td>
+<td style="text-align: right;">0.00217051 + 3.07610 = 3.07827</td>
+<td style="text-align: right;">0.00331452 + 0 = 0.00331452</td>
+<td style="text-align: right;">0.00331452 + 0.000159549 = 0.00347407</td>
+<td style="text-align: right;">0.00331452 + 3.08101 = 3.08432</td>
+<td style="text-align: right;">0.00821543 + 0 = 0.00821543</td>
+</tr>
+<tr>
+<td>最小 scaled Jacobian</td>
+<td style="text-align: right;">0.944619 / 0.00634579</td>
+<td style="text-align: right;">0.935396 / 0.00634579</td>
+<td style="text-align: right;">0.932717 / 0.0478033</td>
+<td style="text-align: right;">0.932962 / 0.00634579</td>
+<td style="text-align: right;">0.932809 / 0.00634579</td>
+<td style="text-align: right;"><strong>0.952744</strong> / <strong>0.559792</strong></td>
+<td style="text-align: right;">0.942286 / -0.998562</td>
+<td style="text-align: right;">0.940891 / -0.993781</td>
+<td style="text-align: right;">0.936147 / -0.0795404</td>
+</tr>
+<tr>
+<td>中心 Jacobian</td>
+<td style="text-align: right;">0.00109361 / <strong>7.54095e-05</strong></td>
+<td style="text-align: right;">0.00109361 / 6.00469e-05</td>
+<td style="text-align: right;">0.00109177 / 4.13622e-05</td>
+<td style="text-align: right;">0.00109361 / 4.96731e-05</td>
+<td style="text-align: right;">0.00109361 / 4.80138e-05</td>
+<td style="text-align: right;">0.00107642 / 5.88305e-05</td>
+<td style="text-align: right;">0.00109361 / -7.46279e-05</td>
+<td style="text-align: right;"><strong>0.00109361</strong> / 2.48849e-07</td>
+<td style="text-align: right;">0.00109361 / 6.93574e-05</td>
+</tr>
+<tr>
+<td>中心条件数</td>
+<td style="text-align: right;">2.68609 / 14.6842</td>
+<td style="text-align: right;">2.64088 / 12.7726</td>
+<td style="text-align: right;">2.70515 / 16.1843</td>
+<td style="text-align: right;">2.68307 / 13.6379</td>
+<td style="text-align: right;">2.68709 / 16.5734</td>
+<td style="text-align: right;">2.65923 / <strong>8.87778</strong></td>
+<td style="text-align: right;">2.73659 / 1167.19</td>
+<td style="text-align: right;">2.99058 / 2757.29</td>
+<td style="text-align: right;"><strong>2.62231</strong> / 11.1715</td>
+</tr>
+<tr>
+<td>边长宽比</td>
+<td style="text-align: right;"><strong>2.58324</strong> / <strong>4.70755</strong></td>
+<td style="text-align: right;">2.65523 / 27.6924</td>
+<td style="text-align: right;">2.64036 / 12.5988</td>
+<td style="text-align: right;">2.62654 / 14.4712</td>
+<td style="text-align: right;">2.62948 / 14.4962</td>
+<td style="text-align: right;">2.66679 / 9.07062</td>
+<td style="text-align: right;">2.64395 / 17.1462</td>
+<td style="text-align: right;">2.73234 / 79.2560</td>
+<td style="text-align: right;">2.62321 / 21.2234</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;"><strong>103.845</strong> / 179.636</td>
+<td style="text-align: right;">106.391 / 179.636</td>
+<td style="text-align: right;">106.498 / 177.254</td>
+<td style="text-align: right;">106.406 / 179.636</td>
+<td style="text-align: right;">106.422 / 179.636</td>
+<td style="text-align: right;">104.466 / <strong>145.950</strong></td>
+<td style="text-align: right;">104.583 / 179.636</td>
+<td style="text-align: right;">104.794 / 179.636</td>
+<td style="text-align: right;">106.256 / 179.636</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>77.7761</strong> / 13.1597</td>
+<td style="text-align: right;">75.3183 / 13.1597</td>
+<td style="text-align: right;">75.1052 / 14.9107</td>
+<td style="text-align: right;">75.2388 / 13.1597</td>
+<td style="text-align: right;">75.2229 / 13.1597</td>
+<td style="text-align: right;">76.7802 / <strong>39.7680</strong></td>
+<td style="text-align: right;">76.7046 / 2.75461</td>
+<td style="text-align: right;">76.6061 / 3.23744</td>
+<td style="text-align: right;">75.4731 / 13.1597</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;"><strong>0.156293</strong> / 0.995960</td>
+<td style="text-align: right;">0.183135 / 0.995960</td>
+<td style="text-align: right;">0.184538 / 0.969490</td>
+<td style="text-align: right;">0.183467 / 0.995960</td>
+<td style="text-align: right;">0.183652 / 0.995960</td>
+<td style="text-align: right;">0.161524 / <strong>0.621667</strong></td>
+<td style="text-align: right;">0.164258 / 0.995960</td>
+<td style="text-align: right;">0.166215 / 0.995960</td>
+<td style="text-align: right;">0.181576 / 0.995960</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.768829</strong> / 2.01347e-05</td>
+<td style="text-align: right;">0.725315 / 2.01347e-05</td>
+<td style="text-align: right;">0.724423 / 0.00114816</td>
+<td style="text-align: right;">0.726354 / 2.01347e-05</td>
+<td style="text-align: right;">0.726114 / 2.01347e-05</td>
+<td style="text-align: right;">0.753189 / <strong>0.171450</strong></td>
+<td style="text-align: right;">0.752940 / 2.01347e-05</td>
+<td style="text-align: right;">0.750378 / 2.01347e-05</td>
+<td style="text-align: right;">0.727596 / 2.01352e-05</td>
+</tr>
+<tr>
+<td>单元体积</td>
+<td style="text-align: right;">0.00109361 / <strong>7.54095e-05</strong></td>
+<td style="text-align: right;">0.00109361 / 6.00469e-05</td>
+<td style="text-align: right;">0.00109177 / 4.13622e-05</td>
+<td style="text-align: right;">0.00109361 / 4.96731e-05</td>
+<td style="text-align: right;">0.00109361 / 4.80138e-05</td>
+<td style="text-align: right;">0.00107642 / 5.88305e-05</td>
+<td style="text-align: right;"><strong>0.00109377</strong> / 6.12374e-07</td>
+<td style="text-align: right;">0.00109361 / 2.48849e-07</td>
+<td style="text-align: right;">0.00109361 / 6.93574e-05</td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 40.0000</td>
+<td style="text-align: right;">0.00337500 / 54.0000</td>
+<td style="text-align: right;">0.000437500 / 7.00000</td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>z_mid 截面</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.0443772 + 0 = 0.0443772</td>
+<td style="text-align: right;">101.118 + 0 = 101.118</td>
+<td style="text-align: right;"><strong>0.00217051 + 0 = 0.00217051</strong></td>
+<td style="text-align: right;">0.00217051 + 0.000150669 = 0.00232118</td>
+<td style="text-align: right;">0.00217051 + 3.07610 = 3.07827</td>
+<td style="text-align: right;">0.00331452 + 0 = 0.00331452</td>
+<td style="text-align: right;">0.00331452 + 0.000159549 = 0.00347407</td>
+<td style="text-align: right;">0.00331452 + 3.08101 = 3.08432</td>
+<td style="text-align: right;">0.00821543 + 0 = 0.00821543</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;">103.845 / 179.636</td>
+<td style="text-align: right;">104.862 / 179.636</td>
+<td style="text-align: right;">104.721 / 173.641</td>
+<td style="text-align: right;">104.669 / 179.636</td>
+<td style="text-align: right;">104.666 / 179.636</td>
+<td style="text-align: right;"><strong>103.182</strong> / <strong>145.929</strong></td>
+<td style="text-align: right;">103.419 / 354.724</td>
+<td style="text-align: right;">103.896 / 345.004</td>
+<td style="text-align: right;">104.801 / 179.636</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;">77.7761 / 13.1597</td>
+<td style="text-align: right;">76.9814 / 22.3712</td>
+<td style="text-align: right;">77.0001 / 18.4711</td>
+<td style="text-align: right;">77.1013 / 16.0467</td>
+<td style="text-align: right;">77.1064 / 15.3506</td>
+<td style="text-align: right;">78.2255 / <strong>39.7680</strong></td>
+<td style="text-align: right;">78.4735 / 5.02422</td>
+<td style="text-align: right;"><strong>78.5599</strong> / 26.7008</td>
+<td style="text-align: right;">77.0786 / 22.9774</td>
+</tr>
+<tr>
+<td>Jacobian</td>
+<td style="text-align: right;"><strong>0.00825190</strong> / 1.59329e-05</td>
+<td style="text-align: right;">0.00817683 / 1.59329e-05</td>
+<td style="text-align: right;">0.00816418 / 0.000144739</td>
+<td style="text-align: right;">0.00817878 / 1.59266e-05</td>
+<td style="text-align: right;">0.00817923 / 1.59288e-05</td>
+<td style="text-align: right;">0.00808887 / <strong>0.000407223</strong></td>
+<td style="text-align: right;">0.00819612 / -0.000801560</td>
+<td style="text-align: right;">0.00819432 / -0.000468192</td>
+<td style="text-align: right;">0.00817378 / 1.59332e-05</td>
+</tr>
+<tr>
+<td>Scaled Jacobian</td>
+<td style="text-align: right;">0.944619 / 0.00634579</td>
+<td style="text-align: right;">0.944489 / 0.00634579</td>
+<td style="text-align: right;">0.942612 / 0.110749</td>
+<td style="text-align: right;">0.942505 / 0.00634329</td>
+<td style="text-align: right;">0.942452 / 0.00634416</td>
+<td style="text-align: right;"><strong>0.958261</strong> / <strong>0.560207</strong></td>
+<td style="text-align: right;">0.953434 / -0.867690</td>
+<td style="text-align: right;">0.950642 / -0.860158</td>
+<td style="text-align: right;">0.945253 / 0.00634593</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;">0.156293 / 0.995960</td>
+<td style="text-align: right;">0.166475 / 0.995960</td>
+<td style="text-align: right;">0.165251 / 0.929346</td>
+<td style="text-align: right;">0.164555 / 0.995960</td>
+<td style="text-align: right;">0.164537 / 0.995960</td>
+<td style="text-align: right;"><strong>0.147483</strong> / <strong>0.621435</strong></td>
+<td style="text-align: right;">0.150149 / 2.94138</td>
+<td style="text-align: right;">0.155447 / 2.83337</td>
+<td style="text-align: right;">0.165568 / 0.995960</td>
+</tr>
+<tr>
+<td>长宽比</td>
+<td style="text-align: right;">2.31270 / 4.70755</td>
+<td style="text-align: right;">2.02096 / 11.8247</td>
+<td style="text-align: right;">2.01178 / 4.73823</td>
+<td style="text-align: right;">2.00738 / 6.08690</td>
+<td style="text-align: right;"><strong>2.00674</strong> / 5.84463</td>
+<td style="text-align: right;">2.06678 / <strong>4.38157</strong></td>
+<td style="text-align: right;">2.08865 / 4.70755</td>
+<td style="text-align: right;">2.11544 / 25.0204</td>
+<td style="text-align: right;">2.01485 / 8.84630</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;">0.768829 / 2.01347e-05</td>
+<td style="text-align: right;">0.750578 / 2.01347e-05</td>
+<td style="text-align: right;">0.753582 / 0.00615232</td>
+<td style="text-align: right;">0.755161 / 2.01347e-05</td>
+<td style="text-align: right;">0.755237 / 2.01347e-05</td>
+<td style="text-align: right;">0.775506 / <strong>0.171654</strong></td>
+<td style="text-align: right;"><strong>0.778828</strong> / 2.01347e-05</td>
+<td style="text-align: right;">0.777043 / 2.01347e-05</td>
+<td style="text-align: right;">0.751761 / 2.01357e-05</td>
+</tr>
+<tr>
+<td>凹顶点数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00375000 / 3.00000</td>
+<td style="text-align: right;">0.00750000 / 6.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>自相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00125000 / 1.00000</td>
+<td style="text-align: right;">0.00375000 / 3.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00125000 / 1.00000</td>
+<td style="text-align: right;">0.00375000 / 3.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;">0.00375000 / 3.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>参数 0.38，网格规模 21x41x21</h2>
+<h3>三维体网格</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.0435004 + 0 = 0.0435004</td>
+<td style="text-align: right;">78.9608 + 0 = 78.9608</td>
+<td style="text-align: right;"><strong>0.00225275 + 0 = 0.00225275</strong></td>
+<td style="text-align: right;">0.00225275 + 0.000173948 = 0.00242670</td>
+<td style="text-align: right;">0.00225275 + 3.06473 = 3.06698</td>
+<td style="text-align: right;">0.00300495 + 0 = 0.00300495</td>
+<td style="text-align: right;">0.00300495 + 0.000157256 = 0.00316221</td>
+<td style="text-align: right;">0.00300495 + 3.07291 = 3.07591</td>
+<td style="text-align: right;">0.00788334 + 0 = 0.00788334</td>
+</tr>
+<tr>
+<td>最小 scaled Jacobian</td>
+<td style="text-align: right;"><strong>0.960816</strong> / 0.347846</td>
+<td style="text-align: right;">0.944109 / 0.313438</td>
+<td style="text-align: right;">0.944648 / 0.310107</td>
+<td style="text-align: right;">0.937696 / -0.207918</td>
+<td style="text-align: right;">0.939721 / 0.0677266</td>
+<td style="text-align: right;">0.953545 / <strong>0.569253</strong></td>
+<td style="text-align: right;">0.883404 / -0.999987</td>
+<td style="text-align: right;">0.890612 / -0.999899</td>
+<td style="text-align: right;">0.943337 / 0.347846</td>
+</tr>
+<tr>
+<td>中心 Jacobian</td>
+<td style="text-align: right;">0.00105989 / <strong>0.000189344</strong></td>
+<td style="text-align: right;">0.00105989 / 0.000160097</td>
+<td style="text-align: right;">0.00106235 / 0.000146203</td>
+<td style="text-align: right;">0.00105989 / 3.84325e-05</td>
+<td style="text-align: right;">0.00105989 / 8.63709e-05</td>
+<td style="text-align: right;"><strong>0.00107077</strong> / 6.07197e-05</td>
+<td style="text-align: right;">0.00105989 / -0.000417534</td>
+<td style="text-align: right;">0.00105989 / -0.000168689</td>
+<td style="text-align: right;">0.00105989 / 0.000154901</td>
+</tr>
+<tr>
+<td>中心条件数</td>
+<td style="text-align: right;">2.77147 / <strong>6.02655</strong></td>
+<td style="text-align: right;">2.73796 / 6.88251</td>
+<td style="text-align: right;">2.75123 / 7.55117</td>
+<td style="text-align: right;">2.83371 / 31.1453</td>
+<td style="text-align: right;">2.79701 / 12.8562</td>
+<td style="text-align: right;"><strong>2.67490</strong> / 8.87839</td>
+<td style="text-align: right;">3.61675 / 3001.99</td>
+<td style="text-align: right;">4.41428 / 11142.7</td>
+<td style="text-align: right;">2.75525 / 6.79022</td>
+</tr>
+<tr>
+<td>边长宽比</td>
+<td style="text-align: right;">2.75318 / <strong>4.70755</strong></td>
+<td style="text-align: right;">2.71861 / 7.13165</td>
+<td style="text-align: right;">2.72860 / 7.41533</td>
+<td style="text-align: right;">2.75566 / 8.47091</td>
+<td style="text-align: right;">2.75114 / 8.15887</td>
+<td style="text-align: right;"><strong>2.68356</strong> / 9.07141</td>
+<td style="text-align: right;">2.80489 / 51.8076</td>
+<td style="text-align: right;">3.04717 / 69.3981</td>
+<td style="text-align: right;">2.73858 / 8.58596</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;"><strong>102.529</strong> / 159.644</td>
+<td style="text-align: right;">105.534 / 161.733</td>
+<td style="text-align: right;">105.479 / 161.933</td>
+<td style="text-align: right;">106.047 / 179.569</td>
+<td style="text-align: right;">105.930 / 176.109</td>
+<td style="text-align: right;">104.349 / <strong>145.295</strong></td>
+<td style="text-align: right;">106.850 / 178.973</td>
+<td style="text-align: right;">107.626 / 179.370</td>
+<td style="text-align: right;">105.675 / 159.644</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>78.7899</strong> / 30.9688</td>
+<td style="text-align: right;">75.7218 / 29.2584</td>
+<td style="text-align: right;">75.7601 / 26.9731</td>
+<td style="text-align: right;">75.1573 / 0.472374</td>
+<td style="text-align: right;">75.2893 / 13.9232</td>
+<td style="text-align: right;">76.8500 / <strong>40.1143</strong></td>
+<td style="text-align: right;">74.3481 / 1.15573</td>
+<td style="text-align: right;">73.5507 / 0.0215188</td>
+<td style="text-align: right;">75.5875 / 30.9689</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;"><strong>0.140309</strong> / 0.773827</td>
+<td style="text-align: right;">0.173358 / 0.797039</td>
+<td style="text-align: right;">0.172816 / 0.799257</td>
+<td style="text-align: right;">0.179284 / 0.995210</td>
+<td style="text-align: right;">0.177907 / 0.956763</td>
+<td style="text-align: right;">0.160156 / <strong>0.614389</strong></td>
+<td style="text-align: right;">0.188685 / 0.988588</td>
+<td style="text-align: right;">0.197306 / 0.999761</td>
+<td style="text-align: right;">0.174879 / 0.773827</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.786798</strong> / 0.0624482</td>
+<td style="text-align: right;">0.737205 / 0.0503912</td>
+<td style="text-align: right;">0.737879 / 0.0493048</td>
+<td style="text-align: right;">0.730900 / 2.83074e-05</td>
+<td style="text-align: right;">0.731938 / 0.00230545</td>
+<td style="text-align: right;">0.755119 / <strong>0.177906</strong></td>
+<td style="text-align: right;">0.722175 / 0.000160665</td>
+<td style="text-align: right;">0.713042 / 7.05279e-08</td>
+<td style="text-align: right;">0.734775 / 0.0624482</td>
+</tr>
+<tr>
+<td>单元体积</td>
+<td style="text-align: right;">0.00105989 / <strong>0.000189344</strong></td>
+<td style="text-align: right;">0.00105989 / 0.000160097</td>
+<td style="text-align: right;">0.00106235 / 0.000146203</td>
+<td style="text-align: right;">0.00105989 / 3.84325e-05</td>
+<td style="text-align: right;">0.00105989 / 8.63709e-05</td>
+<td style="text-align: right;">0.00107077 / 6.07197e-05</td>
+<td style="text-align: right;"><strong>0.00107247</strong> / 2.84315e-07</td>
+<td style="text-align: right;">0.00106404 / 7.37930e-08</td>
+<td style="text-align: right;">0.00105989 / 0.000154901</td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00168750 / 27.0000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.0334375 / 535.000</td>
+<td style="text-align: right;">0.0292500 / 468.000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>z_mid 截面</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th style="text-align: right;">TFI</th>
+<th style="text-align: right;">PDE</th>
+<th style="text-align: right;">MeshONet（原始）</th>
+<th style="text-align: right;">MeshONet（direct）</th>
+<th style="text-align: right;">MeshONet（IDW）</th>
+<th style="text-align: right;">PI-MeshONet（原始）</th>
+<th style="text-align: right;">PI-MeshONet（direct）</th>
+<th style="text-align: right;">PI-MeshONet（IDW）</th>
+<th style="text-align: right;">HMONet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理时间（网络/生成 + 边界后处理 = 总计，s）</td>
+<td style="text-align: right;">0.0435004 + 0 = 0.0435004</td>
+<td style="text-align: right;">78.9608 + 0 = 78.9608</td>
+<td style="text-align: right;"><strong>0.00225275 + 0 = 0.00225275</strong></td>
+<td style="text-align: right;">0.00225275 + 0.000173948 = 0.00242670</td>
+<td style="text-align: right;">0.00225275 + 3.06473 = 3.06698</td>
+<td style="text-align: right;">0.00300495 + 0 = 0.00300495</td>
+<td style="text-align: right;">0.00300495 + 0.000157256 = 0.00316221</td>
+<td style="text-align: right;">0.00300495 + 3.07291 = 3.07591</td>
+<td style="text-align: right;">0.00788334 + 0 = 0.00788334</td>
+</tr>
+<tr>
+<td>最大角 (°)</td>
+<td style="text-align: right;"><strong>102.529</strong> / 159.644</td>
+<td style="text-align: right;">104.808 / 161.733</td>
+<td style="text-align: right;">104.495 / 159.132</td>
+<td style="text-align: right;">105.069 / 191.979</td>
+<td style="text-align: right;">104.987 / 176.109</td>
+<td style="text-align: right;">103.033 / <strong>145.279</strong></td>
+<td style="text-align: right;">104.717 / 353.667</td>
+<td style="text-align: right;">106.167 / 353.258</td>
+<td style="text-align: right;">104.941 / 159.644</td>
+</tr>
+<tr>
+<td>最小角 (°)</td>
+<td style="text-align: right;"><strong>78.7899</strong> / 30.9688</td>
+<td style="text-align: right;">76.5512 / 29.2584</td>
+<td style="text-align: right;">76.8454 / 29.1359</td>
+<td style="text-align: right;">76.2737 / 0.472374</td>
+<td style="text-align: right;">76.3468 / 13.9476</td>
+<td style="text-align: right;">78.3417 / <strong>40.1143</strong></td>
+<td style="text-align: right;">77.1912 / 12.5074</td>
+<td style="text-align: right;">75.7262 / 0.906233</td>
+<td style="text-align: right;">76.4374 / 33.0186</td>
+</tr>
+<tr>
+<td>Jacobian</td>
+<td style="text-align: right;">0.00803839 / <strong>0.000952760</strong></td>
+<td style="text-align: right;">0.00796800 / 0.000603381</td>
+<td style="text-align: right;">0.00799938 / 0.000929461</td>
+<td style="text-align: right;">0.00796796 / -0.000479756</td>
+<td style="text-align: right;">0.00796958 / 0.000110942</td>
+<td style="text-align: right;">0.00806032 / 0.000420729</td>
+<td style="text-align: right;"><strong>0.00807139</strong> / -0.000219751</td>
+<td style="text-align: right;">0.00799926 / -0.000181626</td>
+<td style="text-align: right;">0.00796209 / 0.000793449</td>
+</tr>
+<tr>
+<td>Scaled Jacobian</td>
+<td style="text-align: right;"><strong>0.960816</strong> / 0.347846</td>
+<td style="text-align: right;">0.949320 / 0.313438</td>
+<td style="text-align: right;">0.950426 / 0.356221</td>
+<td style="text-align: right;">0.943097 / -0.207052</td>
+<td style="text-align: right;">0.944934 / 0.0678053</td>
+<td style="text-align: right;">0.959258 / <strong>0.569568</strong></td>
+<td style="text-align: right;">0.943756 / -0.246191</td>
+<td style="text-align: right;">0.927965 / -0.614949</td>
+<td style="text-align: right;">0.948214 / 0.347846</td>
+</tr>
+<tr>
+<td>偏斜度</td>
+<td style="text-align: right;"><strong>0.140309</strong> / 0.773827</td>
+<td style="text-align: right;">0.165402 / 0.797039</td>
+<td style="text-align: right;">0.162102 / 0.768130</td>
+<td style="text-align: right;">0.168536 / 1.13310</td>
+<td style="text-align: right;">0.167602 / 0.956763</td>
+<td style="text-align: right;">0.145732 / <strong>0.614214</strong></td>
+<td style="text-align: right;">0.164955 / 2.92963</td>
+<td style="text-align: right;">0.181013 / 2.92509</td>
+<td style="text-align: right;">0.166827 / 0.773826</td>
+</tr>
+<tr>
+<td>长宽比</td>
+<td style="text-align: right;">2.52072 / 4.70755</td>
+<td style="text-align: right;">2.24483 / 7.04854</td>
+<td style="text-align: right;">2.21971 / 5.31576</td>
+<td style="text-align: right;">2.24214 / 8.34713</td>
+<td style="text-align: right;">2.24285 / 8.02491</td>
+<td style="text-align: right;"><strong>2.07970</strong> / <strong>4.34928</strong></td>
+<td style="text-align: right;">2.10249 / 4.70755</td>
+<td style="text-align: right;">2.30126 / 44.3931</td>
+<td style="text-align: right;">2.24455 / 8.22157</td>
+</tr>
+<tr>
+<td>正交性</td>
+<td style="text-align: right;"><strong>0.786798</strong> / 0.0624482</td>
+<td style="text-align: right;">0.749671 / 0.0503912</td>
+<td style="text-align: right;">0.754559 / 0.0655983</td>
+<td style="text-align: right;">0.748467 / 3.39855e-05</td>
+<td style="text-align: right;">0.748395 / 0.00230545</td>
+<td style="text-align: right;">0.777995 / <strong>0.178062</strong></td>
+<td style="text-align: right;">0.762263 / 0.00610295</td>
+<td style="text-align: right;">0.744594 / 0.000125082</td>
+<td style="text-align: right;">0.747630 / 0.0624485</td>
+</tr>
+<tr>
+<td>凹顶点数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00500000 / 4.00000</td>
+<td style="text-align: right;">0.0100000 / 8.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>自相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>相交单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>翻转单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;">0.00250000 / 2.00000</td>
+<td style="text-align: right;">0.00750000 / 6.00000</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+<tr>
+<td>退化单元数</td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+<td style="text-align: right;"><strong>0</strong> / <strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>综合分析</h2>
+<p>下表以各项指标的最差值为依据：‘不劣于 PDE 次数’表示该方法达到或优于 PDE 的次数；‘平均相对偏差’仅统计连续质量指标，越小表示整体越接近 PDE；‘非法单元累计’汇总翻转、退化、自相交及相交单元。</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th style="text-align: right;">不劣于 PDE 次数</th>
+<th style="text-align: right;">平均相对偏差</th>
+<th style="text-align: right;">非法单元累计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MeshONet（原始）</td>
+<td style="text-align: right;">63.0000 / 92.0000</td>
+<td style="text-align: right;">9.32276</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>MeshONet（direct）</td>
+<td style="text-align: right;">45.0000 / 92.0000</td>
+<td style="text-align: right;">0.305682</td>
+<td style="text-align: right;">29.0000</td>
+</tr>
+<tr>
+<td>MeshONet（IDW）</td>
+<td style="text-align: right;">48.0000 / 92.0000</td>
+<td style="text-align: right;">0.189510</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>PI-MeshONet（原始）</td>
+<td style="text-align: right;">78.0000 / 92.0000</td>
+<td style="text-align: right;">423.886</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr>
+<td>PI-MeshONet（direct）</td>
+<td style="text-align: right;">15.0000 / 92.0000</td>
+<td style="text-align: right;">22.4215</td>
+<td style="text-align: right;">699.000</td>
+</tr>
+<tr>
+<td>PI-MeshONet（IDW）</td>
+<td style="text-align: right;">13.0000 / 92.0000</td>
+<td style="text-align: right;">46.1058</td>
+<td style="text-align: right;">616.000</td>
+</tr>
+<tr>
+<td>HMONet</td>
+<td style="text-align: right;">69.0000 / 92.0000</td>
+<td style="text-align: right;">0.342071</td>
+<td style="text-align: right;">9.00000</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>整体最接近 PDE 的方法是 <strong>MeshONet（IDW）</strong>；达到或优于 PDE 次数最多的方法是 <strong>PI-MeshONet（原始）</strong>。</li>
+<li>MeshONet 三种边界处理方式中，<strong>MeshONet（IDW）</strong> 的最差质量整体最接近 PDE。</li>
+<li>PI-MeshONet 三种边界处理方式中，<strong>PI-MeshONet（原始）</strong> 的最差质量整体最接近 PDE。</li>
+<li>全部工况下未累计非法单元的方法为：MeshONet（原始）、MeshONet（IDW）、PI-MeshONet（原始）。IDW 会同时移动内部点，可能改善边界一致性，也可能改变内部单元质量，因此必须结合非法单元数和最差质量判断。</li>
+<li>原始 MeshONet 和 PI-MeshONet 没有满足精确边界约束；其质量指标即使更好，也不能直接视为精确边界条件下的最优解。PI-MeshONet 的 direct 与 IDW 结果都产生了较多非法单元，因此不建议作为最终网格。</li>
+</ul>
+<h2>结论</h2>
+<p>若只看质量指标且允许边界存在误差，达到或优于 PDE 次数最多的是 <strong>PI-MeshONet（原始）</strong>；若更强调数值上接近 PDE，则是 <strong>MeshONet（IDW）</strong>。若要求精确边界并同时避免非法单元，本组结果优先推荐 <strong>MeshONet（IDW）</strong>。PI-MeshONet 系列中只有 <strong>PI-MeshONet（原始）</strong> 未累计非法单元，但它仍属于未做精确边界后处理的原始结果；其 direct 和 IDW 方案均不宜采用。</p></body></html>

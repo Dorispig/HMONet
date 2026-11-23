@@ -252,8 +252,8 @@ def four_convex_semicircle_boundary(chord=1.0, arc_angle_deg=90.0):
     angle = float(arc_angle_deg)
     if chord <= 0:
         raise ValueError("chord must be positive")
-    if angle < 90.0 or angle >= 360.0:
-        raise ValueError("arc_angle_deg must satisfy 90 <= angle < 360")
+    if angle <= 0.0 or angle >= 180.0:
+        raise ValueError("arc_angle_deg must satisfy 0 < angle < 180")
     theta = np.deg2rad(angle)
     radius = chord / (2.0 * np.sin(theta / 2.0))
     offset = radius * np.cos(theta / 2.0)
@@ -355,6 +355,7 @@ BOUNDARY_GENERATORS = {
     "rounded_u_notch": rounded_u_notch_boundary,
     "gear_spline": gear_spline_boundary,
     "four_convex_semicircle": four_convex_semicircle_boundary,
+    "four_convex_arcs": four_convex_semicircle_boundary,
     "rect_top_semiellipse": GenerateRectangleWithTopSemiEllipseBoundary,
     "rectangle": rectangular_boundary,
     "symmetric_convex_tri": VerticallyAsymmetricConvexTriBoundary,

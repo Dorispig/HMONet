@@ -155,7 +155,7 @@ class TestQualitySelection:
 
     def test_quality_off_keeps_mesh_and_slice_images_without_calling_evaluators(self):
         for dim in (2, 3):
-            config = self.configuration(dim, ["tfi"], save_plots=True)
+            config = self.configuration(dim, ["tfi"], save_plots=True, middle_sections="all")
             with patch(
                 "src.evaluation.analysis.compute_quad_quality",
                 side_effect=AssertionError,
@@ -204,7 +204,7 @@ class TestQualitySelection:
         self,
     ):
         for dim in (2, 3):
-            config = self.configuration(dim, ["pde", "tfi"])
+            config = self.configuration(dim, ["pde", "tfi"], middle_sections="all")
             first = self.run_evaluation(dim, config)[0]
             group = Path(first["comparison_directory"])
             with patch(

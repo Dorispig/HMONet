@@ -83,11 +83,11 @@ def _segments_intersect_2d(a, b, c, d, tolerance=1e-12):
     def orientation(p, q, r):
         first = q - p
         second = r - p
-        return first[0] * second[1] - first[1] * second[0]
+        return first[..., 0] * second[..., 1] - first[..., 1] * second[..., 0]
 
     first = orientation(a, b, c) * orientation(a, b, d)
     second = orientation(c, d, a) * orientation(c, d, b)
-    return first < -tolerance and second < -tolerance
+    return (first < -tolerance) & (second < -tolerance)
 
 
 def surface_quad_quality_fields(surface, tolerance=1e-12, metrics=None):
@@ -122,20 +122,8 @@ def surface_quad_quality_fields(surface, tolerance=1e-12, metrics=None):
     need_lengths = bool(selected & {"aspect_ratio", "degenerate_cell"})
     need_area = bool(selected & {"cell_area", "degenerate_cell"})
     need_intersection = bool(selected & {"self_intersection", "intersecting_cell"})
-    cells = []
-    for row in range(rows - 1):
-        for column in range(columns - 1):
-            cells.append(
-                np.stack(
-                    (
-                        surface[row, column],
-                        surface[row, column + 1],
-                        surface[row + 1, column + 1],
-                        surface[row + 1, column],
-                    )
-                )
-            )
-    cells = np.asarray(cells)
+    cells = np.stack((surface[:-1, :-1], surface[:-1, 1:],
+                      surface[1:, 1:], surface[1:, :-1]), axis=-2).reshape(-1, 4, 3)
     # A curved or closed surface (for example a cylinder) has no single valid
     # global normal: its cell normals can cancel to nearly zero. Construct one
     # oriented normal for every quad from its counter-clockwise vertex loop.
@@ -156,60 +144,31 @@ def surface_quad_quality_fields(surface, tolerance=1e-12, metrics=None):
     else:
         cell_normals = np.zeros((len(cells), 3))
 
-    angles = []
-    corner_jacobians = []
-    corner_scaled_jacobians = []
-    edge_lengths = []
-    self_intersections = []
-    for cell, reference_normal in zip(cells, cell_normals):
-        cell_angles = []
-        cell_jacobians = []
-        cell_scaled = []
-        if need_jac:
-            for corner in range(4):
-                current = cell[corner]
-                next_vector = cell[(corner + 1) % 4] - current
-                previous_vector = cell[(corner - 1) % 4] - current
-                if need_angles or need_scaled:
-                    denominator = np.linalg.norm(next_vector) * np.linalg.norm(
-                        previous_vector
-                    )
-                    if need_angles:
-                        cosine = np.dot(next_vector, previous_vector) / max(
-                            denominator, tolerance
-                        )
-                        base_angle = np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
-                signed_jacobian = float(
-                    np.dot(np.cross(next_vector, previous_vector), reference_normal)
-                )
-                if need_angles:
-                    cell_angles.append(
-                        base_angle if signed_jacobian >= 0 else 360.0 - base_angle
-                    )
-                cell_jacobians.append(signed_jacobian)
-                if need_scaled:
-                    cell_scaled.append(signed_jacobian / max(denominator, tolerance))
-        if need_lengths:
-            lengths = np.linalg.norm(np.roll(cell, -1, axis=0) - cell, axis=1)
-        angles.append(cell_angles)
-        corner_jacobians.append(cell_jacobians)
-        corner_scaled_jacobians.append(cell_scaled)
-        if need_lengths:
-            edge_lengths.append(lengths)
-
-        if need_intersection:
-            tangent_x = cell[1] - cell[0]
-            tangent_x /= max(np.linalg.norm(tangent_x), tolerance)
-            tangent_y = np.cross(reference_normal, tangent_x)
-            projected = np.stack((cell @ tangent_x, cell @ tangent_y), axis=-1)
-            self_intersections.append(
-                _segments_intersect_2d(
-                    projected[0], projected[1], projected[2], projected[3]
-                )
-                or _segments_intersect_2d(
-                    projected[1], projected[2], projected[3], projected[0]
-                )
-            )
+    next_vectors = np.roll(cells, -1, axis=1) - cells
+    previous_vectors = np.roll(cells, 1, axis=1) - cells
+    if need_jac:
+        corner_jacobians = np.einsum("nki,ni->nk", np.cross(next_vectors, previous_vectors), cell_normals)
+        if need_angles or need_scaled:
+            denominator = np.linalg.norm(next_vectors, axis=-1) * np.linalg.norm(previous_vectors, axis=-1)
+            denominator = np.maximum(denominator, tolerance)
+        if need_angles:
+            cosine = np.einsum("nki,nki->nk", next_vectors, previous_vectors) / denominator
+            base_angles = np.degrees(np.arccos(np.clip(cosine, -1., 1.)))
+            angles = np.where(corner_jacobians >= 0, base_angles, 360. - base_angles)
+        if need_scaled:
+            corner_scaled_jacobians = corner_jacobians / denominator
+    if need_lengths:
+        edge_lengths = np.linalg.norm(next_vectors, axis=-1)
+    if need_intersection:
+        tangent_x = cells[:, 1] - cells[:, 0]
+        tangent_x /= np.maximum(np.linalg.norm(tangent_x, axis=-1, keepdims=True), tolerance)
+        tangent_y = np.cross(cell_normals, tangent_x)
+        projected = np.stack((np.einsum("nki,ni->nk", cells, tangent_x),
+                              np.einsum("nki,ni->nk", cells, tangent_y)), axis=-1)
+        self_intersections = (
+            _segments_intersect_2d(projected[:, 0], projected[:, 1], projected[:, 2], projected[:, 3])
+            | _segments_intersect_2d(projected[:, 1], projected[:, 2], projected[:, 3], projected[:, 0])
+        )
 
     if need_angles:
         angles = np.asarray(angles)

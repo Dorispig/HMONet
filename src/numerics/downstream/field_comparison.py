@@ -7,7 +7,11 @@ from scipy.interpolate import RegularGridInterpolator
 
 from src.data.mesh.sampling import logical_grid
 
-from .q1_fem import integrate_gradient_squared, integrate_nodal_field_squared
+from .q1_fem import (
+    element_quadrature_data,
+    integrate_gradient_squared,
+    integrate_nodal_field_squared,
+)
 
 
 def interpolate_logical_field(values, source_shape, target_shape):
@@ -45,6 +49,50 @@ def compare_to_reference(points, shape, solution, reference, reference_shape):
         ),
         "reference_on_candidate_grid": reference_on_grid,
         "nodal_error": error,
+    }
+
+
+def compare_to_exact_solution(points, shape, solution, exact_value, exact_gradient):
+    """Measure nodal, physical-L2, and physical-H1 errors against an exact field."""
+    points = np.asarray(points, dtype=float)
+    solution = np.asarray(solution, dtype=float)
+    exact_nodes = np.asarray(exact_value(points), dtype=float)
+    if solution.shape != exact_nodes.shape or solution.shape != (int(np.prod(shape)),):
+        raise ValueError("Solution and exact nodal field must match the mesh shape")
+
+    data = element_quadrature_data(points, shape)
+    local_solution = solution[data["connectivity"]]
+    solution_l2 = error_l2 = solution_h1 = error_h1 = 0.0
+    for n, gradients, determinant, physical, weight in zip(
+        data["values"],
+        data["gradients"],
+        data["determinants"],
+        data["physical_points"],
+        data["weights"],
+    ):
+        numerical = np.einsum("i,ei->e", n, local_solution)
+        numerical_gradient = np.einsum("ei,eia->ea", local_solution, gradients)
+        exact = np.asarray(exact_value(physical), dtype=float)
+        exact_grad = np.asarray(exact_gradient(physical), dtype=float)
+        measure = determinant * weight
+        solution_l2 += float(np.sum(exact**2 * measure))
+        error_l2 += float(np.sum((numerical - exact) ** 2 * measure))
+        solution_h1 += float(np.sum(np.sum(exact_grad**2, axis=-1) * measure))
+        error_h1 += float(
+            np.sum(np.sum((numerical_gradient - exact_grad) ** 2, axis=-1) * measure)
+        )
+
+    nodal_error = solution - exact_nodes
+    absolute = np.abs(nodal_error)
+    return {
+        "nodal_mean_absolute_error": float(absolute.mean()),
+        "nodal_maximum_absolute_error": float(absolute.max()),
+        "relative_l2_error": float(np.sqrt(error_l2 / max(solution_l2, 1.0e-30))),
+        "relative_h1_seminorm_error": float(
+            np.sqrt(error_h1 / max(solution_h1, 1.0e-30))
+        ),
+        "reference_on_candidate_grid": exact_nodes,
+        "nodal_error": nodal_error,
     }
 
 

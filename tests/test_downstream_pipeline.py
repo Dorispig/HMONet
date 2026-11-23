@@ -11,6 +11,7 @@ from src.evaluation.mesh_provider import (
     load_evaluated_meshes,
     replace_with_exact_boundary,
 )
+from src.evaluation.downstream import summarize_rows
 
 
 def unit_square_boundary():
@@ -49,3 +50,27 @@ def test_mesh_provider_loads_standard_archive_and_exact_control(tmp_path):
     assert (
         boundary_geometry_error(corrected, geometry, shape)["boundary_max_error"] == 0.0
     )
+
+
+def test_downstream_summary_computes_refinement_orders(tmp_path):
+    rows = []
+    for count in (11, 21, 41):
+        h = 1.0 / (count - 1)
+        rows.append(
+            {
+                "dataset": "demo",
+                "parameter_value": 0.5,
+                "grid_shape": f"{count}x{count}",
+                "manufactured_solution": "sine_product",
+                "protocol": "raw",
+                "method": "HMONet",
+                "status": "success",
+                "relative_l2_error": h**2,
+                "relative_h1_seminorm_error": h,
+                "nodal_maximum_absolute_error": h**2,
+            }
+        )
+    frame = summarize_rows(rows, tmp_path / "aggregate")
+    finest = frame.sort_values("nominal_h").iloc[0]
+    assert np.isclose(finest["l2_convergence_order"], 2.0)
+    assert np.isclose(finest["h1_convergence_order"], 1.0)

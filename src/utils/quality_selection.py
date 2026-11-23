@@ -109,6 +109,10 @@ def selected_quality_metrics(options, dimension=2, *, surface=False):
         raise ValueError("compute_grid_quality must be true or false")
     if not options.get("compute_grid_quality", True):
         return ()
+    if type(options.get("volume_evaluation", True)) is not bool:
+        raise ValueError("volume_evaluation must be true or false")
+    if dimension == 3 and not surface and not options.get("volume_evaluation", True):
+        return ()
     applicable = QUAD_METRICS if dimension == 2 or surface else HEX_METRICS
     return tuple(
         name for name in applicable if name in selected and switches.get(name, True)
@@ -156,7 +160,7 @@ def selected_quality_plot_metrics(options, dimension=2, *, surface=False):
 
 def quality_settings(options, dimension):
     """Resolved selections for metadata and analysis-cache invalidation."""
-    sections = middle_section_names(options.get("middle_sections", "all")) if dimension == 3 else ()
+    sections = middle_section_names(options.get("middle_sections", "z_mid")) if dimension == 3 else ()
     settings = {
         "compute_grid_quality": options.get("compute_grid_quality", True),
         "metrics": list(selected_quality_metrics(options, dimension)),
@@ -173,5 +177,6 @@ def quality_settings(options, dimension):
         ),
     }
     if dimension == 3:
+        settings["volume_evaluation"] = options.get("volume_evaluation", True)
         settings["middle_sections"] = list(sections)
     return settings

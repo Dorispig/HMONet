@@ -14,9 +14,9 @@
 
 模型为 `hmonet`、`meshonet`、`pimeshonet`、`qghmonet`。别名 `both` 为 HMONet + MeshONet，`pi` 为 PI-MeshONet，`all` 为全部四个模型。
 
-## 六类规范外推流程
+## 九类规范外推流程
 
-六类二维外推训练集及其默认测试参数为：
+九类二维外推训练集及其默认测试参数为：
 
 | 数据集 | 测试参数 |
 | --- | --- |
@@ -26,10 +26,13 @@
 | `run_ext_1_500_41_41` | `1.52 1.55` |
 | `scc_ext_1_500_41_41` | `0.42 0.45 0.47` |
 | `vsc_ext_1_500_41_41` | `0.85 0.90 0.95` |
+| `tri_p_ext_1_500_41_41` | `0.42 0.48` |
+| `gsp_a_ext_1_500_41_41` | `0.19 0.20` |
+| `fca_a_ext_1_500_41_41` | `125 130` |
 
-从无数据开始的 12 条完整生成命令统一维护在 [data/2D/generation_commands.md](../../data/2D/generation_commands.md)；本文件仅说明二维正式入口的通用参数与运行规则。
+从无数据开始的 18 条完整生成命令统一维护在 [data/2D/generation_commands.md](../../data/2D/generation_commands.md)；本文件仅说明二维正式入口的通用参数与运行规则。
 
-六类外推集可直接复制执行的正式训练—评估命令另见 [formal_external_commands.md](formal_external_commands.md)。
+九类外推集可直接复制执行的正式训练—评估命令另见 [formal_external_commands.md](formal_external_commands.md)。
 
 ## 一键运行正式对比
 
@@ -50,6 +53,8 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 ## 仅评估已有 checkpoint
 
 `--evaluate-only` 不训练模型，而是自动定位所选数据集、模型和硬约束方式对应的既有 checkpoint，并显式固定使用 `best.pt`（或 `--checkpoint final` 的 `final.pt`）。该模式会保留完整网格与质量产物，便于之后直接复用。
+
+若完整网格或匹配缓存已经存在，只想补充图片或重新整理分析结果，可在 `--evaluate-only` 后直接添加 `--analysis-only`。该模式不会重新推理网络或求解 PDE，且不能与 `--force` 同时使用。
 
 ~~~powershell
 # 重新评估三个既有正式模型及 TFI/PDE；不重新训练
@@ -78,6 +83,8 @@ python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_4
 | 强制重新训练 | `--force-train` |
 | 生成指定质量图 | `--quality-plots scaled_jacobian max_angle` |
 | 生成全部质量图 | `--quality-plots all` |
+| 精确边界叠加图 | 默认开启；`--no-exact-boundary-overlay` 关闭。开启时普通图仍保留，并额外生成 `mesh_comparison_with_exact_boundary.png`。 |
+| 仅补分析图片 | `--evaluate-only --analysis-only`；要求已有匹配的 `mesh.npy` 或生成缓存，不要添加 `--force`。 |
 
 默认保存网格图和数值汇总，不生成逐质量指标图。旧式 `--grid-shapes 101x101,201x201` 和逗号参数值仍兼容。
 

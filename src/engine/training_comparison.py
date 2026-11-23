@@ -16,14 +16,16 @@ from tempfile import TemporaryDirectory
 
 
 MODEL_LAYOUT = (
-    ("hmonet", "HMONet"),
     ("meshonet", "MeshONet"),
     ("pimeshonet", "PI-MeshONet"),
+    ("hmonet", "HMONet"),
 )
 REQUIRED_FILES = (
     "mse_comparison.png",
     "relative_mse_comparison.png",
     "training_cost_comparison.png",
+    "best_mse_bar.png",
+    "training_time_bar.png",
     "training_comparison.csv",
     "training_comparison.json",
 )
@@ -201,6 +203,32 @@ def _plot(folder: Path, records: list[dict], title: str) -> None:
     figure.suptitle(f"{title}: training cost")
     figure.tight_layout()
     figure.savefig(folder / "training_cost_comparison.png", dpi=220)
+    plt.close(figure)
+
+    best_mse = [
+        max(float(item["summary"].get("best_model_dataset_mse") or 0.0), 1.0e-30)
+        for item in records
+    ]
+    figure, axis = plt.subplots(figsize=(7.6, 5.0))
+    bars = axis.bar(labels, best_mse, color=(0.23, 0.47, 0.72))
+    axis.set_yscale("log")
+    axis.set_ylabel("Best fixed-grid MSE (log scale)")
+    axis.set_title(f"{title}: best fixed-grid MSE")
+    axis.grid(True, axis="y", which="both", alpha=0.28)
+    axis.bar_label(bars, labels=[f"{value:.3e}" for value in best_mse], padding=3)
+    figure.tight_layout()
+    figure.savefig(folder / "best_mse_bar.png", dpi=220)
+    plt.close(figure)
+
+    hours = [value / 3600.0 for value in seconds]
+    figure, axis = plt.subplots(figsize=(7.6, 5.0))
+    bars = axis.bar(labels, hours, color=(0.35, 0.66, 0.42))
+    axis.set_ylabel("Training wall time (hours)")
+    axis.set_title(f"{title}: training time")
+    axis.grid(True, axis="y", alpha=0.28)
+    axis.bar_label(bars, labels=[f"{value:.2f} h" for value in hours], padding=3)
+    figure.tight_layout()
+    figure.savefig(folder / "training_time_bar.png", dpi=220)
     plt.close(figure)
 
 

@@ -13,6 +13,8 @@ from .physics import (
     jacobian_positive_loss,
     normalized_mapping_barriers,
     normalized_mapping_barriers_from_jacobian,
+    normalized_jacobian_barrier_from_jacobian,
+    normalized_singular_value_barrier_from_jacobian,
     orthogonality_loss,
     winslow_energy_and_jacobian_barrier,
 )
@@ -28,6 +30,8 @@ __all__ = [
     "jacobian_positive_loss",
     "normalized_mapping_barriers",
     "normalized_mapping_barriers_from_jacobian",
+    "normalized_jacobian_barrier_from_jacobian",
+    "normalized_singular_value_barrier_from_jacobian",
     "orthogonality_loss",
     "winslow_energy_and_jacobian_barrier",
 ]

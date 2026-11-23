@@ -61,7 +61,11 @@ DEFAULTS = dict(
     save_png=True,
     save_pdf=False,
     save_distribution_plots=False,
-    compact_outputs=True,
+    # Retain the ordinary mesh overview and additionally draw the continuous
+    # exact parameter boundary on a second comparison figure.  This is a plot-
+    # only option: meshes, metrics and boundary-error tables are unchanged.
+    exact_boundary_overlay=True,
+    compact_outputs=False,
     skip_missing_checkpoints=True,
     force_regenerate=False,
     force_reanalyze=False,
@@ -252,6 +256,7 @@ def build_parser(dimension):
         "save-png",
         "save-pdf",
         "save-distribution-plots",
+        "exact-boundary-overlay",
         "compact-outputs",
         "skip-missing-checkpoints",
         "require-pde-convergence",
@@ -285,10 +290,14 @@ def build_parser(dimension):
     parser.add_argument("--slice", choices=["x_mid", "y_mid", "z_mid"], default="z_mid")
     if dimension == 3:
         parser.add_argument(
+            "--volume-evaluation", action=argparse.BooleanOptionalAction, default=None,
+            help="Compute volume quality and volume figures (default: enabled).",
+        )
+        parser.add_argument(
             "--middle-sections",
             nargs="+",
             metavar="SECTION",
-            help="Evaluate x_mid, y_mid, z_mid, all (default), or none.",
+            help="Evaluate x_mid, y_mid, z_mid (default), all, or none.",
         )
     return parser
 
@@ -332,9 +341,12 @@ def evaluation_options(config, case, args):
     if args.quality_plots is not None:
         result["quality_plot_metrics"] = list(args.quality_plots)
     if args.dimension == 3:
+        volume = getattr(args, "volume_evaluation", None)
+        if volume is not None:
+            result["volume_evaluation"] = volume
         sections = getattr(args, "middle_sections", None)
         if sections is None:
-            sections = result.get("middle_sections", "all")
+            sections = result.get("middle_sections", "z_mid")
         result["middle_sections"] = list(middle_section_names(sections))
     result["quality_switches"] = {
         **config.get("evaluation", {}).get("quality_switches", {}),
@@ -465,6 +477,44 @@ def create_geometry(dimension, case, value):
     return geometry, parameters
 
 
+def checked_dataset_case(name, case, dimension):
+    """Use saved generation parameters, and reject incompatible 3-D boundaries.
+
+    No volume PDE mesh is loaded or solved here. A numerical run_e end-cap
+    may be constructed. This catches geometry implementation drift before a
+    learned mesh is compared with a different traditional domain.
+    """
+    root = ROOT / f"data/raw/{dimension}D" / name
+    if dimension != 3 or not (root / "metadata.json").is_file():
+        return case
+    import json
+    import numpy as np
+    from src.data.mesh.sampling import sample_faces, boundary_indices
+    meta = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
+    fixed = meta.get("fixed_parameters", {})
+    supplied = case.get("fixed_parameters", {})
+    if any(key in fixed and fixed[key] != value for key, value in supplied.items()):
+        raise ValueError(f"Evaluation fixed_parameters differ from dataset metadata: {name}")
+    case = {**case, "fixed_parameters": {**fixed, **supplied}}
+    records = json.loads((root / "geometry.json").read_text(encoding="utf-8"))["samples"]
+    points = np.load(root / "boundary_samples.npy", mmap_mode="r")
+    indices = boundary_indices(meta["grid_shape"])
+    for index in sorted({0, len(records) - 1}):
+        value = records[index]["parameters"].get(case.get("parameter"))
+        geometry, _ = create_geometry(3, case, value)
+        _, sampled = sample_faces(geometry, tuple(meta["grid_shape"]))
+        expected = sampled.reshape(-1, 3)[indices]
+        error = float(np.max(np.abs(expected - points[index])))
+        if error > 2e-6 * max(1.0, float(np.abs(expected).max())):
+            raise ValueError(
+                f"Evaluation boundary mismatch for {name}, sample {index}: max error={error:.8g}. "
+                "Dataset and exact evaluation surfaces differ. Regenerate with the current "
+                "geometry revision and retrain. The dataset-name version may remain 1; "
+                "do not reuse old labels or checkpoints by renaming them."
+            )
+    return case
+
+
 def jobs(dimension, args, config):
     """Yield independently evaluated physical objects, without reading training meshes."""
     if args.dataset:
@@ -493,6 +543,16 @@ def jobs(dimension, args, config):
             geometry = BoundarySurfaceSet3D.from_dict(
                 read_json(root / "geometry.json")["samples"][index]["boundary"]
             )
+            import numpy as np
+            from src.data.mesh.sampling import sample_faces, boundary_indices
+            _, sampled = sample_faces(geometry, tuple(meta["grid_shape"]))
+            expected = sampled.reshape(-1, 3)[boundary_indices(meta["grid_shape"])]
+            stored = np.load(root / "boundary_samples.npy", mmap_mode="r")[index]
+            if not np.allclose(expected, stored, rtol=2e-6, atol=2e-6):
+                raise ValueError(
+                    f"Dataset boundary mismatch: {root.name}, sample {index}. "
+                    "Regenerate with the current geometry revision before evaluation."
+                )
         parameters = read_sample_parameters(root, index)
         case = {
             "train_grid": meta["grid_shape"],
@@ -523,7 +583,7 @@ def jobs(dimension, args, config):
     if not names:
         raise ValueError("Select --case or --dataset, or set evaluation.default_cases")
     for name in names:
-        case = cases[name]
+        case = checked_dataset_case(name, cases[name], dimension)
         if not case.get("enabled", True):
             if args.case:
                 raise ValueError(

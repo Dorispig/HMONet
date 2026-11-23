@@ -33,53 +33,47 @@ from src.data.generation.dataset_validation import (
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = ROOT / "data" / "raw" / "3D"
+from src.data.geometry.pde_surface_3d import CAP_SCHEME, SIDE_SCHEME
 
 DATASET_GENERATORS = {
     "cylindrical_domain_with_airfoil_hole": "cylindrical_domain_with_airfoil_hole",
     "sidewall_deformed_block": "sidewall_deformed_block",
-    "rounded_u_groove_extrusion": "rounded_u_groove_extrusion",
     "rounded_u_notch_extrusion": "rounded_u_notch_extrusion",
     "tapered_elliptic_bore_block": "tapered_elliptic_bore_block",
     "bent_annular_duct": "bent_annular_duct",
     "lobed_annular_duct": "lobed_annular_duct",
+    "square_to_round_transition": "square_to_round_transition",
+    "variable_area_s_duct": "variable_area_s_duct",
+    "twisted_blade_passage": "twisted_blade_passage",
 }
 
-# The six paper/default families are declared explicitly in SELECTED_DATASETS.
-# ``rounded_u_groove_extrusion`` is retained below as a legacy family so that
-# historical ``ugc_d`` data remain reproducible, but it is not a default set.
+# The nine paper/default families are declared explicitly in SELECTED_DATASETS.
+# Historical geometry can still be deserialized; generation exposes nine families.
 DATASET_FAMILIES = {
     "cylindrical_domain_with_airfoil_hole": {
         "output_name": "cah_t", "function": "cylindrical_domain_with_airfoil_hole",
         "parameter": "thickness",
         "description": "圆柱外域与贯穿轴向的NACA4翼型孔；变化翼型相对厚度。",
         "fixed_parameters": {"outer_radius": 1.5, "chord": 1.0, "camber": 0.02, "camber_position": 0.4, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
+        "grid_shape": [21, 21, 11],
         "interpolation": [[0.06, 0.15], [0.25, 0.35]], "extrapolation": [[0.08, 0.34]],
         "evaluation_values": {"interpolation": [0.18, 0.20, 0.22], "extrapolation": [0.06, 0.38]},
     },
     "sidewall_deformed_block": {
         "output_name": "swb_a", "function": "sidewall_deformed_block",
         "parameter": "sidewall_amplitude",
-        "description": "左右侧壁同时向中心收缩、沿前后方向贯通的凹椭圆柱面块体；变化无量纲收缩幅值。",
+        "description": "左右侧壁按正弦剖面对称向中心收缩、沿z方向拉伸的块体；变化无量纲收缩幅值。",
         "fixed_parameters": {"length_x": 3.0, "width_y": 2.0, "length_z": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
+        "grid_shape": [21, 21, 11],
         "interpolation": [[0.03, 0.10], [0.20, 0.30]], "extrapolation": [[0.04, 0.30]],
         "evaluation_values": {"interpolation": [0.13, 0.15, 0.17], "extrapolation": [0.02, 0.34]},
-    },
-    "rounded_u_groove_extrusion": {
-        "output_name": "ugc_d", "function": "rounded_u_groove_extrusion",
-        "parameter": "groove_depth",
-        "description": "保留的平滑 U 槽截面沿 z 方向拉伸；变化槽深。",
-        "fixed_parameters": {"width": 3.0, "height": 2.0, "groove_width": 0.9, "corner_smoothing": 0.08, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
-        "interpolation": [[0.30, 0.65], [1.00, 1.30]], "extrapolation": [[0.30, 1.30]],
-        "evaluation_values": {"interpolation": [0.75, 0.80, 0.85], "extrapolation": [0.20, 1.45]},
     },
     "rounded_u_notch_extrusion": {
         "output_name": "run_e", "function": "rounded_u_notch_extrusion",
         "parameter": "depth",
-        "description": "与二维 run 完全相同的四圆角深 U 槽截面沿 z 方向精确拉伸；仅变化槽深。",
-        "fixed_parameters": {"width": 3.0, "height": 2.0, "notch_width": 0.9, "radius": 0.25, "length": 2.5, "z_min": 0.0},
+        "description": "二维 run 精确轮廓；201x201二维PDE连续端面，内部由三维PDE求解；仅变化槽深。",
+        "fixed_parameters": {"width": 3.0, "height": 2.0, "notch_width": 0.9, "radius": 0.25, "length": 2.5, "z_min": 0.0,
+                             "cap_nx": 201, "cap_ny": 201, "cap_max_iter": 1000, "cap_tolerance": 1e-10},
         "grid_shape": [41, 41, 11],
         "interpolation": [[0.55, 1.00], [1.30, 1.50]], "extrapolation": [[0.55, 1.50]],
         "evaluation_values": {"interpolation": [1.10, 1.15, 1.20], "extrapolation": [1.52, 1.55]},
@@ -87,9 +81,12 @@ DATASET_FAMILIES = {
     "tapered_elliptic_bore_block": {
         "output_name": "teb_b", "function": "tapered_elliptic_bore_block",
         "parameter": "minor_axis_out",
-        "description": "矩形块体中带轴向渐变椭圆贯通孔；变化出口椭圆短半轴。",
+        "description": (
+            "四条标准直边参数化的矩形块体中带轴向渐变椭圆贯通孔；"
+            "变化出口椭圆短半轴，不使用射线与矩形求交。"
+        ),
         "fixed_parameters": {"inner_major_axis": 0.32, "inner_minor_axis_in": 0.18, "outer_half_width": 1.5, "outer_half_height": 1.0, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
+        "grid_shape": [21, 21, 11],
         "interpolation": [[0.12, 0.18], [0.27, 0.32]], "extrapolation": [[0.12, 0.32]],
         "evaluation_values": {"interpolation": [0.21, 0.225, 0.24], "extrapolation": [0.08, 0.36]},
     },
@@ -98,7 +95,7 @@ DATASET_FAMILIES = {
         "parameter": "bend_angle_deg",
         "description": "沿圆弧中心线扫掠的环形弯管；变化弯曲角。",
         "fixed_parameters": {"inner_radius": 0.25, "outer_radius": 0.60, "bend_radius": 3.0, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
+        "grid_shape": [21, 21, 11],
         "interpolation": [[20.0, 45.0], [65.0, 90.0]], "extrapolation": [[25.0, 85.0]],
         "evaluation_values": {"interpolation": [50.0, 55.0, 60.0], "extrapolation": [10.0, 105.0]},
     },
@@ -107,9 +104,36 @@ DATASET_FAMILIES = {
         "parameter": "amplitude",
         "description": "带轴向相位旋转的星形波瓣环形通道；变化波瓣幅值。",
         "fixed_parameters": {"inner_radius": 0.35, "outer_radius": 1.0, "lobes": 5, "phase_twist_deg": 45.0, "length": 2.5, "z_min": 0.0},
-        "grid_shape": [11, 21, 11],
+        "grid_shape": [21, 21, 11],
         "interpolation": [[0.02, 0.08], [0.12, 0.18]], "extrapolation": [[0.04, 0.16]],
         "evaluation_values": {"interpolation": [0.09, 0.10, 0.11], "extrapolation": [0.0, 0.20]},
+    },
+    "square_to_round_transition": {
+        "output_name": "srt_r", "function": "square_to_round_transition",
+        "parameter": "outlet_radius",
+        "description": "矩形入口向圆形出口光滑过渡的变截面管道；变化圆形出口半径。",
+        "fixed_parameters": {"inlet_half_width": 1.0, "inlet_half_height": 0.75, "length": 3.0, "z_min": 0.0},
+        "grid_shape": [21, 21, 11],
+        "interpolation": [[0.58, 0.68], [0.80, 0.90]], "extrapolation": [[0.55, 0.92]],
+        "evaluation_values": {"interpolation": [0.72, 0.74, 0.76], "extrapolation": [0.52, 0.96]},
+    },
+    "variable_area_s_duct": {
+        "output_name": "sad_c", "function": "variable_area_s_duct",
+        "parameter": "area_ratio_out",
+        "description": "沿平面 S 形中心线扫掠的变面积进气道；变化出口/入口面积比。",
+        "fixed_parameters": {"inlet_half_width": 0.55, "inlet_half_height": 0.40, "centerline_offset": 0.25, "length": 3.2, "z_min": 0.0},
+        "grid_shape": [21, 21, 11],
+        "interpolation": [[0.60, 0.82], [1.08, 1.30]], "extrapolation": [[0.55, 1.35]],
+        "evaluation_values": {"interpolation": [0.90, 0.95, 1.00], "extrapolation": [0.50, 1.42]},
+    },
+    "twisted_blade_passage": {
+        "output_name": "tbp_a", "function": "twisted_blade_passage",
+        "parameter": "twist_angle_deg",
+        "description": "单个叶片间流道，两个相邻叶片面随展向改变安装角；变化总扭转角。",
+        "fixed_parameters": {"chord": 2.0, "pitch": 1.0, "height": 1.5, "camber_amplitude": 0.22, "blade_thickness": 0.12, "z_min": 0.0},
+        "grid_shape": [21, 21, 11],
+        "interpolation": [[0.0, 30.0], [60.0, 90.0]], "extrapolation": [[0.0, 90.0]],
+        "evaluation_values": {"interpolation": [40.0, 45.0, 50.0], "extrapolation": [0.0, 100.0]},
     },
 }
 
@@ -120,16 +144,24 @@ SPLIT_ALIASES = {
     "interpolation": "interpolation",
 }
 
+# Surface accuracy is independent of the volume/network-input resolution.
+for _specification in DATASET_FAMILIES.values():
+    _specification['fixed_parameters'].update(
+        cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-10)
+
 SELECTED_DATASETS = [
-    # The no-argument batch creates the six current v1/500 extrapolation sets.
+    # The no-argument batch creates the nine current extrapolation sets.
     # Existing directories are reported and skipped; interpolation sets remain
     # explicit because each family uses two disjoint parameter intervals.
-    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 1, 11, 21, 11),
-    ("sidewall_deformed_block", "extrapolation", 1, 11, 21, 11),
+    ("cylindrical_domain_with_airfoil_hole", "extrapolation", 1, 21, 21, 11),
+    ("sidewall_deformed_block", "extrapolation", 1, 21, 21, 11),
     ("rounded_u_notch_extrusion", "extrapolation", 1, 41, 41, 11),
-    ("tapered_elliptic_bore_block", "extrapolation", 1, 11, 21, 11),
-    ("bent_annular_duct", "extrapolation", 1, 11, 21, 11),
-    ("lobed_annular_duct", "extrapolation", 1, 11, 21, 11),
+    ("tapered_elliptic_bore_block", "extrapolation", 1, 21, 21, 11),
+    ("bent_annular_duct", "extrapolation", 1, 21, 21, 11),
+    ("lobed_annular_duct", "extrapolation", 1, 21, 21, 11),
+    ("square_to_round_transition", "extrapolation", 1, 21, 21, 11),
+    ("variable_area_s_duct", "extrapolation", 1, 21, 21, 11),
+    ("twisted_blade_passage", "extrapolation", 1, 21, 21, 11),
 ]
 
 DEFAULT_GENERATION_OPTIONS = {
@@ -365,11 +397,25 @@ def _solve_dataset_sample_3d(payload):
     )
 
 
+def validate_existing_dataset(path):
+    """Do not silently reuse a pre-PDE-cap dataset with the same public name."""
+    path = Path(path)
+    required = ('metadata.json', 'geometry.json', 'boundary_samples.npy', 'pde_mesh.npy')
+    if not all((path / name).is_file() for name in required):
+        raise FileExistsError(f'Incomplete existing dataset: {path}; use --force to regenerate it.')
+    metadata = json.loads((path / 'metadata.json').read_text(encoding='utf-8'))
+    if metadata.get('cap_parameterization') != CAP_SCHEME:
+        raise ValueError(
+            f'Existing dataset uses a different end-cap parameterization: {path}. '
+            'Use a different version/output root, or explicitly --force to regenerate. '
+            'Existing files were preserved.')
+
+
 def generate_dataset(
     name,
     boundary_type,
     parameters,
-    grid_shape=(11, 21, 11),
+    grid_shape=(21, 21, 11),
     output_root="data/raw/3D",
     winslow_max_iter=1000,
     winslow_tolerance=1e-6,
@@ -388,6 +434,8 @@ def generate_dataset(
     root = Path(output_root).resolve()
     out = root / name
     if out.exists() and not overwrite:
+        if boundary_type in DATASET_GENERATORS:
+            validate_existing_dataset(out)
         print(f"[skip] Dataset already exists: {out}", flush=True)
         return out
     geoms = []
@@ -490,6 +538,9 @@ def generate_dataset(
         "boundary_type": boundary_type,
         "pde_method": "winslow_iterative",
         "pde_solver": "winslow_3d",
+        "cap_parameterization": CAP_SCHEME,
+        "side_parameterization": SIDE_SCHEME,
+        "geometry_revision": 3,
         "pde_max_iter": int(winslow_max_iter),
         "pde_tolerance": float(winslow_tolerance),
         "workers": workers,
@@ -526,7 +577,7 @@ def generate_family_dataset(
     split,
     *,
     size=500,
-    version=1,
+    version=None,
     nx=None,
     ny=None,
     nz=None,
@@ -563,6 +614,8 @@ def generate_family_dataset(
         dict(specification["fixed_parameters"], **{parameter_name: float(value)})
         for value in values
     ]
+    if version is None:
+        version = next((item[2] for item in SELECTED_DATASETS if item[0] == family), 1)
     version = validate_version(version)
     name = build_dataset_name(family, split, version, size, nx, ny, nz)
     print(f"Dataset: {name}", flush=True)
@@ -612,10 +665,6 @@ def generate_sidewall_deformed_block_dataset(split, **kwargs):
     return generate_family_dataset("sidewall_deformed_block", split, **kwargs)
 
 
-def generate_rounded_u_groove_extrusion_dataset(split, **kwargs):
-    return generate_family_dataset("rounded_u_groove_extrusion", split, **kwargs)
-
-
 def generate_rounded_u_notch_extrusion_dataset(split, **kwargs):
     return generate_family_dataset("rounded_u_notch_extrusion", split, **kwargs)
 
@@ -630,6 +679,18 @@ def generate_bent_annular_duct_dataset(split, **kwargs):
 
 def generate_lobed_annular_duct_dataset(split, **kwargs):
     return generate_family_dataset("lobed_annular_duct", split, **kwargs)
+
+
+def generate_square_to_round_transition_dataset(split, **kwargs):
+    return generate_family_dataset("square_to_round_transition", split, **kwargs)
+
+
+def generate_variable_area_s_duct_dataset(split, **kwargs):
+    return generate_family_dataset("variable_area_s_duct", split, **kwargs)
+
+
+def generate_twisted_blade_passage_dataset(split, **kwargs):
+    return generate_family_dataset("twisted_blade_passage", split, **kwargs)
 
 
 def generate_selected_datasets(selected=None, **kwargs):
@@ -684,6 +745,7 @@ def generate_selected_datasets(selected=None, **kwargs):
             raise ValueError(f"duplicate selected dataset: {name}")
         output_path = destination / name
         if output_path.exists() and not kwargs.get("overwrite", False):
+            validate_existing_dataset(output_path)
             print(f"[skip] Dataset already exists: {output_path}", flush=True)
             continue
         sample_parameter_ranges(
@@ -792,8 +854,10 @@ if __name__ == "__main__":
         parameter_ranges=arguments.parameter_ranges,
     )
     if arguments.family is not None:
-        common["version"] = 1 if arguments.version is None else arguments.version
-        generate_family_dataset(resolve_family(arguments.family), arguments.split, **common)
+        family = resolve_family(arguments.family)
+        revisions = {item[0]: item[2] for item in SELECTED_DATASETS}
+        common["version"] = revisions.get(family, 1) if arguments.version is None else arguments.version
+        generate_family_dataset(family, arguments.split, **common)
         raise SystemExit(0)
     generate_selected_datasets(
         **common,

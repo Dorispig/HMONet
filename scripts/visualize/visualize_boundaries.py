@@ -1,4 +1,4 @@
-"""Visualize all currently registered parametric boundary generators."""
+"""Selected boundary previews; without --names render the current 18-family catalogue."""
 
 from __future__ import annotations
 
@@ -158,7 +158,12 @@ VARIANTS_3D = {
 
 def draw_family(name, dimension, root, nx, ny, nz):
     """Write default and one-parameter variants with reproducible metadata."""
-    folder = root / f"{dimension}D" / name
+    from scripts.visualize.render_registered_boundaries import TWO, THREE
+    specs = TWO if dimension == 2 else THREE
+    canonical = "four_convex_arcs" if name == "four_convex_semicircle" else name
+    short = next((s['output_name'] for s in specs.values()
+                  if s['function'] == canonical), name)
+    folder = root / f"{dimension}D" / short
     folder.mkdir(parents=True, exist_ok=True)
     registry = BOUNDARY_2D if dimension == 2 else BOUNDARY_3D
     defaults = {
@@ -221,6 +226,9 @@ def main():
     parser.add_argument("--four-arc-angle", type=float, default=90.0)
     args = parser.parse_args()
     root = Path(args.output_root)
+    if args.names is None:
+        from scripts.visualize.render_registered_boundaries import main as render_catalogue
+        return render_catalogue(['--output-root', str(root)])
     out2d, out3d = root / "2D", root / "3D"
     out2d.mkdir(parents=True, exist_ok=True)
     out3d.mkdir(parents=True, exist_ok=True)
@@ -251,7 +259,7 @@ def main():
     ):
         draw_2d(
             "four_convex_semicircle",
-            out2d / "four_convex_semicircle",
+            out2d / "fca_a",
             args.nx,
             args.ny,
             args.four_arc_angle,

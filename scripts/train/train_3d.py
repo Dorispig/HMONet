@@ -55,7 +55,9 @@ from src.data.mesh.sampling import (
 from src.losses.physics import (
     elliptic_grid_pde_residual,
     elliptic_grid_scale_invariant_pde_loss,
+    normalized_jacobian_barrier_from_jacobian,
     normalized_mapping_barriers_from_jacobian,
+    normalized_singular_value_barrier_from_jacobian,
     stencil_queries as physics_stencil_queries,
 )
 from src.numerics.differential import finite_difference_derivatives
@@ -275,28 +277,52 @@ def _train_hmonet_physics_3d(
                             jacobian_values, centers, jacobian_step
                         )
                     )
-                    normalized_jacobian, singular_value = (
-                        normalized_mapping_barriers_from_jacobian(
-                            mapping_jacobian,
-                            characteristic_length,
-                            jacobian_minimum=jacobian_minimum,
-                            singular_value_minimum=singular_minimum,
-                            reduction=reduction,
+                    if (
+                        normalized_jacobian_weight > 0
+                        and singular_value_weight > 0
+                    ):
+                        normalized_jacobian, singular_value = (
+                            normalized_mapping_barriers_from_jacobian(
+                                mapping_jacobian,
+                                characteristic_length,
+                                jacobian_minimum=jacobian_minimum,
+                                singular_value_minimum=singular_minimum,
+                                reduction=reduction,
+                            )
                         )
-                    )
-                    loss = (
-                        loss
-                        + normalized_jacobian_weight * normalized_jacobian
-                        + singular_value_weight * singular_value
-                    )
-                    batch_losses.update(
-                        normalized_jacobian=normalized_jacobian,
-                        singular_value=singular_value,
-                    )
-                    progress_losses.update(
-                        norm_j=normalized_jacobian.item(),
-                        singular=singular_value.item(),
-                    )
+                        loss = (
+                            loss
+                            + normalized_jacobian_weight * normalized_jacobian
+                            + singular_value_weight * singular_value
+                        )
+                        batch_losses["normalized_jacobian"] = normalized_jacobian
+                        batch_losses["singular_value"] = singular_value
+                        progress_losses["norm_j"] = normalized_jacobian.item()
+                        progress_losses["singular"] = singular_value.item()
+                    elif normalized_jacobian_weight > 0:
+                        normalized_jacobian = (
+                            normalized_jacobian_barrier_from_jacobian(
+                                mapping_jacobian,
+                                characteristic_length,
+                                jacobian_minimum=jacobian_minimum,
+                                reduction=reduction,
+                            )
+                        )
+                        loss = loss + normalized_jacobian_weight * normalized_jacobian
+                        batch_losses["normalized_jacobian"] = normalized_jacobian
+                        progress_losses["norm_j"] = normalized_jacobian.item()
+                    elif singular_value_weight > 0:
+                        singular_value = (
+                            normalized_singular_value_barrier_from_jacobian(
+                                mapping_jacobian,
+                                characteristic_length,
+                                singular_value_minimum=singular_minimum,
+                                reduction=reduction,
+                            )
+                        )
+                        loss = loss + singular_value_weight * singular_value
+                        batch_losses["singular_value"] = singular_value
+                        progress_losses["singular"] = singular_value.item()
                 # With both barrier weights set to zero (the formal default),
                 # no barrier tensor, Jacobian, characteristic scale or zero
                 # placeholder is created.  The actual objective is L_PDE only.

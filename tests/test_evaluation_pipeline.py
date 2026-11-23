@@ -166,6 +166,43 @@ class TestEvaluationPipeline:
                 assert (group / "grid_quality/quality_summary.csv").is_file()
             assert not (group.parents[1] / "HMONet").exists()
 
+    def test_exact_boundary_overlay_adds_a_second_figure_and_can_be_disabled(self):
+        for dim in (2, 3):
+            options = dict(save_plots=True, save_png=True, save_pdf=False)
+            if dim == 3:
+                options["middle_sections"] = ["z_mid"]
+            config = self.configuration(dim, ["tfi"], **options)
+            first = self.run_evaluation(dim, config)[0]
+            group = Path(first["comparison_directory"])
+            if dim == 2:
+                ordinary = group / "mesh_comparison_overview.png"
+                overlay = group / "mesh_comparison_with_exact_boundary.png"
+            else:
+                section = group / "boundary_faces/z_mid"
+                ordinary = section / "middle_section_mesh_overview.png"
+                overlay = section / "middle_section_mesh_with_exact_boundary.png"
+            assert ordinary.is_file()
+            assert overlay.is_file()
+
+            self.run_evaluation(
+                dim,
+                config,
+                "--no-exact-boundary-overlay",
+                "--force-reanalyze",
+            )
+            assert ordinary.is_file()
+            assert not overlay.exists()
+
+    def test_analysis_only_reuses_matching_mesh_after_implementation_hash_changes(self):
+        config = self.configuration(2, ["tfi"])
+        self.run_evaluation(2, config)
+        with patch(
+            "scripts.evaluate.evaluation_common.implementation_version",
+            return_value="plotting-code-changed",
+        ):
+            record = self.run_evaluation(2, config, "--analysis-only")[0]
+        assert record["timings"]["TFI"]["cache_hit"]
+
     def test_networks_raw_errors_input_resolution_and_projection(self):
         for dim in (2, 3):
             hp = self.checkpoint(dim, "hmonet")
@@ -290,6 +327,51 @@ class TestEvaluationPipeline:
             second = self.run_evaluation(2, config)[0]
         assert (first["evaluation_fingerprint"]) == (second["evaluation_fingerprint"])
 
+    def test_formal_projection_variants_coexist_and_forced_replots_replace(self):
+        checkpoint = self.checkpoint(2, "meshonet")
+        config = self.configuration(
+            2, ["meshonet", "tfi"], save_plots=True,
+            meshonet_checkpoint=str(checkpoint),
+        )
+        raw = self.run_evaluation(2, config)[0]
+        result = next((self.root / "results").rglob("results.json"))
+        root = result.parent
+        raw_group = root / "comparisons/M_raw/TFI_M"
+        raw_plot = raw_group / "mesh_comparison_overview.png"
+        assert raw_plot.is_file()
+        image = raw_plot.read_bytes()
+        args = ("--meshonet-boundary-projection", "inverse_distance")
+        idw = self.run_evaluation(2, config, *args)[0]
+        idw_plot = root / "comparisons/M_idw/TFI_M/mesh_comparison_overview.png"
+        assert idw_plot.is_file()
+        assert (root / "MeshONet/idw/mesh_overview.png").is_file()
+        assert json.loads((raw_group / "evaluation_result.json").read_text())["evaluation_fingerprint"] == raw["evaluation_fingerprint"]
+        assert raw_plot.read_bytes() == image
+
+        idw_plot.write_bytes(b"obsolete")
+        self.run_evaluation(2, config, *args, "--force")
+        assert idw_plot.read_bytes().startswith(b"\x89PNG")
+        assert not list(idw_plot.parent.glob("mesh_comparison_overview_*.png"))
+        assert raw_plot.read_bytes() == image
+        assert json.loads(result.read_text())["evaluation_fingerprint"] == idw["evaluation_fingerprint"]
+        assert (Path(idw["comparison_directory"]) / "evaluation_result.json").is_file()
+
+    def test_formal_3d_cleans_work_cache_and_reuses_published_meshes(self):
+        config = self.configuration(3, ["tfi", "pde"])
+        first = self.run_evaluation(3, config)[0]
+        result = next((self.root / "results").rglob("results.json"))
+        assert not (result.parent / ".cache").exists()
+        for method in ("TFI", "PDE"):
+            assert (result.parent / method / "generation_metadata.json").is_file()
+        with patch(
+            "src.evaluation.generation.solve_pde",
+            side_effect=AssertionError("must reuse the saved PDE mesh"),
+        ):
+            second = self.run_evaluation(3, config, "--analysis-only")[0]
+        assert all(timing["cache_hit"] for timing in second["timings"].values())
+        assert second["metrics"] == first["metrics"]
+        assert not (result.parent / ".cache").exists()
+
     def test_middle_section_selection_controls_analysis_and_compact_cache(self):
         config = self.configuration(3, ["tfi"], compact_outputs=True)
         first = self.run_evaluation(3, config, "--middle-sections", "z_mid")[0]
@@ -309,7 +391,9 @@ class TestEvaluationPipeline:
         assert disabled["evaluation_fingerprint"] != first["evaluation_fingerprint"]
 
         default = self.run_evaluation(3, config)[0]
-        assert set(default["middle_section_metrics"]) == {"x_mid", "y_mid", "z_mid"}
+        assert set(default["middle_section_metrics"]) == {"z_mid"}
+        all_sections = self.run_evaluation(3, config, "--middle-sections", "all")[0]
+        assert set(all_sections["middle_section_metrics"]) == {"x_mid", "y_mid", "z_mid"}
 
     def test_coons_checkpoint_and_local_worst_without_plots(self):
         for dim in (2, 3):

@@ -337,6 +337,20 @@ def model_specific_training_config(config, name, dataset_path=None, mode=None):
             selected["datasets"] = {mode: str(Path(dataset_path).resolve())}
         elif mode in selected["datasets"]:
             selected["datasets"] = {mode: selected["datasets"][mode]}
+    if dataset_path is not None:
+        metadata_path = Path(dataset_path) / "metadata.json"
+        if metadata_path.is_file():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+            if metadata.get("cap_parameterization"):
+                # A dataset name may intentionally remain v1 after replacing
+                # its prescribed surfaces. Never reuse a pre-migration model.
+                selected["dataset_geometry"] = {
+                    key: metadata.get(key)
+                    for key in (
+                        "boundary_type", "geometry_revision",
+                        "cap_parameterization", "side_parameterization",
+                    )
+                }
     return selected
 
 

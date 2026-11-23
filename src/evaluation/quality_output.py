@@ -796,6 +796,26 @@ def save_quad_quality(
     return summary
 
 
+def plot_exact_boundary_curves(
+    axis,
+    curves: tuple[np.ndarray, ...] | list[np.ndarray],
+    axes: tuple[int, int] = (0, 1),
+) -> None:
+    """Overlay dense exact-boundary samples without modifying mesh artifacts."""
+    for curve in curves:
+        points = np.asarray(curve, dtype=float)
+        if points.ndim != 2 or points.shape[1] <= max(axes):
+            raise ValueError("Exact-boundary curve has an incompatible coordinate shape")
+        axis.plot(
+            points[:, axes[0]],
+            points[:, axes[1]],
+            color="#d62728",
+            linewidth=1.35,
+            solid_capstyle="round",
+            zorder=8,
+        )
+
+
 def save_quality_comparison(
     out_dir: Path,
     meshes: dict[str, np.ndarray],
@@ -809,6 +829,7 @@ def save_quality_comparison(
     save_pdf: bool = True,
     save_distribution_plots: bool = True,
     plot_metrics: tuple[str, ...] | list[str] = (),
+    exact_boundary_curves: tuple[np.ndarray, ...] | list[np.ndarray] | None = None,
 ) -> dict:
     """Save paper-oriented same-scale quality comparisons for available methods."""
     meshes = {name: meshes[name] for name in ordered_methods(meshes)}
@@ -981,6 +1002,16 @@ def save_quality_comparison(
         save_pdf=save_pdf,
         dpi=220,
     )
+    if exact_boundary_curves:
+        for axis in axes[0]:
+            plot_exact_boundary_curves(axis, exact_boundary_curves)
+        save_figure_formats(
+            fig,
+            out_dir / "mesh_comparison_with_exact_boundary",
+            save_png=save_png,
+            save_pdf=save_pdf,
+            dpi=220,
+        )
     plt.close(fig)
     for metric in plot_metrics:
         if metric not in metrics:
