@@ -22,6 +22,8 @@ def validate_gpu_options(solver_backend, gpus):
     count = torch.cuda.device_count()
     if not torch.cuda.is_available() or any(isinstance(g,bool) or not isinstance(g,int) or g < 0 or g >= count for g in requested):
         raise ValueError(f'Invalid CUDA devices {requested}; {count} visible device(s). CPU remains available with --solver-backend cpu.')
+    from src.numerics.traditional.cudss_solver import load_cudss
+    load_cudss()  # Fail before spawning or constructing expensive end caps.
     return requested
 
 
@@ -46,7 +48,7 @@ def _shutdown(pools, abort):
         pool.shutdown(wait=True, cancel_futures=True)
 
 
-def gpu_sample_map(function, payloads, gpus, *, linear_tolerance=1e-12, linear_max_iter=4000):
+def gpu_sample_map(function, payloads, gpus):
     """Yield (original_index, result) as completed; at most one job per GPU."""
     pools = []
     pending = {}
@@ -57,8 +59,7 @@ def gpu_sample_map(function, payloads, gpus, *, linear_tolerance=1e-12, linear_m
         if item is None:
             return
         index, payload = item
-        options = dict(solver_backend='cuda',device=f'cuda:{gpu}',
-                       linear_tolerance=linear_tolerance,linear_max_iter=linear_max_iter)
+        options = dict(solver_backend='cuda',device=f'cuda:{gpu}')
         print(f'[GPU generation] start GPU {gpu}: sample {index+1}/{len(payloads)}',flush=True)
         future = pool.submit(function,payload,options)
         pending[future] = (pool,gpu,index)

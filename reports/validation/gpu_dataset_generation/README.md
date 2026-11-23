@@ -1,4 +1,6 @@
-# 三维 GPU 数据集生成验证
+# 三维 GPU 数据集生成验证（旧 BiCGSTAB 后端历史记录）
+
+> 本页为已替换的旧 GPU 后端测试记录，耗时和误差不能代表当前 cuDSS 实现。当前结果见 [cuDSS 验证](../cudss_dataset_generation/README.md)。
 
 CPU 默认实现保留；GPU 为显式可选后端。以下为单张 RTX 4050 Laptop GPU 的功能检查，不是服务器多卡性能评测。
 

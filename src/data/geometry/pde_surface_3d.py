@@ -105,7 +105,7 @@ class PdeCapSurface3D(ParametricSurface3D):
 
 @lru_cache(maxsize=18)
 def _build_cached(serialized_source,nx,ny,max_iter,tolerance,
-                  solver_backend='cpu',device='cuda:0',linear_tolerance=1e-12,linear_max_iter=4000):
+                  solver_backend='cpu',device='cuda:0'):
     from .parametric_curve_2d import FunctionalCurve, BoundaryCurveSet2D
     from src.numerics.traditional.winslow_vectorized_2d import solve_winslow_2d_vectorized
     from src.data.generation.dataset_quality_2d import audit_grid
@@ -127,11 +127,13 @@ def _build_cached(serialized_source,nx,ny,max_iter,tolerance,
     solver = solve_winslow_2d_vectorized
     options = {}
     if solver_backend == 'cuda':
-        from src.numerics.traditional.winslow_torch import solve_winslow_2d_torch
-        solver = solve_winslow_2d_torch
-        options = dict(device=device,linear_tolerance=linear_tolerance,linear_max_iter=linear_max_iter)
+        from src.numerics.traditional.cudss_solver import CudssSolver
+        direct = CudssSolver(device)
+        options = dict(linear_solver=direct)
     mesh,info=solver(boundary,nx,ny,initial_grid=planar(uu,vv),
                      max_iter=max_iter,tolerance=tolerance,return_info=True,**options)
+    if solver_backend == 'cuda':
+        info.update(direct.diagnostics())
     if not info['converged']:raise ValueError(f"End-cap PDE did not converge: {info}")
     audit=audit_grid(mesh,nx,ny)
     if not audit['all_cells_legal']:raise ValueError(f"Invalid prescribed PDE end-cap: {audit}")
@@ -141,7 +143,7 @@ def _build_cached(serialized_source,nx,ny,max_iter,tolerance,
     tu,tv=splines[0].get_knots()
     coeff=np.stack([sp.get_coeffs().reshape(len(tu)-4,len(tv)-4) for sp in splines],-1)
     coeff[[0,-1],:]=0;coeff[:,[0,-1]]=0
-    cap=PdeCapSurface3D(source,tu,tv,coeff,dict(info,grid_shape=[nx,ny],solver=('winslow_2d_torch' if solver_backend=='cuda' else 'winslow_2d_vectorized'),
+    cap=PdeCapSurface3D(source,tu,tv,coeff,dict(info,grid_shape=[nx,ny],solver=('winslow_2d_cudss' if solver_backend=='cuda' else 'winslow_2d_vectorized'),
                                             tolerance=tolerance,max_iter=max_iter))
     checks={}
     for nu,nv in ((nx,ny),(2*nx-1,2*ny-1)):
@@ -161,7 +163,7 @@ def pde_cap_boundary(boundary,cap_nx=201,cap_ny=201,cap_max_iter=1000,cap_tolera
             or cap_max_iter < 1 or not np.isfinite(cap_tolerance) or cap_tolerance <= 0):
         raise ValueError('cap_max_iter must be a positive integer and cap_tolerance finite and positive')
     faces=boundary.surfaces()
-    from src.numerics.traditional.winslow_torch import current_solver_options
+    from src.numerics.traditional.generation_backend import current_solver_options
     options = current_solver_options()
     for name in ('z_min','z_max'):
         serialized=json.dumps(faces[name].to_dict(),sort_keys=True,separators=(',',':'))

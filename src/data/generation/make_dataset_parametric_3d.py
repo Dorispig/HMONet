@@ -177,8 +177,6 @@ DEFAULT_GENERATION_OPTIONS = {
     "workers": 4,
     "solver_backend": "cpu",
     "gpus": None,
-    "linear_tolerance": 1e-12,
-    "linear_max_iter": 4000,
 }
 
 
@@ -354,7 +352,7 @@ def _validated_boundary_samples(geometry, shape, sample_index):
 
 
 def _solve_dataset_sample_3d(payload, solver_options=None):
-    from src.numerics.traditional.winslow_torch import generation_solver_context
+    from src.numerics.traditional.generation_backend import generation_solver_context
     with generation_solver_context(solver_options):
         return _solve_dataset_sample_3d_impl(payload, solver_options or {})
 
@@ -437,8 +435,6 @@ def generate_dataset(
     overwrite=False,
     solver_backend="cpu",
     gpus=None,
-    linear_tolerance=1e-12,
-    linear_max_iter=4000,
 ):
     """Generate matching parameter surfaces, boundary samples, and PDE meshes."""
     if isinstance(workers, bool) or int(workers) != workers or int(workers) < 1:
@@ -456,8 +452,6 @@ def generate_dataset(
         return out
     from src.data.generation.gpu_samples import validate_gpu_options, gpu_sample_map
     gpu_ids = validate_gpu_options(solver_backend, gpus)
-    if not 0 < linear_tolerance < 1 or linear_max_iter < 1:
-        raise ValueError('Require linear_tolerance in (0,1) and linear_max_iter >=1')
     parameters = list(parameters)
     if not parameters:
         raise ValueError("parameters must contain at least one sample")
@@ -508,8 +502,7 @@ def generate_dataset(
 
     if solver_backend == 'cuda':
         from contextlib import closing
-        with closing(gpu_sample_map(_solve_dataset_sample_3d,payloads,gpu_ids,
-                                    linear_tolerance=linear_tolerance,linear_max_iter=linear_max_iter)) as results:
+        with closing(gpu_sample_map(_solve_dataset_sample_3d,payloads,gpu_ids)) as results:
             collect(results, indexed=True)
     elif workers > 1:
         with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -571,10 +564,9 @@ def generate_dataset(
         "pde_tolerance": float(winslow_tolerance),
         "workers": workers,
         "solver_backend": solver_backend,
+        "linear_solver": "cudss_lu" if solver_backend == "cuda" else "scipy_spsolve",
         "gpus": gpu_ids,
         "gpu_worker_count": len(gpu_ids),
-        "linear_tolerance": linear_tolerance if solver_backend == 'cuda' else None,
-        "linear_max_iter": linear_max_iter if solver_backend == 'cuda' else None,
         "quality_check_scope": scope,
         "illegal_samples": audit["illegal_samples"],
         "extreme_grid_legality_checks": extreme_legality_checks,
@@ -621,8 +613,6 @@ def generate_family_dataset(
     parameter_ranges=None,
     solver_backend="cpu",
     gpus=None,
-    linear_tolerance=1e-12,
-    linear_max_iter=4000,
 ):
     """Generate one registered dataset family and split."""
     if family not in DATASET_FAMILIES:
@@ -659,7 +649,7 @@ def generate_family_dataset(
     print(f"Training ranges: {requested_ranges}", flush=True)
     print(f"Size: {size}; grid: {nx}x{ny}x{nz}", flush=True)
     if solver_backend == 'cuda':
-        print(f"PDE backend: CUDA float64; GPUs: {gpus if gpus is not None else [0]}; one sample per GPU", flush=True)
+        print(f"PDE backend: cuDSS direct CUDA float64; GPUs: {gpus if gpus is not None else [0]}; one sample per GPU", flush=True)
     else:
         print(f"PDE backend: CPU; workers: {workers}", flush=True)
     return generate_dataset(
@@ -694,8 +684,6 @@ def generate_family_dataset(
         overwrite=overwrite,
         solver_backend=solver_backend,
         gpus=gpus,
-        linear_tolerance=linear_tolerance,
-        linear_max_iter=linear_max_iter,
     )
 
 
@@ -830,8 +818,6 @@ if __name__ == "__main__":
     parser.add_argument("--version", type=int, default=None)
     parser.add_argument('--solver-backend', choices=('cpu','cuda'), default=DEFAULT_GENERATION_OPTIONS['solver_backend'])
     parser.add_argument('--gpus', type=int, nargs='+', default=DEFAULT_GENERATION_OPTIONS['gpus'], help='CUDA-visible indices; requires --solver-backend cuda')
-    parser.add_argument('--linear-tolerance', type=float, default=DEFAULT_GENERATION_OPTIONS['linear_tolerance'])
-    parser.add_argument('--linear-max-iter', type=int, default=DEFAULT_GENERATION_OPTIONS['linear_max_iter'])
     parser.add_argument("--size", type=int, default=DEFAULT_GENERATION_OPTIONS["size"])
     parser.add_argument("--nx", type=int)
     parser.add_argument("--ny", type=int)
@@ -900,8 +886,6 @@ if __name__ == "__main__":
         parameter_ranges=arguments.parameter_ranges,
         solver_backend=arguments.solver_backend,
         gpus=arguments.gpus,
-        linear_tolerance=arguments.linear_tolerance,
-        linear_max_iter=arguments.linear_max_iter,
     )
     if arguments.family is not None:
         family = resolve_family(arguments.family)

@@ -1,0 +1,3 @@
+# Optional CUDA 12 sparse direct solver. CPU generation does not require this.
+# Version pinned to the C ABI validated by src/numerics/traditional/cudss_solver.py.
+nvidia-cudss-cu12==0.4.0.2

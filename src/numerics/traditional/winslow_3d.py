@@ -22,8 +22,6 @@ def solve_winslow_3d(
     return_info=False,
     solver_backend="cpu",
     device="cuda:0",
-    linear_tolerance=1e-12,
-    linear_max_iter=4000,
 ):
     if solver_backend not in ("cpu", "cuda"):
         raise ValueError("solver_backend must be cpu or cuda")
@@ -66,12 +64,13 @@ def solve_winslow_3d(
         tol=tolerance,
     )
     if solver_backend == "cuda":
-        from .winslow_torch import solve_uniform_grid
-        result, info = solve_uniform_grid(
-            solver._initial_grid(), device=device, max_iter=max_iter,
-            tolerance=tolerance, linear_tolerance=linear_tolerance,
-            linear_max_iter=linear_max_iter,
-        )
+        from .cudss_solver import CudssSolver
+        direct = CudssSolver(device)
+        result = solver.solve(linear_solver=direct)
+        difference = float(solver.last_relative_difference)
+        info = dict(iterations=int(solver.last_iterations), relative_difference=difference,
+                    converged=bool(np.isfinite(result).all() and difference < tolerance),
+                    **direct.diagnostics())
         return (result, info) if return_info else result
     result = solver.solve()
     if return_info:

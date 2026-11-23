@@ -20,6 +20,7 @@ def solve_winslow_2d_vectorized(
     max_iter=1000,
     tolerance=1e-6,
     return_info=False,
+    linear_solver=None,
 ):
     if nx < 3 or ny < 3 or max_iter < 1 or tolerance <= 0:
         raise ValueError("Require nx,ny>=3, max_iter>=1 and positive tolerance")
@@ -80,7 +81,10 @@ def solve_winslow_2d_vectorized(
         interior_matrix = interior_rows[:, ids].tocsc()
         interior_rhs = -(interior_rows[:, boundary_ids] @ points)
         new = solution.copy()
-        new[ids] = spsolve(interior_matrix, interior_rhs, permc_spec="MMD_AT_PLUS_A")
+        new[ids] = (
+            spsolve(interior_matrix, interior_rhs, permc_spec="MMD_AT_PLUS_A")
+            if linear_solver is None else linear_solver(interior_matrix, interior_rhs)
+        )
         new[boundary_ids] = points
         difference = float(
             np.linalg.norm(new - solution)

@@ -25,8 +25,6 @@ def main(argv=None):
     parser.add_argument("--version", type=int, help="Omitted: use each family's registered revision")
     parser.add_argument('--solver-backend', choices=('cpu','cuda'), default='cpu', help='3-D PDE generation backend; CPU by default')
     parser.add_argument('--gpus', type=int, nargs='+', help='CUDA-visible indices; requires --solver-backend cuda')
-    parser.add_argument('--linear-tolerance', type=float, default=1e-12)
-    parser.add_argument('--linear-max-iter', type=int, default=4000)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--winslow-max-iter", type=int, default=1000)
     parser.add_argument("--winslow-tolerance", type=float, default=1e-6)
@@ -81,7 +79,7 @@ def main(argv=None):
         else:
             generator.generate_family_dataset(family, split, nz=shape[2], output_root=target.parent, overwrite=args.force,
                 solver_backend=args.solver_backend,gpus=args.gpus,
-                linear_tolerance=args.linear_tolerance,linear_max_iter=args.linear_max_iter,**common)
+                **common)
     return jobs
 
 

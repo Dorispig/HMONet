@@ -18,6 +18,15 @@ pip install -r requirements-dev.txt
 
 Linux 服务器若需要特定 CUDA wheel，应先从 PyTorch 官方渠道安装与驱动匹配的 `torch`/`torchvision`，再安装其余依赖，并确认固定版本没有被意外替换。
 
+三维数据集的 GPU 稀疏直接求解为可选功能（CPU 生成仍是默认）。CUDA 12 PyTorch 环境额外安装：
+
+```bash
+python -m pip install -r requirements-gpu-generation.txt
+python -c "from src.numerics.traditional.cudss_solver import load_cudss; load_cudss(); print('cuDSS ready')"
+```
+
+该依赖固定 cuDSS 0.4 的 C 接口版本，支持 Windows DLL / Linux SO 加载。实际 GPU 数值核验运行 `python -m pytest tests/test_gpu_dataset_generation.py -q`；缺少 CUDA 或可选包时，真实 GPU 测试会跳过，不能将跳过视为验证通过。生成命令和求解差异见[三维数据生成说明](../data/3D/generation_commands.md)。
+
 ## 环境验证
 
 ```bash

@@ -386,8 +386,8 @@ class winslowSolver3D:
     def _flat_index(self, i: int, j: int, k: int) -> int:
         return k * self.Ny * self.Nx + j * self.Nx + i
 
-    def solve(self) -> np.ndarray:
-        """Documentation string."""
+    def solve(self, linear_solver=None) -> np.ndarray:
+        """Share assembly and nonlinear iteration across direct-solve backends."""
         grid = self._initial_grid()
         dof = self.Nx * self.Ny * self.Nz
         du = 1.0 / (self.Nx - 1)
@@ -475,10 +475,15 @@ class winslowSolver3D:
             ).tocsr()
             old_points = grid.reshape(dof, 3)
             new_points = np.empty_like(old_points)
-            for component in range(3):
-                rhs = np.zeros(dof)
-                rhs[boundary_indices] = old_points[boundary_indices, component]
-                new_points[:, component] = spla.spsolve(matrix, rhs)
+            if linear_solver is None:
+                for component in range(3):
+                    rhs = np.zeros(dof)
+                    rhs[boundary_indices] = old_points[boundary_indices, component]
+                    new_points[:, component] = spla.spsolve(matrix, rhs)
+            else:
+                rhs = np.zeros((dof, 3))
+                rhs[boundary_indices] = old_points[boundary_indices]
+                new_points[:] = linear_solver(matrix, rhs)
 
             if not np.isfinite(new_points).all():
                 raise FloatingPointError("""Documentation string.""")
