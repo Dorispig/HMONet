@@ -137,7 +137,7 @@ def rounded_u_notch_extrusion_boundary(
     width=3.0, height=2.0, notch_width=0.9, depth=1.0,
     radius=0.25, length=2.5, z_min=0.0,
     cap_nx=201, cap_ny=201,
-    cap_max_iter=1000, cap_tolerance=1e-10,
+    cap_max_iter=1000, cap_tolerance=1e-6,
 ):
     """Exact run contour with dense planar PDE caps; body uses the 3-D solver."""
     margin = 0.5 * (width - notch_width)
@@ -388,7 +388,7 @@ def _with_pde_caps(function, family):
     """Upgrade current public generators while keeping historical deserialization."""
     from functools import wraps
     @wraps(function)
-    def generate(*args, cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-10, **kwargs):
+    def generate(*args, cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-6, **kwargs):
         from .pde_surface_3d import pde_cap_boundary
         boundary=function(*args,**kwargs)
         return pde_cap_boundary(boundary,cap_nx,cap_ny,cap_max_iter,cap_tolerance)

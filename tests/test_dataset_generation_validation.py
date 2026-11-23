@@ -50,7 +50,7 @@ def test_3d_saves_all_samples_after_breakdown_and_invalid_grid(tmp_path, monkeyp
         return grid, {"converged": True}
 
     monkeypatch.setattr(gen3d, "solve_winslow_3d", solve)
-    with pytest.warns(RuntimeWarning, match="1/2 checked endpoint grids are invalid"):
+    with pytest.warns(RuntimeWarning, match="2/3 checked representative grids are invalid"):
         gen3d.generate_dataset(
             "invalid-volume", "sidewall_deformed_block",
             [{"sidewall_amplitude": amplitude} for amplitude in (0.05, 0.10, 0.15)],
@@ -63,8 +63,8 @@ def test_3d_saves_all_samples_after_breakdown_and_invalid_grid(tmp_path, monkeyp
     audit = json.loads((directory / "quality_audit.json").read_text(encoding="utf-8"))
     assert points.shape == (3, 5, 5, 5, 3)
     np.testing.assert_allclose(points, calls)
-    assert audit["illegal_sample_ids"] == [2]
-    assert [sample["sample_id"] for sample in audit["samples"]] == [0, 2]
+    assert audit["illegal_sample_ids"] == [1, 2]
+    assert [sample["sample_id"] for sample in audit["samples"]] == [0, 1, 2]
     assert audit["nonconverged_sample_ids"] == [0]
     assert audit["samples"][0]["mesh_source"] == "tfi_fallback"
     assert metadata["size"] == 3

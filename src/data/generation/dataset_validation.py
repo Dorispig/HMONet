@@ -37,9 +37,10 @@ def save_quality_audit(directory, name, grid_shape, samples, diagnostics, scope)
 
 def warn_saved_dataset(directory, audit):
     if audit["illegal_samples"] or audit["nonconverged_samples"]:
+        checked_label = ('representative' if 'midpoints' in audit['scope'] else 'endpoint')
         warnings.warn(
             f"Dataset saved at {directory}: "
-            f"{audit['illegal_samples']}/{audit['checked_samples']} checked endpoint grids are invalid, "
+            f"{audit['illegal_samples']}/{audit['checked_samples']} checked {checked_label} grids are invalid, "
             f"{audit['nonconverged_samples']}/{audit['size']} unconverged PDE samples. "
             f"See {directory / 'quality_audit.json'} for sample IDs and details.",
             RuntimeWarning,

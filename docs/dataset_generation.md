@@ -244,3 +244,13 @@ run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及
 三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
 
 GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。
+
+### 三维生成的端面精度与检查规则
+
+九类三维边界统一采用：两个端面分别求解 `201×201` 的二维 PDE，`cap_tolerance=1e-6`，`cap_max_iter=1000`；CPU 与 cuDSS GPU 均保留 float64。三维内部仍由三维 PDE 求解器求解，侧面几何、样条插值公式和硬边界约束不变。
+
+每个参数区间选取两端及最接近中点的已有样本做完整合法性检查。内插的每个子区间分别选取；不额外插入样本。对这些代表样本检查端面原始 PDE 网格、同规模插值面、实际体网格规模的六面及最终体网格；删除原 `401×401` 加密插值检查。若显式修改端面规模，检查跟随 `cap_nx/cap_ny`，不再自动翻倍。非代表样本仅保留有限值、边界兼容性及求解收敛性检查。
+
+代表边界面非法立即报错；最终体网格非法在完整保存数据集后警告。`metadata.json` 中的 `legality_check_sample_ids`、`quality_check_scope` 和 `cap_validation_policy` 记录检查范围；未检查不代表已证明合法。CPU 多进程与 GPU 整数据集队列采用相同规则，去除 CPU 重复预生成端面的预检。
+
+已存在的完整数据集仍直接跳过，不自动覆盖或修改旧端面；需要重新生成时显式使用 `--force`。从已有数据集读取时继续使用已保存的参数面。上述改动不需要新增命令行参数。

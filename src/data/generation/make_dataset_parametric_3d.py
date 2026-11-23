@@ -23,7 +23,6 @@ from src.data.generation.dataset_naming import (
     validate_version,
 )
 from src.data.generation.dataset_validation import (
-    endpoint_indices,
     save_quality_audit,
     warn_saved_dataset,
 )
@@ -73,7 +72,7 @@ DATASET_FAMILIES = {
         "parameter": "depth",
         "description": "二维 run 精确轮廓；201x201二维PDE连续端面，内部由三维PDE求解；仅变化槽深。",
         "fixed_parameters": {"width": 3.0, "height": 2.0, "notch_width": 0.9, "radius": 0.25, "length": 2.5, "z_min": 0.0,
-                             "cap_nx": 201, "cap_ny": 201, "cap_max_iter": 1000, "cap_tolerance": 1e-10},
+                             "cap_nx": 201, "cap_ny": 201, "cap_max_iter": 1000, "cap_tolerance": 1e-6},
         "grid_shape": [41, 41, 11],
         "interpolation": [[0.55, 1.00], [1.30, 1.50]], "extrapolation": [[0.55, 1.50]],
         "evaluation_values": {"interpolation": [1.10, 1.15, 1.20], "extrapolation": [1.52, 1.55]},
@@ -147,7 +146,7 @@ SPLIT_ALIASES = {
 # Surface accuracy is independent of the volume/network-input resolution.
 for _specification in DATASET_FAMILIES.values():
     _specification['fixed_parameters'].update(
-        cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-10)
+        cap_nx=201, cap_ny=201, cap_max_iter=1000, cap_tolerance=1e-6)
 
 DEFAULT_DATASET_VERSION = 2
 
@@ -332,12 +331,18 @@ def _audit_volume_grid(mesh):
     }
 
 
-def _validated_boundary_samples(geometry, shape, sample_index):
+def _validated_boundary_samples(geometry, shape, sample_index, *, validate=True):
     """Reject invalid prescribed face grids before starting the volume solve."""
     try:
         faces, boundary_grid = sample_faces(geometry, shape)
     except ValueError as error:
         raise ValueError(f"Sample {sample_index} has invalid boundary faces: {error}") from error
+    exact = boundary_grid.reshape(-1, 3)[boundary_indices(shape)]
+    # Interior entries are intentionally NaN until the volume is initialized.
+    if not np.isfinite(exact).all():
+        raise ValueError(f"Sample {sample_index} has nonfinite boundary coordinates")
+    if not validate:
+        return exact
     bad_faces = []
     for name, face in faces.items():
         fields = surface_quad_quality_fields(
@@ -349,16 +354,18 @@ def _validated_boundary_samples(geometry, shape, sample_index):
     if bad_faces:
         raise ValueError(f"Sample {sample_index} has invalid prescribed boundary faces: "
                          + ", ".join(bad_faces))
-    return boundary_grid.reshape(-1, 3)[boundary_indices(shape)]
+    return exact
 
 
 def _solve_dataset_sample_3d(payload, solver_options=None):
     from src.numerics.traditional.generation_backend import generation_solver_context
-    with generation_solver_context(solver_options):
-        return _solve_dataset_sample_3d_impl(payload, solver_options or {})
+    from src.data.geometry.pde_surface_3d import cap_validation_context
+    validate = bool(payload[8]) if len(payload) == 9 else True
+    with generation_solver_context(solver_options), cap_validation_context(validate):
+        return _solve_dataset_sample_3d_impl(payload[:8], solver_options or {}, validate=validate)
 
 
-def _solve_dataset_sample_3d_impl(payload, solver_options):
+def _solve_dataset_sample_3d_impl(payload, solver_options, *, validate=True):
     """Solve one picklable 3-D sample while preserving its input identity."""
     (
         sample_index,
@@ -372,7 +379,7 @@ def _solve_dataset_sample_3d_impl(payload, solver_options):
     ) = payload
     started = time.perf_counter()
     geometry = generate_boundary(boundary_type, **parameters)
-    exact = _validated_boundary_samples(geometry, (nx, ny, nz), sample_index)
+    exact = _validated_boundary_samples(geometry, (nx, ny, nz), sample_index, validate=validate)
     initial = tfi_from_surfaces(geometry, xi=nx, eta=ny, zeta=nz)
     # An inverted TFI starter can be repaired by the PDE solve.
     try:
@@ -398,6 +405,7 @@ def _solve_dataset_sample_3d_impl(payload, solver_options):
         }
     info = dict(info)
     info["solver"] = "winslow_3d"
+    info["boundary_legality_checked"] = validate
     mesh = mesh.reshape(nz, ny, nx, 3)
     return (
         geometry.to_dict(),
@@ -406,6 +414,35 @@ def _solve_dataset_sample_3d_impl(payload, solver_options):
         info,
         time.perf_counter() - started,
     )
+
+
+def representative_sample_indices(parameters, metadata=None):
+    """Existing samples nearest each interval's two ends and midpoint.
+
+    Even sample counts need not contain the exact midpoint. Never add samples
+    or move their parameter values just to perform validation.
+    """
+    metadata = metadata or {}
+    key = metadata.get('parameter')
+    if key is None:
+        varying = [k for k in parameters[0]
+                   if any(p[k] != parameters[0][k] for p in parameters[1:])]
+        if len(varying) == 1:
+            key = varying[0]
+    if key is None:
+        return sorted({0, (len(parameters)-1)//2, len(parameters)-1})
+    values = np.asarray([p[key] for p in parameters], dtype=float)
+    ranges = metadata.get('parameter_ranges')
+    if ranges is None:
+        ranges = [(float(values.min()), float(values.max()))]
+    indices = set()
+    for lo, hi in ranges:
+        candidates = np.flatnonzero((values >= lo) & (values <= hi))
+        if not len(candidates):
+            raise ValueError(f'No samples in validation interval [{lo}, {hi}]')
+        for target in (lo, (lo+hi)/2, hi):
+            indices.add(int(candidates[np.argmin(np.abs(values[candidates]-target))]))
+    return sorted(indices)
 
 
 def validate_existing_dataset(path):
@@ -464,11 +501,9 @@ def generate_dataset(
     diagnostics = [None] * len(parameters)
     if timing_samples < 0:
         raise ValueError("timing_samples must be non-negative")
-    # CPU preflight preserves the existing endpoint check. GPU workers build
-    # and validate their own faces before any volume solve (no CPU cap rebuild).
-    for index in (endpoint_indices(len(parameters)) if solver_backend == 'cpu' else []):
-        geometry = generate_boundary(boundary_type, **parameters[index])
-        _validated_boundary_samples(geometry, (nx, ny, nz), index)
+    checked_indices = representative_sample_indices(parameters, generation_metadata)
+    print(f'Legality checks: interval ends and nearest midpoint samples {checked_indices}; '
+          'cap grid only (no doubled-resolution audit).', flush=True)
     payloads = [
         (
             sample_index,
@@ -479,6 +514,7 @@ def generate_dataset(
             nz,
             winslow_max_iter,
             winslow_tolerance,
+            sample_index in checked_indices,
         )
         for sample_index, params in enumerate(parameters)
     ]
@@ -526,7 +562,7 @@ def generate_dataset(
             "mesh_source": diagnostics[index].get("mesh_source", "pde"),
             **_audit_volume_grid(meshes[index]),
         }
-        for index in endpoint_indices(len(parameters))
+        for index in checked_indices
     ]
     # Retain any prior output if boundary validation or the solve aborts.
     if out.exists():
@@ -557,7 +593,7 @@ def generate_dataset(
         ),
         encoding="utf-8",
     )
-    scope = "endpoint_pde_grids_hex_local_validity"
+    scope = "interval_endpoints_midpoints_pde_grids_hex_local_validity"
     audit = save_quality_audit(out, name, (nx, ny, nz), extreme_legality_checks, diagnostics, scope)
     metadata = {
         "dataset": name,
@@ -579,6 +615,8 @@ def generate_dataset(
         "gpu_worker_count": 1 if solver_backend == 'cuda' else 0,
         "gpu_task_scope": "complete_dataset" if solver_backend == 'cuda' else None,
         "quality_check_scope": scope,
+        "legality_check_sample_ids": checked_indices,
+        "cap_validation_policy": "interval_endpoints_nearest_midpoints_native_grid_only",
         "illegal_samples": audit["illegal_samples"],
         "extreme_grid_legality_checks": extreme_legality_checks,
         "all_extreme_grids_legal": audit["illegal_samples"] == 0,

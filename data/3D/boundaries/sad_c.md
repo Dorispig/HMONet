@@ -20,7 +20,7 @@
   "cap_nx": 201,
   "cap_ny": 201,
   "cap_max_iter": 1000,
-  "cap_tolerance": 1e-10
+  "cap_tolerance": 1e-6
 }
 ```
 

@@ -67,7 +67,8 @@ def test_coarse_invalid_cap_is_rejected_not_silently_repaired(boundary):
     with pytest.raises(ValueError, match="invalid prescribed boundary faces"):
         _validated_boundary_samples(boundary, (11, 21, 11), 0)
     # The continuous representation is separately checked on a dense grid.
-    assert boundary.z_min.solver_info["interpolation_checks"]["401x401"]["all_cells_legal"]
+    assert boundary.z_min.solver_info["interpolation_checks"]["201x201"]["all_cells_legal"]
+    assert "401x401" not in boundary.z_min.solver_info["interpolation_checks"]
 
 
 @pytest.mark.parametrize("dtype,tolerance", [(torch.float64, 3e-12), (torch.float32, 3e-6)])
@@ -111,7 +112,7 @@ def test_generated_dataset_restores_cap_and_matches_evaluation(tmp_path):
         parameter_ranges=[(.55, .56)], nx=11, ny=21, nz=11,
         output_root=tmp_path, workers=1, timing_samples=0,
     )
-    assert output.name == "run_e_ext_1_2_11_21_11"
+    assert output.name == "run_e_ext_2_2_11_21_11"
     with patch("src.data.geometry.pde_surface_3d._build_cached", side_effect=AssertionError):
         dataset = ParametricDataset3D(output, load_boundary=True)
     assert len(dataset) == 2
