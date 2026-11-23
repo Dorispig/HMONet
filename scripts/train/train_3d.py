@@ -245,6 +245,7 @@ def _train_hmonet_physics_3d(
                         boundary,
                         queries.flatten(-3, -2),
                         geometries,
+                        central_stencil=True,
                     ).reshape(*queries.shape)
                     jacobian_values = values if reuse_pde_stencil else None
                 else:
