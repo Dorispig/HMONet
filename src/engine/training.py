@@ -539,6 +539,11 @@ def safe_optimizer_step(
             return False
         raise FloatingPointError("training loss is NaN or Inf")
     loss.backward()
+    return step_accumulated_gradients(model, optimizer, gradient_clip_norm, skip_nonfinite_loss)
+
+
+def step_accumulated_gradients(model, optimizer, gradient_clip_norm, skip_nonfinite_loss):
+    """Check and apply gradients already accumulated across chunks or samples."""
     if gradient_clip_norm is not None:
         gradient_norm = torch.nn.utils.clip_grad_norm_(
             model.parameters(), float(gradient_clip_norm)

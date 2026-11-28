@@ -87,3 +87,12 @@ python scripts/data/generate_datasets.py --dimension 3 --families all --split ex
 ```
 
 一张 GPU 处理一个完整数据集，四张 GPU 最多同时处理四个；数据集内部样本依次生成。单类生成只需 `--gpus 0`。完整的参数范围及 CPU/单 GPU/多 GPU 示例统一见[三维生成命令](../data/3D/generation_commands.md)。
+
+## ResMetaMesh 与全数据集批量入口
+
+| 任务 | 命令 |
+|---|---|
+| 二维九个默认外推数据集 | `python scripts/train/run_formal_batch.py --dimension 2` |
+| 三维九个默认外推数据集，同一队列四卡执行 | `python scripts/train/run_formal_batch.py --dimension 3 --gpus 0 1 2 3` |
+
+批量入口通过 `formal-four` 选择四个模型，逐数据集生成六方法结果。训练和联合评估属于同一个数据集任务。任务失败先记日志再继续。多 GPU 日志位于 `outputs/gpu_queue/formal/batch/<维度>/seed_<种子>/<run-tag>/<数据集>/run.log`，并在批次目录汇总为 `queue_summary.json`。追加 `--dry-run` 只查看调度。ResMetaMesh 单独训练或评估与其他模型共用正式入口，模型名为 `resmetamesh`，默认评估检查点为 `final.pt`。

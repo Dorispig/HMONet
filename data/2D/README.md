@@ -16,3 +16,7 @@
 | [tri_p](boundaries/tri_p.md) | `symmetric_convex_tri` | `protrusion_distance` | 41×41 |
 | [gsp_a](boundaries/gsp_a.md) | `gear_spline` | `amplitude` | 41×41 |
 | [fca_a](boundaries/fca_a.md) | `four_convex_arcs` | `arc_angle_deg` | 41×41 |
+
+## 生成后运行正式实验
+
+数据集可用于默认三个模型和 ResMetaMesh。ResMetaMesh 用训练集样本索引关联潜码，复用数据集的参数边界，预训练无需 PDE 坐标标签。完整批量训练和评估命令见 [2D 临时命令](../../configs/2D/formal_external_commands.md#一次性训练并评估全部九个数据集)。

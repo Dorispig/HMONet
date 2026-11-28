@@ -66,3 +66,4 @@ git pull --ff-only origin main
 
 数据集、checkpoint、TensorBoard 和评估结果通常被 `.gitignore` 排除，不会随 `git pull` 自动更新。实验复用由训练指纹和文件完整性决定，与绝对路径及 run tag 无关；正式运行前建议先使用 `--dry-run` 检查任务计划。
 
+ResMetaMesh 沿用项目的 PyTorch 和 YAML 依赖调用 Adam、L-BFGS 与自动微分。批量入口的 `--gpus` 用法见[命令速查](command_reference.md#resmetamesh-与全数据集批量入口)。

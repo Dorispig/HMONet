@@ -23,6 +23,8 @@ _METHOD_NAMES = {
     "pi-meshonet": "PI-MeshONet",
     "hmonet": "HMONet",
     "qghmonet": "QG-HMONet",
+    "resmetamesh": "ResMetaMesh",
+    "rm": "ResMetaMesh",
     "qg-hmonet": "QG-HMONet",
 }
 _LEGACY_METHOD_NAMES = {

@@ -54,7 +54,7 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset swb_a_ext_2_500_2
 
 ## 仅评估已有 checkpoint
 
-`--evaluate-only` 不训练模型，而是自动定位所选数据集、模型和硬约束方式对应的既有 checkpoint，并显式固定使用 `best.pt`（或 `--checkpoint final` 的 `final.pt`）。该模式会保留完整网格与质量产物，便于之后直接复用。
+`--evaluate-only` 不训练模型，而是自动定位所选数据集、模型和硬约束方式对应的既有 checkpoint，并固定使用对应检查点。ResMetaMesh 默认读取 `final.pt`，其余模型默认读取 `best.pt`。显式指定 `--checkpoint best` 或 `--checkpoint final` 可覆盖所选模型的默认规则。该模式会保留完整网格与质量产物，便于之后直接复用。
 
 若完整网格或匹配缓存已经存在，只想补充截面图片或重新整理分析结果，可在 `--evaluate-only` 后直接添加 `--analysis-only`。该模式不会重新推理网络或求解 PDE，且不能与 `--force` 同时使用。
 
@@ -138,3 +138,21 @@ outputs/
 只重新评估已有模型时，使用 [三维评估命令](evaluate_cli.md)。只训练时，使用 [三维训练命令](train_cli.md)。
 
 run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及体网格通过；评估参数1.52、1.55的PDE体网格分别存在16、20个翻转单元，1.55的两个端面各有2个内凹四边形。数据集生成会拦截非法端面；评估会正常记录网格质量，不能把求解收敛或评估结束当作网格合法。61×21×11的通过记录保留在核验报告中。
+
+### 可选加入 ResMetaMesh
+
+正式联合入口默认使用 HMONet、MeshONet、PI-MeshONet。`--models formal-four` 等价于 `--models hmonet meshonet pimeshonet resmetamesh`。联合评估还会包含 TFI 和 PDE-Winslow。只跑 ResMetaMesh 时用 `--models resmetamesh`，仅训练可用 `python scripts/train/train_3d.py --dataset cah_t_ext_2_500_21_21_11 --model resmetamesh`，或加 `--evaluate-only` 使用已有检查点。训练曲线的联合汇总仅比较原来的三个模型。
+
+```powershell
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_2_500_21_21_11 --models formal-four --grids 41x41x11 81x81x11 --values 0.06 0.38 --seed 20261030 --run-tag v1
+```
+
+ResMetaMesh 直接使用现有参数边界。训练用 Adam 学习主干和逐几何潜码，评估冻结主干并为每个新几何用 L-BFGS 适配潜码和最后一层 LoRA。同一次评估在不同输出分辨率间共用适配结果。适配的固定逻辑点阵与输出网格尺寸独立。它的总生成时间包括适配用初始网格、潜码与 LoRA 优化，以及输出网格构造与前向。配置位于 `train.yaml` 的 `model.resmetamesh` 和 `resmetamesh_training`。预训练与其他正式模型共用 `training.batch_size`，默认每批 64 个几何，可用 `--batch-size` 覆盖。每轮打乱训练集，每批执行一次 Adam 更新，保留最后一个小批。沿用论文 Algorithm 1 的 5000 次 Adam 更新预算及恒定学习率 0.0001。在 500 条数据上，默认每轮 8 批，共训练 625 轮。`--epochs` 可额外限制训练轮数。固定网格 MSE 用于监测，预训练不按 MSE 或损失平台提前停止。训练和适配均使用未归一化、零源项逆形式 PDE 残差，并保留潜码 L2 正则。TFI 基础网格使用域内中心差分，步长取 `hmonet_training.pde_fd_step`，默认各轴 0.01。网络修正项的一阶、二阶及混合坐标导数使用自动微分，与原论文的求导分工一致。论文对比使用完成预训练预算后的 `final.pt`。逐几何适配次数由 `adaptation_steps` 单独控制。
+
+默认主干使用 3 个宽度为 50 的 Tanh 隐藏层和 1 个输出层，参考原论文 Table 3 的偏置参数量反推。按论文 Table C.1，三维逻辑网格为 30×30×30，使用末层秩 2 的 LoRA 和 8 维新潜码，以 L-BFGS 适配 200 步。潜码 L2 权重为 1e-4，每个新几何共优化 114 个参数。
+
+### 全数据集批量入口与 ResMetaMesh 精度
+
+`python scripts/train/run_formal_batch.py --dimension 3` 一次处理各自配置的九个默认外推数据集。追加 `--gpus 0 1 2 3` 按完整数据集动态调度。详见[临时命令](formal_external_commands.md#一次性训练并评估全部九个数据集)。
+
+当前 ResMetaMesh 的 TFI 基底、差分、网络修正、损失、适配和网格输出均采用 float32，网络修正项的坐标导数使用自动微分。传统 TFI 与 PDE-Winslow 参考计算独立。默认逐几何 L-BFGS 适配 200 步，LoRA rank 为 2，学习率 1，无线搜索。旧预训练 checkpoint 可用于仅评估，报告时应注明预训练版本与适配精度。

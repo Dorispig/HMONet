@@ -1,4 +1,4 @@
-﻿# 二维模型训练配置
+# 二维模型训练配置
 # 完整命令行说明：configs/2D/train_cli.md
 # 命令行参数会覆盖本文件中的对应值。
 
@@ -54,6 +54,12 @@ model:  # 模型与网络结构配置
     trunk_hidden_dim: 80  # Modified MLP主干隐藏宽度
     trunk_hidden_layer_num: 4  # Modified MLP主干门控层数
     output_dim: 80  # 分支与主干点积的潜在维度
+
+  formal_models: [hmonet, meshonet, pimeshonet]  # train_evaluate.py default selection
+  resmetamesh:  # Shared auto-decoder, independent of the other models' common options
+    latent_dim: 8
+    width: 50
+    hidden_layers: 3  # Three hidden layers plus output, inferred from Table 3 bias-only counts
 
   meshonet:  # MeshONet专属网络结构；覆盖common且不影响HMONet
     coordinate_lift_mode: legacy  # 与 HMONet、PI-MeshONet 一致的18维 legacy 坐标增强
@@ -276,3 +282,20 @@ qghmonet_training: *hard_operator_training
 
 
 
+
+# ResMetaMesh: Adam pre-training, then per-geometry latent + LoRA adaptation.
+resmetamesh_training:
+  # TFI base uses centered differences at hmonet_training.pde_fd_step; correction uses autograd.
+  pretrain_updates: 5000  # Adam updates; batch size comes from training.batch_size
+  learning_rate: 0.0001  # Constant in pre-training
+  best_model_metric: training_loss
+  plateau_metric: train_loss
+  collocation_shape: [60, 60]
+  collocation_count: 400  # Fixed interior subsample during pre-training
+  adaptation_collocation_count: null  # Full interior lattice during adaptation
+  derivative_batch_size: 512
+  latent_l2_weight: 0.0001
+  adaptation_steps: 150
+  adaptation_lr: 1.0
+  lora_rank: 4  # Table C.1; 216 trainable parameters including the new latent
+  lbfgs_history_size: 100

@@ -746,7 +746,7 @@ def train_models(names, paths, config, mode, args, device):
             run_args.mode = run_mode
             data = ParametricDataset3D(
                 path,
-                load_boundary=(name in ("hmonet", "qghmonet")),
+                load_boundary=(name in ("hmonet", "qghmonet", "resmetamesh")),
             )
             for axis, actual in zip(("nx", "ny", "nz"), data.grid_shape):
                 requested = getattr(args, axis, None)
@@ -762,7 +762,8 @@ def train_models(names, paths, config, mode, args, device):
             dataset_root = Path(run_args.output_root)
             selected_runs = dataset_runs.setdefault(dataset_root, {})
             reused = reuse_completed_training(
-                run_config, name, data.root, run_mode, run_args, 3
+                run_config, name, data.root, run_mode, run_args, 3,
+                dataset_size=len(data) if name == "resmetamesh" else None,
             )
             if reused is not None:
                 selected_runs[name] = Path(reused["training_output_dir"])
@@ -780,6 +781,10 @@ def train_models(names, paths, config, mode, args, device):
                     [data], run_config, run_mode, run_args, device,
                     model_name="qghmonet", model_class=QGHMONet3D,
                 )
+            elif name == "resmetamesh":
+                from scripts.train.train_resmetamesh import train_resmetamesh
+
+                train_resmetamesh(data, run_config, run_mode, run_args, device)
             elif name == "pimeshonet":
                 train_pimeshonet([data], run_config, run_mode, run_args, device)
             elif name == "meshonet":
@@ -1112,6 +1117,8 @@ def main(argv=None):
     # Explicit CLI lift settings override model-specific YAML values as well
     # as the common block, matching the 2-D training entry point.
     for name in names:
+        if name == "resmetamesh":
+            continue
         selected = config.setdefault("model", {}).setdefault(name, {})
         if args.coordinate_lift_mode is not None:
             selected["coordinate_lift_mode"] = args.coordinate_lift_mode

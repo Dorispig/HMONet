@@ -23,6 +23,7 @@ _SHORT_METRIC_NAMES = {
     "boundary_normal": "normal",
     "pde_loss": "pde",
     "loss_pde": "pde",
+    "loss_latent": "latent",
     "normalized_pde": "pde",
     "loss_pde_normalized": "pde",
     "jacobian_loss": "jac",

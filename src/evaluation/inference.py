@@ -9,7 +9,7 @@ import torch
 import yaml
 
 from .artifacts import file_digest, read_json
-from .configuration import ROOT, resolve_path
+from .configuration import ROOT, checkpoint_kind, resolve_path
 from src.data.mesh.sampling import sample_boundary
 from src.data.backend.curve_kernels import curve_kernel_mode, kernel_status
 from src.models import (
@@ -51,7 +51,7 @@ def find_checkpoint(dimension, dataset, method, mapping, options, split=None):
         return path
     root = ROOT / f"outputs/checkpoints/{dimension}D" / dataset
     candidates = []
-    for path in root.rglob("best.pt"):
+    for path in root.rglob(f"{checkpoint_kind(method)}.pt"):
         parts = path.relative_to(root).parts
         if method not in parts:
             continue

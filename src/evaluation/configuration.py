@@ -26,7 +26,15 @@ METHODS = {
     "hmonet": "HMONet",
     "qghmonet": "QG-HMONet",
     "qg-hmonet": "QG-HMONet",
+    "resmetamesh": "ResMetaMesh",
 }
+def checkpoint_kind(method, selection=None):
+    """Choose the saved model state unless the caller overrides the default."""
+    if selection is not None:
+        return selection
+    return "final" if method.lower() == "resmetamesh" else "best"
+
+
 DEFAULTS = dict(
     methods=["tfi", "pde", "meshonet", "pimeshonet", "hmonet", "qghmonet"],
     include_tfi=True,
@@ -134,7 +142,7 @@ def selected_methods(values):
         key = str(value).strip().lower()
         if key not in METHODS:
             raise ValueError(
-                f"Unknown method {value!r}; choose tfi,pde,meshonet,pimeshonet,hmonet,qghmonet"
+                f"Unknown method {value!r}; choose tfi,pde,meshonet,pimeshonet,hmonet,qghmonet,resmetamesh"
             )
         if METHODS[key] not in result:
             result.append(METHODS[key])
@@ -184,7 +192,7 @@ def build_parser(dimension):
     )
     parser.add_argument(
         "--model",
-        choices=["hmonet", "qghmonet", "meshonet", "pimeshonet", "both", "pi", "all"],
+        choices=["hmonet", "qghmonet", "meshonet", "pimeshonet", "resmetamesh", "both", "pi", "all"],
     )
     parser.set_defaults(dimension=dimension)
     parser.add_argument(
@@ -217,6 +225,7 @@ def build_parser(dimension):
     parser.add_argument("--qghmonet-checkpoint", type=Path)
     parser.add_argument("--meshonet-checkpoint", type=Path)
     parser.add_argument("--pimeshonet-checkpoint", type=Path)
+    parser.add_argument("--resmetamesh-checkpoint", type=Path)
     parser.add_argument("--curve-kernel-backend", choices=["auto", "torch"])
     parser.add_argument(
         "--hmonet-mapping-mode", choices=mapping_mode_choices(allow_both=True)
@@ -328,6 +337,7 @@ def evaluation_options(config, case, args):
         "qghmonet_checkpoint",
         "meshonet_checkpoint",
         "pimeshonet_checkpoint",
+        "resmetamesh_checkpoint",
         "checkpoint",
     ):
         value = getattr(args, key, None)
@@ -362,7 +372,7 @@ def evaluation_options(config, case, args):
         result["methods"] = [
             m
             for m in result["methods"]
-            if m not in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
+            if m not in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh")
         ]
         result["methods"] += (
             ["MeshONet", "PI-MeshONet", "HMONet", "QG-HMONet"]
@@ -393,7 +403,7 @@ def evaluation_options(config, case, args):
     if (
         args.checkpoint
         and sum(
-            m in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
+            m in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh")
             for m in result["methods"]
         )
         != 1

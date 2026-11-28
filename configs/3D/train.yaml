@@ -1,4 +1,4 @@
-﻿# 三维训练配置。公共参数的默认值、排列顺序和注释与二维 train.yaml 保持一致。
+# 三维训练配置。公共参数的默认值、排列顺序和注释与二维 train.yaml 保持一致。
 
 datasets:  # 当前正式三维训练数据集（生成后可直接使用）
   extrapolation: data/raw/3D/swb_a_ext_2_500_21_21_11
@@ -60,6 +60,12 @@ model:  # 支持单模型、逗号分隔的任意模型组合，以及both、pi�
     cross_attention_heads: 4
     local_boundary_dim: 16
     boundary_layer_width: 0.08
+
+  formal_models: [hmonet, meshonet, pimeshonet]  # train_evaluate.py default selection
+  resmetamesh:  # Shared auto-decoder, independent of the other models' common options
+    latent_dim: 8
+    width: 50
+    hidden_layers: 3  # Three hidden layers plus output, inferred from Table 3 bias-only counts
 
   meshonet:  # 论文式三分支共享融合结构，宽度与二维正式配置一致
     coordinate_lift_mode: legacy  # 与 HMONet、PI-MeshONet 一致的18维 legacy 坐标增强
@@ -226,3 +232,20 @@ qghmonet_training: *hard_operator_training
 
 
 
+
+# ResMetaMesh: Adam pre-training, then per-geometry latent + LoRA adaptation.
+resmetamesh_training:
+  # TFI base uses centered differences at hmonet_training.pde_fd_step; correction uses autograd.
+  pretrain_updates: 5000  # Adam updates; batch size comes from training.batch_size
+  learning_rate: 0.0001  # Constant in pre-training
+  best_model_metric: training_loss
+  plateau_metric: train_loss
+  collocation_shape: [30, 30, 30]
+  collocation_count: 400  # Fixed interior subsample during pre-training
+  adaptation_collocation_count: null  # Full interior lattice during adaptation
+  derivative_batch_size: 512
+  latent_l2_weight: 0.0001
+  adaptation_steps: 200
+  adaptation_lr: 1.0
+  lora_rank: 2  # Table C.1; 114 trainable parameters including the new latent
+  lbfgs_history_size: 100

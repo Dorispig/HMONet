@@ -1,6 +1,6 @@
 # 3D 九类外推正式实验：临时命令清单
 
-在项目根目录运行，先生成数据集，再训练三个模型、补全训练对比图并进行五方法评估。默认不进行外部边界后处理。
+在项目根目录运行，先生成数据集，再训练三个模型、补全训练对比图并进行五方法评估。默认不进行外部边界后处理。以下逐项示例保留三个默认模型，文件末尾提供含 ResMetaMesh 的四模型全数据集批量命令。
 
 当前九类默认评估节点规模统一为 `41x41x11` 和 `81x81x11`；不填写 `--grids` 时读取 case 的 `grid_shapes`。固定 z 方向为11点适合横截面加密比较，不代表三方向同步加密的三维收敛研究。训练网格改变后，边界输入维度也改变，需生成新规模数据并重新训练，不能重命名旧 checkpoint。
 
@@ -73,3 +73,25 @@ run_e默认规模按要求改为41×41×11。实测槽深0.55、1.50的端面及
 三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
 
 GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。
+
+## 四 GPU 批量训练并评估九个 ResMetaMesh 数据集
+
+在 Linux 服务器的项目根目录运行。每张 GPU 处理完一个数据集的 ResMetaMesh 训练、单方法评估和六方法对比后，再从共享队列领取下一个数据集。网格和参数读取三维评估配置。匹配的 ResMetaMesh 训练可复用，使用其最终检查点。
+
+```bash
+python scripts/train/run_formal_batch.py --dimension 3 --resmetamesh-only --seed 20261030 --run-tag v1 --gpus 0 1 2 3
+```
+
+联合评估使用 `--analysis-only`，需要同一参数、网格规模及评估设置下的 TFI、PDE-Winslow、MeshONet、PI-MeshONet、HMONet 的已有网格和生成元数据，以及三个模型匹配的 `best.pt`。缺失或不匹配的工况会记录失败。可附加 `--dry-run` 查看任务计划。
+
+每个数据集的日志位于 `outputs/gpu_queue/formal/3D/resmetamesh/seed_20261030/v1/<数据集>/run.log`，完成状态汇总在同一批次的 `queue_summary.json`。全部任务尝试结束后，只要有失败项，整条命令就返回非零退出码。联合评估结果保存在 `outputs/results/3D` 的对应工况目录。
+
+## 一次性训练并评估全部九个数据集
+
+数据集生成后从项目根目录运行。该命令按 `evaluate.yaml` 的 `evaluation.default_cases` 读取九个外推数据集，并使用各自配置的网格规模和评估参数。每个数据集运行 HMONet、MeshONet、PI-MeshONet、ResMetaMesh，再与 TFI、PDE-Winslow 生成六方法对比。
+
+```bash
+python scripts/train/run_formal_batch.py --dimension 3
+```
+
+可追加 `--gpus 0 1 2 3`，每张卡完成一个数据集的全部训练和评估后领取下一项。单卡可指定 `--device cuda:0`。默认种子为 `20261030`，run-tag 为 `v1`。失败的数据集会记录并跳过，全部任务结束后汇总。加 `--dry-run` 可查看命令和调度计划。匹配配置的已完成训练会复用。

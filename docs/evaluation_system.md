@@ -12,7 +12,7 @@ python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_41_41 --values 0.6
 python scripts/evaluate/evaluate_3d.py --case swb_a_ext_1_500_11_21_11 --values 0.02 0.34 --grids 11x21x11 21x41x21 --methods tfi,pde,meshonet,pimeshonet,hmonet
 ```
 
-三维显式网格按 `n_x×n_y×n_z` 写为一个参数，例如 `11x31x11`；只有纯数字 `21 31` 才被解释为两个立方网格。旧式 `--grid-shapes 11x31x11,21x61x21` 仍兼容。只选传统方法时不会生成模型占位文件。方法名称不区分输入大小写；图中顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet、QG-HMONet。显式 checkpoint 必须与模型和 HMONet 映射模式匹配，错误身份会报错，不会静默替换。
+三维显式网格按 `n_x×n_y×n_z` 写为一个参数，例如 `11x31x11`；只有纯数字 `21 31` 才被解释为两个立方网格。旧式 `--grid-shapes 11x31x11,21x61x21` 仍兼容。只选传统方法时不会生成模型占位文件。方法名称不区分输入大小写；图中顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet、QG-HMONet、ResMetaMesh。显式 checkpoint 必须与模型和 HMONet 映射模式匹配，错误身份会报错，不会静默替换。
 
 YAML case 可直接构造指定参数的精确边界；`--dataset`/`--parameter-index` 用于选择已保存样本。PDE 结果由当前设置求解或从严格匹配缓存复用，不以旧 TFI 文件冒充 PDE。默认要求 PDE 收敛；允许保留未收敛结果时必须在摘要中明确状态。
 
@@ -92,7 +92,7 @@ outputs/
 └── results/2D|3D/        # 正式评估
 ```
 
-参数级评估目录按“维度/数据集/网格规模/参数”组织，包含配置身份、计时、边界误差、`results.json`、各方法目录和比较组。网络方法在目录内区分 raw、映射模式和外部后处理；比较目录名称包含实际参与的方法，不额外嵌套 PI-MeshONet 层级。为控制 Windows 路径长度，硬边界映射目录采用稳定缩写：`RAP`=`rational_affine`，`CR`=`coons_residual`，`CCAP`=`corner_corrected_affine`；比较组中 `H`、`M`、`PI` 分别表示 HMONet、MeshONet、PI-MeshONet，`raw` 表示未进行外部边界后处理，`idw` 表示 inverse-distance 后处理。
+参数级评估目录按“维度/数据集/网格规模/参数”组织，包含配置身份、计时、边界误差、`results.json`、各方法目录和比较组。网络方法在目录内区分 raw、映射模式和外部后处理；比较目录名称包含实际参与的方法，不额外嵌套 PI-MeshONet 层级。为控制 Windows 路径长度，硬边界映射目录采用稳定缩写：`RAP`=`rational_affine`，`CR`=`coons_residual`，`CCAP`=`corner_corrected_affine`；比较组中 `H`、`M`、`PI`、`RM` 分别表示 HMONet、MeshONet、PI-MeshONet、ResMetaMesh，`raw` 表示未进行外部边界后处理，`idw` 表示 inverse-distance 后处理。
 
 常见方法目录包含：
 
@@ -156,3 +156,8 @@ python scripts/evaluate/plot_result_zoom_3d.py --batch-root <parameter-dir> --mo
 
 三维中间截面的物理投影约定为 x_mid→YZ、y_mid→XZ、z_mid→XY；偶数层数在中间两层插值到逻辑参数 0.5。
 
+## ResMetaMesh 评估与产物
+
+ResMetaMesh 默认使用 `final.pt`，同一个几何参数的适配结果可跨输出规模复用。端到端时间包括 TFI 基底准备、潜码与 LoRA 适配及网格输出，计时记录同时保存各阶段用时。原始网格和质量保存在 `ResMetaMesh/raw/`，联合结果保存在带 `RM` 方法标识的比较组，例如 `comparisons/CCAP/H_raw__M_raw/TFI_PDE_M_PI_H_RM/`。仅评估 ResMetaMesh 时，网格、质量、边界误差、计时与 `evaluation_result.json` 集中写入 `ResMetaMesh/raw/`，不生成 `comparisons/RM/`，也不替换工况顶层的联合汇总。已有的六方法联合目录仍可直接读取。
+
+二维六方法统计柱状图可直接读取已有 raw、direct、IDW 质量和计时数据，默认仅画最大角。入口及路径见[二维评估说明](../configs/2D/evaluate_cli.md#数据集级柱状对比图)。

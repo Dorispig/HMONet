@@ -99,3 +99,4 @@ Use the GitHub issue templates. Include the smallest reproducing command, config
 
 By contributing, you agree that your contribution is distributed under the repository's [BSD 3-Clause License](LICENSE).
 
+ResMetaMesh changes should report both the pre-training checkpoint identity and the per-geometry adaptation configuration. Use the [formal batch dry run](docs/command_reference.md#resmetamesh-与全数据集批量入口) to verify selected cases and use saved mesh comparisons to validate plotting-only changes.

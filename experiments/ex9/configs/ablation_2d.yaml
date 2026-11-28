@@ -1,0 +1,4 @@
+# Signed normalized Jacobian barrier weight sweep on gear_spline.
+seeds: [20261030]
+datasets: [gsp_a_ext_1_500_41_41]
+grid_shapes: [[101, 101], [201, 201], [401, 401]]

@@ -444,3 +444,5 @@ final_model.pth
 4. `current` 硬约束保证边界坐标精确，但不能单独保证内部 Jacobian 为正，因此仍需 Jacobian 损失。
 5. 正式结论应在多类边界和至少三个随机种子上报告均值与标准差。
 6. 当前 HMONet 采用归一化 PDE 残差、Jacobian 屏障和奇异值屏障进行自监督训练；训练流程不依赖 PDE 网格标签。
+
+ResMetaMesh 是正式对照模型，使用独立的 TFI 基底加边界为零的网络修正。其预训练、逐几何适配和检查点规则见 [二维](configs/2D/train_evaluate_cli.md#可选加入-resmetamesh) 与 [三维](configs/3D/train_evaluate_cli.md#可选加入-resmetamesh) 正式说明。

@@ -1,8 +1,7 @@
 """Generate reusable training, timing, and quality comparison figures.
 
-The script consumes existing formal evaluation meshes.  MeshONet and
-PI-MeshONet ``direct``/``idw`` variants are derived from the immutable raw
-prediction and the exact PDE boundary, so no network inference is repeated.
+Six-method plots use archived quality and timing records. The legacy
+five-method path can also derive boundary variants from saved raw meshes.
 """
 
 from __future__ import annotations
@@ -39,6 +38,8 @@ BOUNDARY_PROCESSING_GROUPS = {
     "direct": ("TFI", "PDE", "MeshONet direct", "PI-MeshONet direct", "HMONet"),
     "idw": ("TFI", "PDE", "MeshONet IDW", "PI-MeshONet IDW", "HMONet"),
 }
+SIX_METHOD_GROUP = "TFI_PDE_M_PI_H_RM"
+RAW_COMPARISON = Path("comparisons/CCAP/H_raw__M_raw") / SIX_METHOD_GROUP
 LOWER_IS_BETTER = {
     "mse_vs_pde",
     "max_angle",
@@ -309,9 +310,14 @@ def plot_inference_times(
     timings: dict,
     projection_times: dict[str, dict[str, float]],
     formats: tuple[str, ...],
+    *,
+    include_resmetamesh: bool = False,
 ) -> list[dict]:
     methods = ("TFI", "PDE", "MeshONet", "PI-MeshONet", "HMONet")
+    if include_resmetamesh:
+        methods += ("ResMetaMesh",)
     source_names = {
+        "ResMetaMesh": "ResMetaMesh",
         "TFI": "TFI",
         "PDE": "PDE_Winslow",
         "HMONet": "HMONet",
@@ -350,7 +356,7 @@ def plot_inference_times(
                 index,
                 max(totals[variant], 1.0e-12),
                 layer_width,
-                color=colors[variant],
+                color="#008D85" if method == "ResMetaMesh" else colors[variant],
                 zorder=zorder,
             )
         if len(variants) == 3:
@@ -379,7 +385,8 @@ def plot_inference_times(
     axis.set_yscale("log")
     axis.set_xticks(x, methods)
     axis.set_ylabel("Total generation time (s, log scale)")
-    axis.set_title("Five-method generation time with boundary-processing totals")
+    title = "Six-method" if include_resmetamesh else "Five-method"
+    axis.set_title(f"{title} generation time with boundary-processing totals")
     axis.grid(True, axis="y", which="both", alpha=0.25)
     axis.margins(y=0.16)
     axis.legend(
@@ -387,6 +394,8 @@ def plot_inference_times(
             Patch(facecolor="#4C78A8", label="raw"),
             Patch(facecolor="#F2CF5B", label="raw + direct"),
             Patch(facecolor="#E45756", label="raw + IDW"),
+            *([Patch(facecolor="#008D85", label="ResMetaMesh incl. adaptation")]
+              if include_resmetamesh else []),
         ],
         frameon=False,
         ncol=3,
@@ -411,7 +420,7 @@ def plot_quality_bar(
     group_title: str,
     formats: tuple[str, ...],
 ) -> None:
-    colors = ("#4C78A8", "#59A14F", "#F28E2B", "#B279A2", "#E15759")
+    colors = ("#4C78A8", "#59A14F", "#F28E2B", "#B279A2", "#E15759", "#008D85")
     fig, axis = plt.subplots(figsize=(9.2, 5.4))
     bars = axis.bar(np.arange(len(labels)), values, color=colors[: len(labels)], width=0.66)
     axis.bar_label(bars, labels=[_number(value) for value in values], padding=3, fontsize=9)
@@ -444,6 +453,9 @@ def plot_quality_groups(
             for stale in metric_root.glob(pattern):
                 stale.unlink()
         for group_name, labels in BOUNDARY_PROCESSING_GROUPS.items():
+            if "ResMetaMesh" in statistics:
+                labels += ("ResMetaMesh",)
+            title = "Six-method" if len(labels) == 6 else "Five-method"
             for statistic in ("mean", "worst"):
                 values = [statistics[label][metric][statistic] for label in labels]
                 plot_quality_bar(
@@ -452,7 +464,7 @@ def plot_quality_groups(
                     values,
                     metric=metric,
                     statistic=statistic,
-                    group_title=f"Five-method comparison — {group_name.upper()} boundary processing",
+                    group_title=f"{title} comparison — {group_name.upper()} boundary processing",
                     formats=formats,
                 )
             for label in labels:
@@ -481,6 +493,7 @@ def selected_metrics(dimension: int, requested: tuple[str, ...]) -> tuple[str, .
         metric for metric in (QUAD_METRICS if dimension == 2 else HEX_METRICS)
         if not (dimension == 2 and metric == "cell_area")
     )
+    available += ("mse_vs_pde",)
     if requested == ("all",):
         return available
     unknown = sorted(set(requested) - set(available))
@@ -508,7 +521,93 @@ def discover_jobs(
     return jobs
 
 
+def load_saved_six_method_statistics(root: Path, metrics: tuple[str, ...]):
+    """Read matched raw, direct and IDW evaluations without running any solver."""
+    raw_directory = root / RAW_COMPARISON
+    raw = load_json(raw_directory / "evaluation_result.json")
+    shape = tuple(raw["grid_shape"])
+    cell_count = math.prod(n - 1 for n in shape)
+    statistics = {}
+    projection_times = {}
+    raw_timings = raw["timings"]
+    for group, directory in (
+        ("raw", raw_directory),
+        ("direct", root / "comparisons/CCAP/H_raw__M_direct__PI_direct/TFI_PDE_M_PI_H"),
+        ("idw", root / "comparisons/CCAP/H_raw__M_idw__PI_idw/TFI_PDE_M_PI_H"),
+    ):
+        record = raw if group == "raw" else load_json(directory / "evaluation_result.json")
+        if any(record[key] != raw[key] for key in ("grid_shape", "parameters", "case")):
+            raise ValueError(f"Mismatched saved evaluation in {directory}")
+        labels = BOUNDARY_PROCESSING_GROUPS[group]
+        methods = ("TFI", "PDE_Winslow", "MeshONet", "PI-MeshONet", "HMONet")
+        pairs = zip((*labels, "ResMetaMesh"), (*methods, "ResMetaMesh")) if group == "raw" else zip(labels[2:4], methods[2:4])
+        saved_mse = (
+            load_json(directory / "point_loss_summary.json")["methods"]
+            if "mse_vs_pde" in metrics else {}
+        )
+        for label, method in pairs:
+            method_metrics = record["metrics"][method]
+            items = {}
+            for metric in metrics:
+                worst = worst_key(metric)
+                if metric == "mse_vs_pde":
+                    if method == "TFI":
+                        meshes = {m: np.load(_mesh_path(root, m)).reshape(-1, len(shape))
+                                  for m in ("TFI", "PDE")}
+                        loss = mse_statistics({"TFI": meshes["TFI"]}, meshes["PDE"])["TFI"]["mse_vs_pde"]
+                        mean, value = loss["mean"], loss["worst"]
+                    elif method == "PDE_Winslow":
+                        mean = value = 0.0
+                    else:
+                        loss = saved_mse[method]
+                        mean = loss["mse_vs_winslow"]
+                        value = loss["max_point_mse_vs_winslow"]
+                    count = math.prod(shape)
+                else:
+                    saved = method_metrics[metric]
+                    mean, value = saved["mean"], saved[worst]
+                    count = cell_count
+                items[metric] = {"mean": mean, "worst": value,
+                                 "worst_key": worst, "cell_count": count}
+            statistics[label] = items
+            if method in ("MeshONet", "PI-MeshONet"):
+                timing = record["timings"][method]
+                if timing["checkpoint_sha256"] != raw_timings[method]["checkpoint_sha256"]:
+                    raise ValueError(f"Mismatched {method} checkpoint in {directory}")
+                projection_times.setdefault(method, {})[group] = timing["boundary_projection_seconds"]
+    return raw, statistics, projection_times
+
+
+def process_saved_six_method_job(args, root: Path, metrics: tuple[str, ...]) -> dict:
+    record, stats, projection_times = load_saved_six_method_statistics(root, metrics)
+    output = root / "summary_comparisons" / "six_methods"
+    output.mkdir(parents=True, exist_ok=True)
+    timing_rows = plot_inference_times(
+        output, record["timings"], projection_times, args.formats, include_resmetamesh=True,
+    )
+    quality_rows = plot_quality_groups(output, stats, metrics, args.formats)
+    manifest = {
+        "dimension": args.dimension,
+        "dataset": args.dataset,
+        "grid_shape": record["grid_shape"],
+        "parameter": record["parameter"],
+        "value": record["value"],
+        "metrics": list(metrics),
+        "method_order": list(record["method_order"]),
+        "evaluation_source": "saved_evaluation",
+        "quality_figure_count": len(metrics) * 6 * len(args.formats),
+        "timing_rows": len(timing_rows),
+        "quality_rows": len(quality_rows),
+    }
+    save_json(output / "comparison_manifest.json", manifest)
+    return {"root": str(root), "output": str(output), **manifest}
+
+
 def process_job(args, root: Path, metrics: tuple[str, ...]) -> dict:
+    if args.dimension == 2 and (
+        args.include_resmetamesh or (root / RAW_COMPARISON / "evaluation_result.json").is_file()
+    ):
+        return process_saved_six_method_job(args, root, metrics)
     metadata_path = root / "results.json"
     metadata = load_json(metadata_path) if metadata_path.is_file() else load_json(root / "evaluation_parameters.json")
     shape = tuple(int(value) for value in metadata["grid_shape"])
@@ -547,11 +646,13 @@ def process_job(args, root: Path, metrics: tuple[str, ...]) -> dict:
         projection_times,
         args.formats,
     )
-    stats = quality_statistics(comparison_meshes, shape, metrics)
-    mse = mse_statistics(comparison_meshes, meshes["PDE"])
-    for label in stats:
-        stats[label].update(mse[label])
-    plotted_metrics = (*metrics, "mse_vs_pde")
+    stats = quality_statistics(
+        comparison_meshes, shape, tuple(metric for metric in metrics if metric != "mse_vs_pde"),
+    )
+    if "mse_vs_pde" in metrics:
+        for label, values in mse_statistics(comparison_meshes, meshes["PDE"]).items():
+            stats[label].update(values)
+    plotted_metrics = metrics
     quality_rows = plot_quality_groups(output, stats, plotted_metrics, args.formats)
     manifest = {
         "dimension": args.dimension,
@@ -579,7 +680,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--training-root", type=Path, default=Path("outputs/training"))
     result.add_argument("--grids", nargs="+", help="Optional folder names, e.g. 101x101")
     result.add_argument("--values", nargs="+", help="Optional parameter folder names")
-    result.add_argument("--quality-metrics", nargs="+", default=["all"])
+    result.add_argument("--quality-metrics", nargs="+", default=["max_angle"])
+    result.add_argument(
+        "--include-resmetamesh", action="store_true",
+        help="Require saved six-method 2-D results instead of falling back to five methods.",
+    )
     result.add_argument("--formats", nargs="+", choices=("png", "pdf"), default=["png"])
     result.add_argument("--timing-repeats", type=int, default=3)
     result.add_argument("--idw-power", type=float, default=2.0)
@@ -589,7 +694,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
-    args = parser().parse_args(argv)
+    command = parser()
+    args = command.parse_args(argv)
+    if args.include_resmetamesh and args.dimension != 2:
+        command.error("--include-resmetamesh currently uses the saved 2-D evaluations")
     args.results_root = (ROOT / args.results_root).resolve() if not args.results_root.is_absolute() else args.results_root
     args.training_root = (ROOT / args.training_root).resolve() if not args.training_root.is_absolute() else args.training_root
     args.formats = tuple(dict.fromkeys(args.formats))

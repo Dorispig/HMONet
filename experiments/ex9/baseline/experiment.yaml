@@ -1,0 +1,2 @@
+# Inherit the formal 2-D HMONet configuration (PDE weight 1, Jacobian weight 0).
+extends: ../../../configs/2D/train.yaml

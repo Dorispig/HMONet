@@ -461,3 +461,6 @@ TFI和PDE-Winslow没有训练随机性，在表中报告单值，标准差位置
 - 不因单个数据集或单个指标临时更改选择标准；
 - 在至少三类几何上验证选择结果。
 
+## 当前正式六方法对照
+
+现行评估增加 ResMetaMesh 和 PI-MeshONet，统一比较 TFI、PDE-Winslow、MeshONet、PI-MeshONet、HMONet、ResMetaMesh。当前 ResMetaMesh 论文数据采用旧预训练 `final.pt`，用 float32 重新适配和评估。报告应分开列出边界误差、内部点 MSE、非法单元、最差指标和含适配的首次生成时间。复现实验入口见 [二维临时命令](configs/2D/formal_external_commands.md#一次性训练并评估全部九个数据集)。

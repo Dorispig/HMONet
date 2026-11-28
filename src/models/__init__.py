@@ -5,6 +5,7 @@
 from .hmonet import HMONet2D, HMONet3D
 from .meshonet import MeshONet2D, MeshONet3D
 from .pi_meshonet import PIMeshONet2D, PIMeshONet3D
+from .resmetamesh import ResMetaMesh
 from .qg_hmonet import QGHMONet2D, QGHMONet3D
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "MeshONet3D",
     "PIMeshONet2D",
     "PIMeshONet3D",
+    "ResMetaMesh",
     "QGHMONet2D",
     "QGHMONet3D",
 ]

@@ -39,7 +39,7 @@ def _grid_name(value: str) -> str:
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("suite", help="Experiment suite, for example ex1 through ex8")
+    parser.add_argument("suite", help="Experiment suite, for example ex1 or ex9")
     parser.add_argument(
         "experiments",
         nargs="*",

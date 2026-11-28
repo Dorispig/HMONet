@@ -44,16 +44,50 @@ python scripts/evaluate/evaluate_2d.py --case air_t_ext_1_500_21_21 --methods tf
 python scripts/evaluate/evaluate_2d.py --help
 ~~~
 
-## 数据集级论文对比图
+## 六方法网格与质量图
 
-已有五方法正式评估后，可一次生成三模型训练时间/最佳 MSE 柱状图、五方法推理时间图，以及每个参数、网格和质量指标的六张统计对比图：
+已保存的 raw 网格可直接生成六方法对比图。以下命令读取与检查点和评估设置匹配的已有网格：
 
 ~~~powershell
-python scripts/evaluate/generate_dataset_comparison_figures.py --dimension 2 --dataset air_t_ext_1_500_21_21 --grids 101x101 201x201 401x401 --values 0.62 0.65 --quality-metrics all
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models hmonet meshonet pimeshonet resmetamesh --evaluate-only --analysis-only --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet,resmetamesh --grids 101 201 401 --values 0.62 0.65 --device cuda:0
 ~~~
 
-每项质量指标固定输出六张五方法对比图：`raw/direct/IDW × mean/worst`。每张图的顺序固定为 TFI、PDE、MeshONet、PI-MeshONet、HMONet；前三种精确边界结果（TFI、PDE、HMONet）在三类图中保持不变，两个对比模型使用对应的 raw、direct 或 IDW 结果。推理时间图也采用该方法顺序；MeshONet 与 PI-MeshONet 在单个横轴位置以不同宽度重叠显示 raw、raw+direct、raw+IDW 三种总耗时。训练图位于 `outputs/results/2D/<数据集>/dataset_comparisons/training/`；其余图位于各参数目录的 `summary_comparisons/`。脚本从已有 raw 网格派生 direct/IDW，不重新运行网络。
+输出位于 `outputs/results/2D/<数据集>/<网格>/<参数>/comparisons/CCAP/H_raw__M_raw/TFI_PDE_M_PI_H_RM/`。普通网格图为 `mesh_comparison_overview.png`，精确边界叠加图为 `mesh_comparison_with_exact_boundary.png`。追加 `--quality-plots scaled_jacobian max_angle` 可以生成六方法质量分布图，追加 `--quality-plots all` 可以生成所有质量分布图。其他数据集使用各自的评估参数。已有 direct 和 IDW 六方法网格图分别位于 `comparisons/CCAP/H_raw__M_direct__PI_direct/TFI_PDE_M_PI_H_RM/` 与 `comparisons/CCAP/H_raw__M_idw__PI_idw/TFI_PDE_M_PI_H_RM/`。这两组中只有 MeshONet 和 PI-MeshONet 使用对应边界后处理。
 
-除网格几何质量外，脚本固定增加 `mse_vs_pde` 六图。其 mean 是包含边界和内部点的所有网格点坐标分量MSE；worst 是单个网格点的最大坐标分量MSE。两者均以同一参数、同一规模的PDE网格为参考，PDE自身为0。
+## 数据集级柱状对比图
 
-连续质量指标的五个结果若集中在很窄的正值区间，纵轴会自动聚焦并保留边距，使细微差异可读；差距较大、包含零值或属于非法单元计数的指标仍保留零基线，避免夸大差异。
+已完成六方法评估的数据集可直接复用现有统计量和耗时生成柱状图：
+
+~~~powershell
+python scripts/evaluate/generate_dataset_comparison_figures.py --dimension 2 --dataset esa_ext_1_500_41_41 --include-resmetamesh --skip-training-comparison
+~~~
+
+默认指标为 `max_angle`。不指定网格和参数时遍历该数据集的全部已评估工况，也可以用 `--grids 101x101 201x201` 和 `--values 0.72 0.75` 筛选。指定 `--quality-metrics all` 会输出全部网格质量指标及 `mse_vs_pde`。也可使用 `--quality-metrics max_angle scaled_jacobian` 只生成指定指标。
+
+每个工况保存到 `outputs/results/2D/<数据集>/<网格>/<参数>/summary_comparisons/six_methods/`：
+
+- `quality/<指标>/` 每个指标有六张图，分别为 raw、direct、IDW 的均值和最差值。顺序为 TFI、PDE、MeshONet、PI-MeshONet、HMONet、ResMetaMesh。仅 MeshONet 和 PI-MeshONet 随组切换边界处理。
+- `inference_time_bar.png` 是六方法总生成时间图。MeshONet、PI-MeshONet 在同一位置分层展示 raw、raw + direct 和 raw + IDW 的实测总时间，ResMetaMesh 的耗时含逐几何适配。
+- `inference_time.csv` 和 `quality_statistics.csv` 保存柱状图对应数值。几何质量和时间来自已保存的评估记录，绘图阶段不运行网络、PDE 求解或边界后处理。
+- `mse_vs_pde` 的 mean 是所有网格节点的坐标分量 MSE，worst 是最大单节点坐标分量 MSE。TFI 对 PDE 的 MSE 从已保存的两套坐标计算。
+
+对有六方法 raw 评估的工况，脚本自动使用六方法模式。`--include-resmetamesh` 要求选定工况都有六方法评估，缺失时给出文件路径。原五方法柱状图保留在父级 `summary_comparisons/`。
+
+## ResMetaMesh 单独评估与结果位置
+
+仅评估 ResMetaMesh 时，显式指定 `--evaluate-methods resmetamesh`：
+
+```bash
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models resmetamesh --evaluate-only --evaluate-methods resmetamesh
+```
+
+网格、质量、边界误差、计时和 `evaluation_result.json` 集中写入该工况的 `ResMetaMesh/raw/`。单方法评估不会创建 `comparisons/RM/`，也不会刷新工况顶层的联合结果。已保存的单方法网格可以在后续联合评估时复用。
+
+同时生成六方法联合对比：
+
+
+```bash
+python scripts/train/train_evaluate.py --dimension 2 --dataset air_t_ext_1_500_41_41 --models resmetamesh --evaluate-only --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet,resmetamesh
+```
+
+六方法联合评估需要该数据集上其余三个学习模型已有兼容 checkpoint。若六种网格均已评估，再加 `--analysis-only` 可直接读取兼容网格和缓存。ResMetaMesh 使用 `final.pt`，其余模型默认使用 `best.pt`。原始网格和单方法质量位于参数目录的 `ResMetaMesh/raw/`，六方法联合目录以 `TFI_PDE_M_PI_H_RM` 命名。ResMetaMesh 的端到端生成用时包含逐几何适配。

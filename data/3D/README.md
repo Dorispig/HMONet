@@ -22,3 +22,7 @@
 三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
 
 GPU 以完整数据集分配任务；详细进度按前几个样本耗时和每 10% 完成度写入 `outputs/gpu_queue/generation/3D/<数据集名称>/generation.log`。可用 `--queue-log-root` 修改日志根目录，终端仅显示任务概况和错误。
+
+## 生成后运行正式实验
+
+数据集可用于默认三个模型和 ResMetaMesh。ResMetaMesh 用训练集样本索引关联潜码，复用数据集的参数边界，预训练无需 PDE 坐标标签。完整批量训练和评估命令见 [3D 临时命令](../../configs/3D/formal_external_commands.md#一次性训练并评估全部九个数据集)。

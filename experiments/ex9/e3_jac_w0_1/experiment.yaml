@@ -1,0 +1,6 @@
+schema_version: 1
+experiment: e3_jac_w0_1
+variants:
+  - name: e3_jac_w0_1
+    value: 0.1
+    overrides: [--hmonet-physics-normalized-jacobian-loss-weight, "0.1"]

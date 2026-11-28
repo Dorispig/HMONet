@@ -1,0 +1,111 @@
+# 首轮训练开始前保存的本次实际生效参数。
+datasets:
+  extrapolation: E:\projects\HMONet\data\raw\2D\run_ext_1_500_41_41
+grid:
+  nx: 41
+  ny: 41
+model:
+  name: resmetamesh
+  common:
+    branch_dim: 32
+    trunk_dim: 18
+    coordinate_lift_mode: legacy
+    adjust_hidden_dim: 64
+    adjust_hidden_layer_num: 4
+    branch_hidden_dim: 64
+    branch_hidden_layer_num: 4
+    trunk_hidden_dim: 64
+    trunk_hidden_layer_num: 4
+    output_dim: 64
+    branch_mlp_hidden_dim: 64
+    branch_mlp_hidden_layer_num: 4
+  resmetamesh:
+    latent_dim: 8
+    width: 50
+    hidden_layers: 3
+training:
+  dataset: extrapolation
+  num_epochs: 625
+  batch_size: 64
+  seed: 20261030
+  device: cuda
+  tensorboard_enabled: true
+  best_model_metric: training_loss
+  calculate_dataset_mse: true
+  dataset_mse_interval: 1
+  check_mse_convergence: false
+  mse_tolerance: 1.0e-06
+  mse_consecutive_epochs: 100
+  check_training_loss_convergence: false
+  training_loss_tolerance: 1.0e-06
+  training_loss_consecutive_epochs: 100
+  plateau_enabled: false
+  plateau_metric: train_loss
+  plateau_window: 500
+  fluctuation_quantiles:
+  - 0.1
+  - 0.9
+  fluctuation_relative_tolerance: 0.15
+  fluctuation_absolute_minimum: 1.0e-06
+  fluctuation_absolute_maximum: 1.0e-05
+  plateau_near_best_relative_tolerance: 0.2
+  plateau_near_best_absolute_tolerance: 1.0e-07
+  best_improvement_relative_tolerance: 0.002
+  convergence_start_epoch: 3000
+  success_plateau_patience: 1000
+  plateau_stable_consecutive_checks: 100
+  plateau_log_interval: 100
+  plateau_fluctuation_spread_enabled: true
+  plateau_fluctuation_spread_activation: 0.4
+  plateau_fluctuation_spread_start_epoch: 1000
+  plateau_fluctuation_spread_activation_epoch: 5000
+  plateau_fluctuation_spread_window: 1000
+  plateau_fluctuation_spread_quantiles:
+  - 0.1
+  - 0.9
+  plateau_fluctuation_spread_tolerance: 0.15
+  failure_plateau_enabled: false
+  failure_plateau_patience: 2000
+  failure_plateau_metric_ratio: 1.5
+  failure_plateau_relative_fluctuation: 0.15
+  failure_plateau_min_lr_updates: 2
+  save_best_immediately: true
+  stop_file_enabled: true
+  gradient_clip_norm: 1.0
+  skip_nonfinite_loss: false
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+  check_max_point_error: false
+  check_p99_point_error: false
+resmetamesh_training:
+  pretrain_updates: 5000
+  learning_rate: 0.0001
+  best_model_metric: training_loss
+  plateau_metric: train_loss
+  collocation_shape:
+  - 60
+  - 60
+  collocation_count: 400
+  adaptation_collocation_count: null
+  derivative_batch_size: 512
+  latent_l2_weight: 0.0001
+  adaptation_steps: 150
+  adaptation_lr: 1.0
+  lora_rank: 4
+  lbfgs_history_size: 100
+  check_plateau_stability: false
+  check_plateau_absolute_stability: false
+  check_plateau_near_best: false
+  check_plateau_consecutive_stability: false
+  check_plateau_best_improvement: false
+  lr_warmup_epochs: 1000
+  lr_update_interval: 1000
+  lr_decay_gamma: 0.9
+  lr_stop_below: 1.0e-05
+  fd_step:
+  - 0.01
+  - 0.01
+  correction_derivative_backend: autograd

@@ -285,3 +285,5 @@ Dataset saved: .../data/raw/3D/swb_a_ext_2_500_21_21_11
 代表边界面非法立即报错；最终体网格非法在完整保存数据集后警告。`metadata.json` 中的 `legality_check_sample_ids`、`quality_check_scope` 和 `cap_validation_policy` 记录检查范围；未检查不代表已证明合法。CPU 多进程与 GPU 整数据集队列采用相同规则，去除 CPU 重复预生成端面的预检。
 
 已存在的完整数据集仍直接跳过，不自动覆盖或修改旧端面；需要重新生成时显式使用 `--force`。从已有数据集读取时继续使用已保存的参数面。上述改动不需要新增命令行参数。
+
+数据集生成后，预训练 ResMetaMesh 与评估无需扩展数据格式。九个默认外推数据集的四模型批量命令见 [3D 正式临时命令](../../configs/3D/formal_external_commands.md#一次性训练并评估全部九个数据集)。

@@ -406,6 +406,7 @@ def checkpoint_directory(args, config, name, dimension, run_id=None):
             "meshonet": "MeshONet",
             "pimeshonet": "PI-MeshONet",
             "qghmonet": "QG-HMONet",
+            "resmetamesh": "ResMetaMesh",
         }[name]
     )
     if name in ("hmonet", "qghmonet"):
@@ -435,7 +436,7 @@ def _matches_saved_settings(requested, saved):
     return True
 
 
-def reuse_completed_training(config, name, dataset_path, mode, args, dimension):
+def reuse_completed_training(config, name, dataset_path, mode, args, dimension, *, dataset_size=None):
     """Reuse a completed formal training run with compatible settings and weights."""
     if getattr(args, "flat_run_root", None) or getattr(args, "force_train", False):
         return None
@@ -445,6 +446,10 @@ def reuse_completed_training(config, name, dataset_path, mode, args, dimension):
     if name == "pimeshonet":
         shape = tuple(config["grid"][axis] for axis in ("nx", "ny", "nz")[:dimension])
         effective = prepare_pimeshonet_training_config(config, args, shape)
+    elif name == "resmetamesh":
+        from scripts.train.train_resmetamesh import prepare_resmetamesh_config
+
+        effective = prepare_resmetamesh_config(config, args, dimension, dataset_size)
     else:
         effective = prepare_training_config(config, name, args)
     requested = model_specific_training_config(
@@ -477,6 +482,20 @@ def reuse_completed_training(config, name, dataset_path, mode, args, dimension):
                 checkpoints[key] = str(found.resolve())
         except (KeyError, OSError, TypeError, ValueError):
             continue
+        if name == "resmetamesh":
+            finished_budget = (
+                summary.get("stop_reason") == "maximum_optimizer_updates"
+                and summary.get("completed_optimizer_updates")
+                == effective["resmetamesh_training"]["pretrain_updates"]
+            )
+            explicit_epoch_limit = getattr(args, "epochs", None)
+            finished_short_run = (
+                explicit_epoch_limit is not None
+                and summary.get("stop_reason") == "maximum_epochs"
+                and summary.get("completed_epochs") == explicit_epoch_limit
+            )
+            if not (finished_budget or finished_short_run):
+                continue
         if len(checkpoints) == 2:
             print(f"[training] {args.dataset_name}/{name}: reusing completed run {directory.name}", flush=True)
             return {
@@ -510,7 +529,7 @@ def tensorboard_mirror_directory(args, config, mode, name, dimension, run_id):
         / "tensorboard"
         / dimension
         / dataset
-        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "resmetamesh": "ResMetaMesh"}.get(name, name))
     )
     if name in ("hmonet", "qghmonet"):
         folder = folder / mapping_mode_path_name(
@@ -534,6 +553,7 @@ def config_archive_directory(args, config, name, run_id):
             "meshonet": "MeshONet",
             "pimeshonet": "PI-MeshONet",
             "qghmonet": "QG-HMONet",
+            "resmetamesh": "ResMetaMesh",
         }[name]
     )
     if name in ("hmonet", "qghmonet"):
@@ -582,7 +602,7 @@ def create_run_directories(args, config, mode, name, dimension):
 
     output_parent = (
         Path(args.output_root)
-        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet"}.get(name, name))
+        / ({"pimeshonet": "PI-MeshONet", "qghmonet": "QG-HMONet", "resmetamesh": "ResMetaMesh"}.get(name, name))
     )
     if name in ("hmonet", "qghmonet"):
         mapping = normalize_mapping_mode(
@@ -1497,7 +1517,7 @@ class TrainingState:
             if self.name in ("hmonet", "qghmonet")
             else None
         )
-        title = f"{dict(hmonet='HMONet', qghmonet='QG-HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet')[self.name]}{self.dimension}D {self.mode} training loss"
+        title = f"{dict(hmonet='HMONet', qghmonet='QG-HMONet', meshonet='MeshONet', pimeshonet='PI-MeshONet', resmetamesh='ResMetaMesh')[self.name]}{self.dimension}D {self.mode} training loss"
         write_loss_outputs(self.output, self.history, title)
         write_mse_outputs(
             self.output, self.mse_epochs, self.mses, f"{title}: full-dataset MSE"
@@ -1507,6 +1527,8 @@ class TrainingState:
         for item in self.history:
             row = {"epoch": item["epoch"], "training_loss": item["train_loss"]}
 
+            if self.name == "resmetamesh":
+                row.update(loss_pde=item["loss_pde"], loss_latent=item["loss_latent"])
             if self.name == "pimeshonet" and "loss_pde" in item:
                 row["loss_pde"] = item["loss_pde"]
             elif self.name in ("hmonet", "qghmonet") and "loss_pde" in item:
@@ -1540,13 +1562,21 @@ class TrainingState:
             "model": self.name,
             "physics_training": (
                 self.config.get(f"{self.name}_training")
-                if self.name == "pimeshonet"
+                if self.name in ("pimeshonet", "resmetamesh")
                 else None
             ),
             "dimension": self.dimension,
             "dataset_name": self.datasets[0].root.name,
             "grid_shape": list(self.shape),
             "requested_epochs": int(t["num_epochs"]),
+            **(
+                {
+                    "requested_optimizer_updates": h["pretrain_updates"],
+                    "completed_optimizer_updates": self.optimizer_updates,
+                }
+                if self.name == "resmetamesh"
+                else {}
+            ),
             "hmonet_mapping_mode": mapping,
             "residual_regularization_weight": (
                 hmodel.get("residual_regularization_weight", 0.0)
@@ -1939,6 +1969,7 @@ def print_training_run_summary(summary):
         "meshonet": "MeshONet",
         "pimeshonet": "PI-MeshONet",
         "qghmonet": "QG-HMONet",
+        "resmetamesh": "ResMetaMesh",
     }.get(summary["model"], summary["model"])
 
     def metric(value):
@@ -1955,6 +1986,11 @@ def print_training_run_summary(summary):
         ("mapping", summary.get("hmonet_mapping_mode") or "N/A"),
         ("completed epochs", summary["completed_epochs"]),
         ("requested epochs", summary["requested_epochs"]),
+        *(
+            [("Adam updates", f"{summary['completed_optimizer_updates']}/{summary['requested_optimizer_updates']}")]
+            if "requested_optimizer_updates" in summary
+            else []
+        ),
         ("training time", f"{seconds:.3f}s ({hours:02d}:{minutes:02d}:{secs:02d})"),
         ("best epoch", summary["best_epoch"]),
         (

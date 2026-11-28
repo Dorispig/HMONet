@@ -33,24 +33,32 @@ def implementation_version():
     )
 
 
-def analysis_inputs_match(saved, requested):
-    """Permit analysis of an existing mesh after analysis/plotting code changes.
-
-    ``analysis-only`` explicitly means that the saved coordinates, rather than
-    the current generator implementation, are the scientific input.  All
-    generation-defining fields (geometry, shape, checkpoint digest, mapping,
-    solver settings and inference settings) must still match exactly; only the
-    broad implementation hash is ignored.
-    """
+def generation_inputs_match(saved, requested, *, analysis_only=False):
+    """Compare the effective inputs of a saved mesh and the requested evaluation."""
     if not isinstance(saved, dict) or not isinstance(requested, dict):
         return False
-    saved = {key: value for key, value in saved.items() if key != "implementation"}
-    requested = {
-        key: value for key, value in requested.items() if key != "implementation"
-    }
-    # Compare through the same JSON-normalizing digest used by cache identities
-    # so tuple/list differences introduced by JSON round-tripping do not matter.
-    return digest(saved) == digest(requested)
+    ignored = set()
+    if analysis_only:
+        # Analysis uses the archived coordinates, independently of generator code.
+        ignored.add("implementation")
+    if requested.get("config"):
+        # Checkpoint loading uses its embedded or adjacent config before the
+        # fallback training YAML. The checkpoint digest and config remain checked.
+        ignored.add("train_config_sha256")
+    return digest({key: value for key, value in saved.items() if key not in ignored}) == digest(
+        {key: value for key, value in requested.items() if key not in ignored}
+    )
+
+
+def analysis_inputs_match(saved, requested):
+    return generation_inputs_match(saved, requested, analysis_only=True)
+
+
+def _matches_generation(metadata, signature, inputs, analysis_only):
+    if metadata.get("signature") == signature:
+        return True
+    matches = analysis_inputs_match if analysis_only else generation_inputs_match
+    return matches(metadata.get("inputs"), inputs)
 
 
 def tfi(geometry, shape, queries=None):
@@ -113,7 +121,7 @@ def generate(
 ):
     """Reuse only the matching method's mesh; an unavailable method is never TFI."""
     directory = ensure_output_directory(directory, context="Evaluation generation cache")
-    network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
+    network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh")
     signature_data = {
         "implementation": version,
         "method": method,
@@ -169,13 +177,7 @@ def generate(
             or generated_in_batch
         )
         and cache_file_valid
-        and (
-            metadata.get("signature") == signature
-            or (
-                options["analysis_only"]
-                and analysis_inputs_match(metadata.get("inputs"), signature_data)
-            )
-        )
+        and _matches_generation(metadata, signature, signature_data, options["analysis_only"])
     )
     if reusable:
         if defer:
@@ -191,7 +193,7 @@ def generate(
         return (
             points,
             dict(metadata["timing"], cache_hit=not generated_in_batch),
-            digest({"input": signature, "mesh": array_digest(points)}),
+            digest({"input": metadata["signature"], "mesh": array_digest(points)}),
         )
     if (
         published_directory is not None
@@ -204,12 +206,8 @@ def generate(
             published_mesh.is_file()
             and published.get("file_sha256") == file_digest(published_mesh)
         )
-        if published_file_valid and (
-            published.get("signature") == signature
-            or (
-                options["analysis_only"]
-                and analysis_inputs_match(published.get("inputs"), signature_data)
-            )
+        if published_file_valid and _matches_generation(
+            published, signature, signature_data, options["analysis_only"]
         ):
             if defer:
                 return None
@@ -218,7 +216,7 @@ def generate(
             return (
                 points,
                 dict(published["timing"], cache_hit=True),
-                digest({"input": signature, "mesh": array_digest(points)}),
+                digest({"input": published["signature"], "mesh": array_digest(points)}),
             )
     if options["analysis_only"]:
         raise RuntimeError(
@@ -227,7 +225,14 @@ def generate(
         )
     print(f"  generate {method}", flush=True)
     started = time.perf_counter()
-    if network:
+    if method == "ResMetaMesh":
+        from .resmetamesh import generate_resmetamesh
+
+        points, timing = generate_resmetamesh(
+            geometry, shape, checkpoint, signature_data["checkpoint_sha256"],
+            resolve_device(options["device"]), options, models,
+        )
+    elif network:
         device = resolve_device(options["device"])
         key = (
             str(checkpoint),

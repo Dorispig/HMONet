@@ -4,7 +4,7 @@ HMONet 是面向二维和三维结构化网格生成的研究项目。项目使�
 
 当前实现包括：
 
-- HMONet、MeshONet、PI-MeshONet、QG-HMONet 等模型；
+- HMONet、MeshONet、PI-MeshONet、ResMetaMesh 和 QG-HMONet；
 - 二维参数曲线边界和三维参数曲面边界；
 - TFI 与 Winslow PDE 网格基线；
 - 网格质量、非法单元、边界误差和生成时间评估；
@@ -117,9 +117,22 @@ python scripts/train/train_evaluate.py --dimension 3 --dataset tbp_a_ext_2_500_2
 
 三维 `41x121x41` 的 PDE 基线和质量分析成本显著更高；显存或时长受限时，可先只保留前两个网格形状，后续只运行评估阶段补充最大规模。两维生成器都会拒绝同名目录；三维确需替换时才显式追加 `--force`。数据目录被 `.gitignore` 忽略，需要在本地生成或单独获取。
 
+### 一次运行全部正式数据集
+
+先生成所需维度的九个外推数据集，再运行对应命令。批量入口选择 HMONet、MeshONet、PI-MeshONet 和 ResMetaMesh，并生成包含 TFI、PDE-Winslow 的六方法对比。
+
+```bash
+python scripts/train/run_formal_batch.py --dimension 2
+python scripts/train/run_formal_batch.py --dimension 3 --gpus 0 1 2 3
+```
+
+不指定 `--gpus` 时逐数据集运行。指定多卡时，每张卡完成整个数据集后领取下一项。可用 `--dry-run` 检查任务并用 `--device cuda:0` 指定单卡。各维度完整示例见 [二维临时命令](configs/2D/formal_external_commands.md) 与 [三维临时命令](configs/3D/formal_external_commands.md)。
+
+ResMetaMesh 使用 float32 TFI 基底和神经修正，预训练优化共享主干与样本潜码，评估冻结主干并为新几何适配潜码和 LoRA，默认读取 `final.pt`。正式单数据集入口仍默认选三个模型，可用 `--models formal-four` 加入 ResMetaMesh。
+
 ### 单独训练、单独评估与输出
 
-完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练可使用其中链接的 `train_cli.md`；只评估已有 checkpoint 时，优先在统一入口追加 `--evaluate-only`，它会固定选择 `best.pt` 或 `--checkpoint final` 的 `final.pt`，而不重新训练。`--evaluate-only --gpus 0 1 2` 会把各模型的单方法评估并行分派到指定 GPU，随后只做一次联合对比汇总。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。默认同时保留普通网格对比图和红色精确连续边界叠加图；使用 `--no-exact-boundary-overlay` 可只保留普通图。三维精确边界仅叠加于所选中截面图。
+完整流程和所有可选参数见 [二维正式训练—评估命令](configs/2D/train_evaluate_cli.md) 与 [三维正式训练—评估命令](configs/3D/train_evaluate_cli.md)。只训练可使用其中链接的 `train_cli.md`；只评估已有 checkpoint 时，优先在统一入口追加 `--evaluate-only`，ResMetaMesh 默认取 `final.pt`，其余模型默认取 `best.pt`，也可用 `--checkpoint` 显式覆盖。`--evaluate-only --gpus 0 1 2` 会把各模型的单方法评估并行分派到指定 GPU，随后只做一次联合对比汇总。评估结果位于 `outputs/results/`，包含数值质量汇总、非法单元统计、边界误差、生成时间和网格对比图；默认不生成逐指标质量图，可追加 `--quality-plots all` 或指标名。默认同时保留普通网格对比图和红色精确连续边界叠加图；使用 `--no-exact-boundary-overlay` 可只保留普通图。三维精确边界仅叠加于所选中截面图。
 
 重新执行正式训练时会复用配置一致且已完整保存的模型。三个模型均齐备后，缺失的训练对比图和汇总会自动补到 `outputs/training/<维度>/<数据集>/comparison/`。三维评估默认计算体网格和 `z_mid`；仅评估 `z_mid` 用 `--no-volume-evaluation --middle-sections z_mid`，仅体网格用 `--middle-sections none`，全部开启用 `--volume-evaluation --middle-sections all`。已有匹配网格或缓存时，可使用 `--evaluate-only --analysis-only` 只补图片和分析，不重新推理或求解 PDE；该模式不能与 `--force` 同时使用。
 

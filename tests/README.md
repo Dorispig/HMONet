@@ -106,3 +106,11 @@ GPU数据生成回归：`python -m pytest tests/test_gpu_dataset_generation.py -
 三维 GPU 数据生成采用可选 cuDSS float64 稀疏直接求解，与 CPU 共用矩阵组装和外层迭代。cuDSS 已纳入总依赖，统一安装 `python -m pip install -r requirements.txt`；CPU 仍为默认，运行时不调用 cuDSS。完整 CPU/多 GPU 命令见 [生成命令](../data/3D/generation_commands.md)。原 `--linear-tolerance`、`--linear-max-iter` 已移除。
 
 数据集级 GPU 调度和日志回归：`python -m pytest tests/test_gpu_dataset_generation.py tests/test_dataset_batch_command.py tests/test_gpu_queue.py -q`。
+
+## Formal batch and ResMetaMesh checks
+
+Run `python scripts/train/run_formal_batch.py --dimension 2 --dry-run` or
+`python scripts/train/run_formal_batch.py --dimension 3 --gpus 0 1 2 3 --dry-run`
+to inspect the nine case commands without loading datasets, training weights,
+or CUDA devices. Use the saved-result plotting checks in
+`test_dataset_comparison_figures.py` for comparison figure changes.

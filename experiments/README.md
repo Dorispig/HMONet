@@ -12,8 +12,9 @@
 | `ex6` | 有限差分步长 | PDE与Jacobian共用差分步长扫描 |
 | `ex7` | 坐标增强阶数 | power-Fourier最高幂次 `P=1,2,3,4,5` |
 | `ex8` | 损失项组成 | 归一化PDE、PDE+Jacobian、PDE+SVD、完整目标 |
+| [`ex9`](ex9/README.md) | 齿形网格的 Jacobian 屏障权重 | 仅归一化 PDE 基线，以及 0.001 至 10000 的八种权重 |
 
-`ex1`、`ex2` 和 `ex4` 的基线直接继承当前二维正式 HMONet 配置；`ex3`、`ex5`、`ex6`、`ex7` 和 `ex8` 为隔离研究变量而使用各自 README 明确写出的受控基线。不要把后五类的基线误认为当前正式默认配置。
+`ex1`、`ex2`、`ex4` 和 `ex9` 的基线直接继承当前二维正式 HMONet 配置。`ex3`、`ex5`、`ex6`、`ex7` 和 `ex8` 使用各自 README 中定义的受控基线。
 
 ## 统一命令
 

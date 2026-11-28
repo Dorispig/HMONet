@@ -126,7 +126,7 @@ def empty_quality(points, shape):
     return quality
 
 
-def save_method(directory, method, points, shape, options):
+def save_method(directory, method, points, shape, options, *, exact_boundary_geometry=None):
     """Save mesh geometry and only the selected quality calculations."""
     directory = ensure_output_directory(directory, context="Evaluation method directory")
     quality_dir = directory / "grid_quality"
@@ -193,7 +193,7 @@ def save_method(directory, method, points, shape, options):
             ny=shape[1],
             nz=shape[2],
         )
-        save_sections(directory, {method: points}, shape, options)
+        save_sections(directory, {method: points}, shape, options, exact_boundary_geometry)
         # ``save_hex_quality`` persists the numeric volume fields and optional
         # distributions.  A requested 3-D metric also needs an actual
         # single-method spatial map, mirroring the 2-D per-method quality map.
@@ -223,7 +223,15 @@ def save_method(directory, method, points, shape, options):
             ax = fig.add_subplot(111, projection="3d")
             plot_hex_mesh_paper(points, *shape, ax=ax)
         ax.set_title(method_label(method))
-        save_figure(fig, directory / "mesh_overview", options)
+        if len(shape) == 2 and exact_boundary_geometry is not None and options.get("exact_boundary_overlay", True):
+            save_figure_formats(
+                fig, directory / "mesh_overview",
+                save_png=options["save_png"], save_pdf=options["save_pdf"], dpi=180,
+            )
+            plot_exact_boundary_curves(ax, exact_boundary_curves_2d(exact_boundary_geometry))
+            save_figure(fig, directory / "mesh_overview_with_exact_boundary", options)
+        else:
+            save_figure(fig, directory / "mesh_overview", options)
     return quality
 
 
@@ -688,7 +696,7 @@ def save_point_errors(directory, meshes, raw, shape, options):
     compared = {
         m: p
         for m, p in meshes.items()
-        if m.startswith(("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"))
+        if m.startswith(("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh"))
     }
     compared.update({f"{m}_raw": p for m, p in raw.items()})
     compared = {name: compared[name] for name in ordered_methods(compared)}

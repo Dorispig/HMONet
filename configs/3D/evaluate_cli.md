@@ -87,3 +87,22 @@ python scripts/evaluate/generate_dataset_comparison_figures.py --dimension 3 --d
 脚本同时增加以同规模PDE网格为参考的 `mse_vs_pde` 六图：mean为所有网格点坐标分量MSE，worst为最大单点坐标分量MSE。
 
 连续质量指标若集中在很窄的正值区间，纵轴会自动聚焦并保留边距；零值计数和跨度较大的指标仍保留零基线。
+
+## ResMetaMesh 单独评估与结果位置
+
+仅评估 ResMetaMesh 时，显式指定 `--evaluate-methods resmetamesh`：
+
+```bash
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_2_500_21_21_11 --models resmetamesh --evaluate-only --evaluate-methods resmetamesh
+```
+
+网格、质量、边界误差、计时和 `evaluation_result.json` 集中写入该工况的 `ResMetaMesh/raw/`。单方法评估不会创建 `comparisons/RM/`，也不会刷新工况顶层的联合结果。已保存的单方法网格可以在后续联合评估时复用。
+
+同时生成六方法联合对比：
+
+
+```bash
+python scripts/train/train_evaluate.py --dimension 3 --dataset cah_t_ext_2_500_21_21_11 --models resmetamesh --evaluate-only --evaluate-methods tfi,pde,meshonet,pimeshonet,hmonet,resmetamesh
+```
+
+六方法联合评估需要该数据集上其余三个学习模型已有兼容 checkpoint。若六种网格均已评估，再加 `--analysis-only` 可直接读取兼容网格和缓存。ResMetaMesh 使用 `final.pt`，其余模型默认使用 `best.pt`。原始网格和单方法质量位于参数目录的 `ResMetaMesh/raw/`，六方法联合目录以 `TFI_PDE_M_PI_H_RM` 命名。ResMetaMesh 的端到端生成用时包含逐几何适配。

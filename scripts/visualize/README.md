@@ -264,3 +264,7 @@ python scripts/visualize/compose_paper_figure.py `
 3. 质量比较图固定 `--cmap`、`--vmin` 与 `--vmax`，避免每张子图独立拉伸色标而掩盖差异。
 4. 对跨参数、跨方法的大图，在同一命令里组装，统一 `--panel-width`、标题和 `(a)/(b)` 标签，避免后期手工拼图造成字体与线宽不一致。
 5. 三维图片目前建议先用 `--images` 拼接；若后续需要三维切片/表面质量场的统一重绘与共享色标，应另行明确切片方向、体质量指标和渲染视角后扩展脚本。
+
+## 二维六方法正式结果
+
+已保存的六方法网格拼图位于工况目录的 `comparisons/CCAP/<边界处理组>/TFI_PDE_M_PI_H_RM/`，可用本工具直接拼接整图。按方法绘图时，ResMetaMesh 网格位于 `ResMetaMesh/raw/mesh.npy`。最大角和计时柱状图的生成方式见[二维评估说明](../../configs/2D/evaluate_cli.md#数据集级柱状对比图)。

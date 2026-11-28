@@ -78,6 +78,15 @@ def load_single(directory: Path, metric: str | None):
 
 
 def load_comparison(directory: Path, metric: str | None):
+    if directory.name == "raw" and directory.parent.name == "ResMetaMesh":
+        with np.load(directory / "mesh_data.npz") as data:
+            nx, ny = int(data["nx"]), int(data["ny"])
+            meshes = {"ResMetaMesh": np.asarray(data["vertices"], dtype=float)}
+        fields = {}
+        if metric:
+            with np.load(directory / "grid_quality" / "quality_data.npz") as data:
+                fields["ResMetaMesh"] = np.asarray(data[metric], dtype=float)
+        return meshes, fields, nx, ny
     metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
     nx, ny = int(metadata["nx"]), int(metadata["ny"])
     with np.load(directory / "comparison_mesh_data.npz") as data:

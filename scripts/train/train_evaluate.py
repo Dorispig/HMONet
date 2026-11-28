@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.train.model_selection import parse_model_selection
+from src.evaluation.configuration import checkpoint_kind
 from src.utils.gpu_queue import (
     GpuQueueError,
     GpuQueueInterrupted,
@@ -203,7 +204,7 @@ def report_formal_dry_run_paths(args, train_extra, evaluate_extra, paths, cases,
     )
     model_names = {
         "hmonet": "HMONet", "qghmonet": "QG-HMONet",
-        "meshonet": "MeshONet", "pimeshonet": "PI-MeshONet",
+        "meshonet": "MeshONet", "pimeshonet": "PI-MeshONet", "resmetamesh": "ResMetaMesh",
     }
     candidates = []
     for path in paths:
@@ -331,7 +332,8 @@ def evaluation_commands(
         for model, summary in models.items():
             if model not in methods:
                 continue
-            path = Path(summary[f"{checkpoint}_checkpoint"]).resolve()
+            kind = checkpoint_kind(model, checkpoint)
+            path = Path(summary[f"{kind}_checkpoint"]).resolve()
             if not path.is_file():
                 raise FileNotFoundError(path)
             command += [f"--{model}-checkpoint", str(path)]
@@ -346,6 +348,7 @@ _EVALUATION_METHOD_NAMES = {
     "qghmonet": "QG-HMONet",
     "meshonet": "MeshONet",
     "pimeshonet": "PI-MeshONet",
+    "resmetamesh": "ResMetaMesh",
 }
 
 
@@ -404,12 +407,13 @@ def existing_evaluation_commands(
             method = _EVALUATION_METHOD_NAMES.get(alias)
             if method is None:
                 continue
+            kind = checkpoint_kind(method, checkpoint)
             path = _find_existing_checkpoint(
-                dimension, name, method, mapping, checkpoint
+                dimension, name, method, mapping, kind
             )
             if path is None:
                 raise FileNotFoundError(
-                    f"No compatible {checkpoint}.pt for {method}/{mapping}: "
+                    f"No compatible {kind}.pt for {method}/{mapping}: "
                     f"outputs/checkpoints/{dimension}D/{name}"
                 )
             command += [f"--{alias}-checkpoint", str(path.resolve())]
@@ -982,6 +986,7 @@ def _queued_formal_run(
                 "--output-layout",
                 "case_root",
             ]
+            worker_checkpoint = checkpoint_kind(model, args.checkpoint)
             fingerprint = _formal_queue_fingerprint(
                 dimension=args.dimension,
                 dataset=path,
@@ -992,7 +997,7 @@ def _queued_formal_run(
                 evaluate_arguments=worker_evaluate_arguments,
                 # Worker evaluation always includes its own model plus TFI/PDE.
                 evaluate_methods=None,
-                checkpoint=args.checkpoint,
+                checkpoint=worker_checkpoint,
             )
             if not args.dry_run:
                 result_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1007,7 +1012,7 @@ def _queued_formal_run(
                 "--evaluate-config",
                 str(evaluation_config),
                 "--checkpoint",
-                args.checkpoint,
+                worker_checkpoint,
                 "--train-args",
                 shlex.join(worker_extra),
                 "--evaluate-args",
@@ -1220,6 +1225,7 @@ def _queued_formal_evaluation(
                 "--output-layout",
                 "case_root",
             ]
+            worker_checkpoint = checkpoint_kind(model, args.checkpoint)
             fingerprint = _formal_queue_fingerprint(
                 dimension=args.dimension,
                 dataset=path,
@@ -1229,7 +1235,7 @@ def _queued_formal_evaluation(
                 train_arguments=["--evaluate-only", "--model", model],
                 evaluate_arguments=worker_arguments,
                 evaluate_methods=worker_methods,
-                checkpoint=args.checkpoint,
+                checkpoint=worker_checkpoint,
             )
             if not args.dry_run:
                 result_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1248,7 +1254,7 @@ def _queued_formal_evaluation(
                 "--models",
                 model,
                 "--checkpoint",
-                args.checkpoint,
+                worker_checkpoint,
                 "--evaluate-only",
                 "--queue-worker",
                 "--queue-result",
@@ -1402,7 +1408,7 @@ def main(argv=None):
         "--model",
         dest="models",
         nargs="+",
-        help="Models to train, for example hmonet meshonet pimeshonet; aliases both, pi and all are supported.",
+        help="Models to train, for example hmonet meshonet pimeshonet; use formal-four to include ResMetaMesh.",
     )
     parser.add_argument("--seed", type=int, help="Override the training seed.")
     parser.add_argument("--device", help="Training/evaluation device, for example cuda:0 or cpu.")
@@ -1457,7 +1463,10 @@ def main(argv=None):
         "--evaluate-methods",
         help="Comma-separated evaluation subset, e.g. tfi,pde,meshonet,hmonet; defaults to selected models plus TFI/PDE",
     )
-    parser.add_argument("--checkpoint", choices=["best", "final"], default="best")
+    parser.add_argument(
+        "--checkpoint", choices=["best", "final"],
+        help="Override checkpoint selection for all selected networks (default: final for ResMetaMesh, best for others).",
+    )
     parser.add_argument(
         "--run-tag",
         "--tag",
@@ -1643,6 +1652,7 @@ def main(argv=None):
         "--qghmonet-checkpoint",
         "--meshonet-checkpoint",
         "--pimeshonet-checkpoint",
+        "--resmetamesh-checkpoint",
         "--hmonet-mapping-mode",
     }
     if any(token.split("=", 1)[0] in reserved for token in evaluate_extra):
@@ -1671,7 +1681,11 @@ def main(argv=None):
     for axis in ("nx", "ny", "nz"):
         preflight.add_argument(f"--{axis}", type=int)
     overrides, _ = preflight.parse_known_args(train_extra)
-    choice = overrides.model or config.get("model", {}).get("name", "hmonet")
+    model_config = config.get("model", {})
+    selection = model_config.get("formal_models", model_config.get("name", "hmonet"))
+    choice = overrides.model or ",".join(parse_model_selection(selection))
+    if overrides.model is None:
+        train_extra += ["--model", choice]
     trained = set(parse_model_selection(choice))
     # Explicit evaluation methods may include an already trained model. Models
     # trained in this invocation are pinned to their new checkpoints; other

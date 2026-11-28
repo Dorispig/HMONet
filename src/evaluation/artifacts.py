@@ -218,7 +218,7 @@ def save_quality_table(path, summaries):
 
 
 def save_timing_tables(directory, timings):
-    """The paper's grid-generation column contains network forward time only."""
+    """Record forward time, or complete generation time for adapting methods."""
     write_json(Path(directory) / "generation_timings.json", timings)
     write_csv(
         Path(directory) / "timings.csv",
@@ -238,6 +238,11 @@ def save_timing_tables(directory, timings):
             "inference_used_samples",
             "boundary_projection_seconds",
             "total_model_seconds",
+            "adaptation_base_seconds",
+            "adaptation_seconds",
+            "adaptation_steps",
+            "adaptation_collocation_count",
+            "output_grid_seconds",
             "total_seconds",
             "cache_hit",
             "checkpoint",

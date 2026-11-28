@@ -123,3 +123,5 @@ python src/data/generation/make_dataset_parametric_2d.py --family fca_a --split 
 | `--dry-run` | 批量入口仅列出任务，不生成数据。 |
 
 训练、评估及GPU选项见[正式实验命令](../../configs/2D/formal_external_commands.md)。
+
+数据集生成后，预训练 ResMetaMesh 与评估无需扩展数据格式。九个默认外推数据集的四模型批量命令见 [2D 正式临时命令](../../configs/2D/formal_external_commands.md#一次性训练并评估全部九个数据集)。

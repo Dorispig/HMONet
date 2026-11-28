@@ -8,12 +8,14 @@ MODEL_NAMES = (
     "meshonet",
     "pimeshonet",
     "qghmonet",
+    "resmetamesh",
 )
 
 MODEL_ALIASES = {
     "both": ("hmonet", "meshonet"),
     "pi": ("pimeshonet",),
-    "all": MODEL_NAMES,
+    "all": tuple(name for name in MODEL_NAMES if name != "resmetamesh"),
+    "formal-four": ("hmonet", "meshonet", "pimeshonet", "resmetamesh"),
 }
 
 
@@ -33,7 +35,7 @@ def parse_model_selection(value):
         name = raw_name.strip().lower().replace("-", "")
         if not name:
             continue
-        expanded = MODEL_ALIASES.get(name, (name,))
+        expanded = MODEL_ALIASES.get(raw_name.strip().lower(), MODEL_ALIASES.get(name, (name,)))
         for model_name in expanded:
             if model_name not in MODEL_NAMES:
                 supported = ", ".join(MODEL_NAMES + tuple(MODEL_ALIASES))

@@ -45,10 +45,18 @@ python scripts/train/compare_training.py --dimension 3 --dataset swb_a_ext_2_500
 
 每个数据集使用三个正式模型各自最新的已完成训练记录，输出全程 MSE、相对 MSE、训练成本图和汇总表。输出位于 `outputs/training/3D/<dataset>/comparison/`，来源记录见 `training_comparison.json`。可只指定一个数据集，也可连续列出多个。训练日志存放在其他位置时，可用 `--training-root` 指定包含 `2D/` 或 `3D/` 的目录。
 
-模型和别名与二维完全相同：`hmonet`、`meshonet`、`pimeshonet`、`qghmonet`；`both`、`pi`、`all`。
+可选模型包括 `hmonet`、`meshonet`、`pimeshonet`、`qghmonet`、`resmetamesh`。`formal-four` 选择 HMONet、MeshONet、PI-MeshONet、ResMetaMesh。`all` 保留历史用法，选择包含 QG-HMONet 的四个模型。
 
 ~~~powershell
 python scripts/train/train_3d.py --help
 ~~~
 
 新训练记录会保存参数面方案及几何修订号；同名旧参数面模型不会自动复用，新参数面需要重新训练。旧模型文件保留。
+
+## 单独预训练 ResMetaMesh
+
+```bash
+python scripts/train/train_3d.py --dataset cah_t_ext_2_500_21_21_11 --model resmetamesh --seed 20261030
+```
+
+默认 batch size 64，预训练预算 5000 次 Adam 更新，学习率 0.0001。固定网格 MSE 用于监测，正式评估默认选用 `final.pt`。逐几何 L-BFGS 适配发生在评估阶段。参数与精度见[训练—评估说明](train_evaluate_cli.md#可选加入-resmetamesh)。

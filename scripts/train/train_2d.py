@@ -1674,7 +1674,7 @@ def train_models(names, paths, config, mode, args, device):
             run_args.mode = run_mode
             data = ParametricDataset2D(
                 path,
-                load_boundary=(name in ("hmonet", "qghmonet")),
+                load_boundary=(name in ("hmonet", "qghmonet", "resmetamesh")),
             )
             subset_count = config.get("training", {}).get("dataset_sample_count")
             if subset_count is not None:
@@ -1698,7 +1698,8 @@ def train_models(names, paths, config, mode, args, device):
             dataset_root = Path(run_args.output_root)
             selected_runs = dataset_runs.setdefault(dataset_root, {})
             reused = reuse_completed_training(
-                run_config, name, data.root, run_mode, run_args, 2
+                run_config, name, data.root, run_mode, run_args, 2,
+                dataset_size=len(data) if name == "resmetamesh" else None,
             )
             if reused is not None:
                 selected_runs[name] = Path(reused["training_output_dir"])
@@ -1716,6 +1717,10 @@ def train_models(names, paths, config, mode, args, device):
                     [data], run_config, run_mode, run_args, device,
                     model_name="qghmonet", model_class=QGHMONet2D,
                 )
+            elif name == "resmetamesh":
+                from scripts.train.train_resmetamesh import train_resmetamesh
+
+                train_resmetamesh(data, run_config, run_mode, run_args, device)
             elif name == "pimeshonet":
                 train_pimeshonet([data], run_config, run_mode, run_args, device)
             elif name == "meshonet":

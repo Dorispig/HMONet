@@ -81,3 +81,11 @@ Each case/protocol stores `metrics.csv`, `summary.json`, compressed nodal fields
 and optional comparison figures. `aggregate/` contains detailed results,
 method-level mean/standard-deviation tables, solve success rates, and a run
 manifest. Checkpoints and duplicate mesh archives are not copied.
+
+## Include ResMetaMesh
+
+Use `--methods pde meshonet pimeshonet hmonet ResMetaMesh` when the saved
+`generated_meshes.npz` includes the `ResMetaMesh` array. Use the exact archive
+key `ResMetaMesh`. The downstream solve reads the adapted mesh as stored. It
+does not perform latent or LoRA adaptation and does not include adaptation in
+its assembly or solve timing.

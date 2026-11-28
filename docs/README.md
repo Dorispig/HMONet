@@ -13,3 +13,4 @@
 
 二维、三维的逐项正式命令分别见 [configs/2D](../configs/2D/) 和 [configs/3D](../configs/3D/)。模型、损失、采样器、数值方法和评估代码的贡献规则见根目录 [CONTRIBUTING.md](../CONTRIBUTING.md)；HMONet 公式和训练架构见 [HMONET_TRAINING_ARCHITECTURE.md](../HMONET_TRAINING_ARCHITECTURE.md)。自动生成的消融报告不属于使用文档，统一保存在 `reports/ablations/`。
 
+批量训练与评估见 [二维临时命令](../configs/2D/formal_external_commands.md#一次性训练并评估全部九个数据集) 和 [三维临时命令](../configs/3D/formal_external_commands.md#一次性训练并评估全部九个数据集)。ResMetaMesh 的训练、适配和结果复用规则见[命令速查](command_reference.md#resmetamesh-与全数据集批量入口)。

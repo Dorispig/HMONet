@@ -80,6 +80,7 @@ _FINGERPRINT_OPTION_EXCLUSIONS = {
     "qghmonet_checkpoint",
     "meshonet_checkpoint",
     "pimeshonet_checkpoint",
+    "resmetamesh_checkpoint",
 }
 
 
@@ -245,6 +246,7 @@ def _resolve_checkpoints(name, case, mapping, options, dimension):
         "MeshONet",
         "PI-MeshONet",
         "QG-HMONet",
+        "ResMetaMesh",
     }
     for method in selected:
         if method not in model_methods:
@@ -346,6 +348,8 @@ def comparison_directory(root, mapping, options, names):
     Non-default PI postprocessing is appended to the existing projection
     directory so distinct configurations still cannot overwrite each other.
     """
+    if list(names) == ["ResMetaMesh"]:
+        return method_directory(root, "ResMetaMesh", mapping, "raw")
     tags = {"inverse_distance": "idw", "direct": "direct", "none": "raw"}
     parent = root / "comparisons"
     pimeshonet_projection = tags[options["pimeshonet_boundary_projection"]]
@@ -372,6 +376,7 @@ def comparison_directory(root, mapping, options, names):
         "PI-MeshONet": "PI",
         "HMONet": "H",
         "QG-HMONet": "QG",
+        "ResMetaMesh": "RM",
         "HMONet_PDE_refined": "H_PDE",
     }
     return parent / "_".join(slugs[name] for name in names)
@@ -387,6 +392,7 @@ def analyze_method(
     options,
     raw=False,
     clone_from=None,
+    exact_boundary_geometry=None,
 ):
     """Reuse complete analysis; repair missing files without repeating inference."""
     plot_settings = {
@@ -399,6 +405,8 @@ def analyze_method(
             "quality_plot_metrics",
         )
     }
+    if exact_boundary_geometry is not None:
+        plot_settings["exact_boundary_overlay"] = options.get("exact_boundary_overlay", True)
     signature = digest(
         {
             "generation": signature,
@@ -456,8 +464,10 @@ def analyze_method(
         return load_quality(Path(directory) / "grid_quality", points, shape, options)
     print(f"  analyze {method} ({'raw' if raw else 'processed'})", flush=True)
     clear_managed_files(directory)
-    quality = save_method(directory, method, points, shape, options)
-    if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet"):
+    quality = save_method(
+        directory, method, points, shape, options, exact_boundary_geometry=exact_boundary_geometry,
+    )
+    if method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh"):
         save_boundary_errors(
             directory,
             points,
@@ -514,26 +524,22 @@ def evaluate_object(
 ):
     started = time.perf_counter()
     dimension = len(shape)
-    root = _write_evaluation_parameters_placeholder(
-        _evaluation_root(
-            options["output_root"],
-            dimension,
-            name,
-            shape,
-            tag,
-            options.get("output_layout", "standard"),
-        ),
-        dimension=dimension,
-        name=name,
-        shape=shape,
-        tag=tag,
-        options=options,
+    root = _evaluation_root(
+        options["output_root"], dimension, name, shape, tag,
+        options.get("output_layout", "standard"),
     )
     exact = sample_boundary(geometry, shape)
     ids = boundary_indices(shape)
     checkpoints, skipped, selected = _resolve_checkpoints(
         name, case, mapping, options, dimension
     )
+    standalone_resmetamesh = selected == ["ResMetaMesh"]
+    # Case-root GPU workers still publish a private root summary for promotion.
+    raw_only = standalone_resmetamesh and options.get("output_layout") != "case_root"
+    if not raw_only:
+        _write_evaluation_parameters_placeholder(
+            root, dimension=dimension, name=name, shape=shape, tag=tag, options=options,
+        )
     for item in skipped:
         print(
             f"  skip {item['method']}: no matching checkpoint for {name}/{mapping}",
@@ -551,7 +557,7 @@ def evaluate_object(
         skipped,
     )
     evaluation_fingerprint = digest(identity)
-    reused_record = _reusable_compact_record(
+    reused_record = None if standalone_resmetamesh else _reusable_compact_record(
         root, evaluation_fingerprint, options
     )
     if reused_record is not None:
@@ -564,7 +570,7 @@ def evaluate_object(
     for method in selected:
         cache = root / ".cache" / method_path_name(method)
         method_mapping = selected_mapping(method, mapping, options)
-        network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet")
+        network = method in ("HMONet", "QG-HMONet", "MeshONet", "PI-MeshONet", "ResMetaMesh")
         published = method_directory(root, method, method_mapping, "raw" if network else None)
         if method in ("HMONet", "QG-HMONet"):
             cache /= mapping_mode_path_name(method_mapping)
@@ -581,11 +587,11 @@ def evaluate_object(
             models,
             published_directory=(
                 published
-                if keep_generation_with_mesh or options["analysis_only"]
+                if keep_generation_with_mesh or method == "ResMetaMesh" or options["analysis_only"]
                 else None
             ),
         )
-        if keep_generation_with_mesh:
+        if keep_generation_with_mesh or method == "ResMetaMesh":
             generation_sources[published] = (cache, source_signature)
         if network:
             raw_meshes[method] = points.copy()
@@ -621,8 +627,12 @@ def evaluate_object(
                     exact,
                     options,
                     raw=True,
+                    exact_boundary_geometry=geometry if method == "ResMetaMesh" else None,
                 )
-            mode = options[f"{method.lower().replace('-', '')}_boundary_projection"]
+            mode = (
+                "none" if method == "ResMetaMesh"
+                else options[f"{method.lower().replace('-', '')}_boundary_projection"]
+            )
             if mode == "none":
                 # No correction or copy is performed; report zero postprocessing
                 # time instead of timing an otherwise unnecessary array copy.
@@ -637,7 +647,7 @@ def evaluate_object(
                     time.perf_counter() - projection_started
                 )
             timing["total_model_seconds"] = (
-                timing["network_inference_seconds"]
+                timing.get("network_inference_seconds", timing.get("total_seconds"))
                 + timing["boundary_projection_seconds"]
             )
             # ``none`` is represented by the raw artifact itself.  Do not
@@ -798,76 +808,77 @@ def evaluate_object(
                 exact,
                 options,
             )
-        analysis_signature = digest(
-            {
-                "sources": signatures,
-                "quality_revision": "endpoint-contact-v2",
-                "metadata": metadata,
-                "plots": {
-                    k: options[k]
-                    for k in (
-                        "save_plots",
-                        "save_png",
-                        "save_pdf",
-                        "save_distribution_plots",
-                        "quality_plot_metrics",
-                        "exact_boundary_overlay",
-                    )
-                },
-                "quality": quality_settings(options, dimension),
-            }
-        )
-        analysis_reused = (
-            options["reuse_analysis_results"]
-            and not options["force_reanalyze"]
-            and manifest_valid(comparison, analysis_signature)
-        )
-        if not analysis_reused:
-            clear_managed_files(comparison)
-            print(f"  compare {' / '.join(meshes)}", flush=True)
-            save_comparison(
-                comparison,
-                meshes,
-                qualities,
-                shape,
-                metadata,
-                options,
-                exact_boundary_geometry=geometry,
-            )
-            save_point_errors(
-                comparison,
-                meshes,
-                raw_meshes,
-                shape,
+        if not standalone_resmetamesh:
+            analysis_signature = digest(
                 {
-                    **options,
-                    "save_plots": options["save_plots"]
-                    and bool(
-                        metadata["quality_evaluation"]["plot_metrics"]
-                        or metadata["quality_evaluation"]["surface_plot_metrics"]
-                    ),
-                },
+                    "sources": signatures,
+                    "quality_revision": "endpoint-contact-v2",
+                    "metadata": metadata,
+                    "plots": {
+                        k: options[k]
+                        for k in (
+                            "save_plots",
+                            "save_png",
+                            "save_pdf",
+                            "save_distribution_plots",
+                            "quality_plot_metrics",
+                            "exact_boundary_overlay",
+                        )
+                    },
+                    "quality": quality_settings(options, dimension),
+                }
             )
-        else:
-            print(f"  reuse comparison {comparison.name}", flush=True)
-        write_json(comparison / "boundary_error_summary.json", error_records)
-        write_csv(
-            comparison / "boundary_error_summary.csv",
-            error_records,
-            [
-                "method",
-                "stage",
-                "boundary_point_count",
-                "boundary_max_error",
-                "boundary_mean_error",
-                "boundary_rms_error",
-            ],
-        )
-        save_timing_tables(comparison, timings)
-        save_manifest(comparison, analysis_signature)
-        run_local_views(comparison, dimension, options)
-        # Root-level records describe the last invocation; each group retains
-        # its own complete metadata, so different model/projection runs coexist.
+            analysis_reused = (
+                options["reuse_analysis_results"]
+                and not options["force_reanalyze"]
+                and manifest_valid(comparison, analysis_signature)
+            )
+            if not analysis_reused:
+                clear_managed_files(comparison)
+                print(f"  compare {' / '.join(meshes)}", flush=True)
+                save_comparison(
+                    comparison,
+                    meshes,
+                    qualities,
+                    shape,
+                    metadata,
+                    options,
+                    exact_boundary_geometry=geometry,
+                )
+                save_point_errors(
+                    comparison,
+                    meshes,
+                    raw_meshes,
+                    shape,
+                    {
+                        **options,
+                        "save_plots": options["save_plots"]
+                        and bool(
+                            metadata["quality_evaluation"]["plot_metrics"]
+                            or metadata["quality_evaluation"]["surface_plot_metrics"]
+                        ),
+                    },
+                )
+            else:
+                print(f"  reuse comparison {comparison.name}", flush=True)
+            write_json(comparison / "boundary_error_summary.json", error_records)
+            write_csv(
+                comparison / "boundary_error_summary.csv",
+                error_records,
+                [
+                    "method",
+                    "stage",
+                    "boundary_point_count",
+                    "boundary_max_error",
+                    "boundary_mean_error",
+                    "boundary_rms_error",
+                ],
+            )
+            save_timing_tables(comparison, timings)
+            save_manifest(comparison, analysis_signature)
+            run_local_views(comparison, dimension, options)
+            # Root-level records describe the last invocation; each group retains
+            # its own complete metadata, so different model/projection runs coexist.
     record = {
         **metadata,
         "timings": timings,
@@ -897,13 +908,46 @@ def evaluate_object(
             if metadata["quality_evaluation"]["surface_metrics"]
             else {}
         )
+    if raw_only or (generation_sources and not options.get("compact_outputs", False)):
+        for published, (cache, signature) in generation_sources.items():
+            cached = read_json(cache / "generation_metadata.json", {})
+            mesh_file = published / "mesh.npy"
+            if cached and mesh_file.is_file() and digest({
+                "input": cached.get("signature"),
+                "mesh": array_digest(np.load(mesh_file)),
+            }) == signature:
+                write_json(
+                    published / "generation_metadata.json",
+                    {**cached, "file_sha256": file_digest(mesh_file)},
+                )
+    if standalone_resmetamesh:
+        standalone_directory = directories["ResMetaMesh"]
+        write_json(standalone_directory / "evaluation_result.json", record)
+        save_timing_tables(standalone_directory, timings)
+        if not options["generation_only"]:
+            run_local_views(standalone_directory, dimension, options)
+        if raw_only:
+            # The published mesh and its verified sidecar replace this temporary cache.
+            for published, (cache, source_signature) in generation_sources.items():
+                sidecar = read_json(published / "generation_metadata.json", {})
+                if sidecar and digest({
+                    "input": sidecar.get("signature"),
+                    "mesh": array_digest(meshes["ResMetaMesh"]),
+                }) == source_signature:
+                    for filename in ("generation.npz", "generation_metadata.json"):
+                        (cache / filename).unlink(missing_ok=True)
+                    for directory in (cache, cache.parent):
+                        if directory.is_dir() and not any(directory.iterdir()):
+                            directory.rmdir()
+            print(f"results={standalone_directory}", flush=True)
+            return record
     write_json(root / "evaluation_parameters.json", {**metadata, "evaluation": options})
     write_json(
         root / "evaluation_timing.json",
         {"evaluation_seconds": record["evaluation_seconds"], "methods": timings},
     )
     write_json(root / "results.json", record)
-    if not options.get("compact_outputs", False) and not options["generation_only"]:
+    if not standalone_resmetamesh and not options.get("compact_outputs", False) and not options["generation_only"]:
         write_json(comparison / "evaluation_result.json", record)
     write_json(root / "evaluation_summary.json", [record])
     write_json(root / "boundary_error_summary.json", error_records)
@@ -936,17 +980,6 @@ def evaluate_object(
     if options.get("compact_outputs", False) and not options["generation_only"]:
         compact_evaluation_directory(root)
     elif keep_generation_with_mesh and not options["generation_only"]:
-        for published, (cache, signature) in generation_sources.items():
-            cached = read_json(cache / "generation_metadata.json", {})
-            mesh_file = published / "mesh.npy"
-            if cached and mesh_file.is_file() and digest({
-                "input": cached.get("signature"),
-                "mesh": array_digest(np.load(mesh_file)),
-            }) == signature:
-                write_json(
-                    published / "generation_metadata.json",
-                    {**cached, "file_sha256": file_digest(mesh_file)},
-                )
         refined = directories.get("HMONet_PDE_refined")
         if refined is not None:
             write_json(
@@ -982,6 +1015,8 @@ def run_evaluation(dimension, args, config):
             options.get("output_layout", "standard"),
         )
         for mapping, options in mappings:
+            if options["methods"] == ["ResMetaMesh"]:
+                continue
             _write_evaluation_parameters_placeholder(
                 root,
                 dimension=dimension,
@@ -1090,7 +1125,11 @@ def run_evaluation(dimension, args, config):
                         models,
                     )
                 )
-                if save_generation_with_mesh(dimension, options) and not options["generation_only"]:
+                if (
+                    save_generation_with_mesh(dimension, options)
+                    and not options["generation_only"]
+                    and records[-1]["method_order"] != ["ResMetaMesh"]
+                ):
                     cache_to_clean = _evaluation_root(
                         options["output_root"], dimension, name, shape, tag,
                         options.get("output_layout", "standard"),
